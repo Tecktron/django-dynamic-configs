@@ -169,7 +169,9 @@ DYNAMIC_CONFIGS = {
 - A key that matches a built-in replaces that built-in.
 - Without `form`, the admin uses `SerializerField(serializer)`: a text input that calls `deserialize` to clean and
   `serialize` to display.
-- A `form` field is instantiated with `required=not allow_null`; its cleaned value must pass the type check.
+- A `form` field is instantiated with `required=False`, `label` and `help_text`. The admin form applies the
+  empty-value rules itself (see Admin), so they hold even when `allow_null` changes in the same save; the cleaned
+  value must pass the type check.
 
 ### Included example types: money
 
@@ -374,8 +376,9 @@ The admin ships **no templates, CSS or JavaScript** of its own; it uses stock `M
 apply. Projects can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
 
 - **`ConfigAdminMixin`** holds all the behaviour. **`ConfigAdmin`** is `ConfigAdminMixin` + `admin.ModelAdmin`, and is
-  registered automatically unless `REGISTER_ADMIN` is `False`. Skins with their own base class (unfold) unregister it
-  and register `ConfigAdminMixin` + their `ModelAdmin`.
+  registered automatically by `dynamic_configs.admin.register_admin()` unless `REGISTER_ADMIN` is `False`; calling it
+  again does nothing, so integrations can rely on it. Skins with their own base class (unfold) unregister it and
+  register `ConfigAdminMixin` + their `ModelAdmin`.
 - **List page:** name, type label, a value preview (list and set items joined with `, `, long values truncated), description
   and modified time. Search on name and description; filter by type.
 - **Add page:** name, type (a select of registered types, including list and set variants), `allow_null`, description,
@@ -478,8 +481,9 @@ src/dynamic_configs/
     forms/
         list.py         LineListField, TypedLineListField
         json.py         JSONTextField
-        fields.py       SerializerField, DurationUnitField
+        fields.py       SerializerField, DurationUnitField, formfield_for
         money.py        MoneyField, MoneyCurrencyField
+        config.py       ConfigAddForm, ConfigChangeForm, change_form_for (the admin's model forms)
     test/
         __init__.py     override_configs
         pytest_plugin.py
