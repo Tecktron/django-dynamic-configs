@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "django-dynamic-configs"
+version = "0.1.0"
+description = "Typed runtime settings for Django that admins can add and edit, read through a small cached API."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Tecktron" }]
+requires-python = ">=3.10"
+dependencies = ["Django>=5.2"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Framework :: Django :: 5.2",
+    "Framework :: Django :: 6.0",
+    "Framework :: Django :: 6.1",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+simple-history = ["django-simple-history>=3.8"]
+prettyjson = ["django-prettyjson>=0.4.1"]
+
+[project.urls]
+Homepage = "https://github.com/Tecktron/django-dynamic-configs"
+Source = "https://github.com/Tecktron/django-dynamic-configs"
+Issues = "https://github.com/Tecktron/django-dynamic-configs/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+dynamic_configs = ["py.typed"]
+
+[tool.pytest.ini_options]
+addopts = ["--ds=tests.settings", "--strict-markers"]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+branch = true
+source_pkgs = ["dynamic_configs"]
+omit = ["*/migrations/*"]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "."]
+# Markdown is excluded: ruff also formats code blocks in .md files, and the docs' examples are aligned for reading.
+extend-exclude = ["venv", ".tox", "docs/_build", "*.md"]
+
+[tool.ruff.lint]
+# E/F: pycodestyle and pyflakes; UP: pyupgrade; B: bugbear; S: bandit (security); C4: comprehensions;
+# N: pep8-naming; DJ: Django; PT: pytest style; I: isort; PTH: pathlib; D: pydocstyle (docstrings required)
+select = ["E", "F", "UP", "B", "S", "C4", "N", "DJ", "PT", "I", "PTH", "D"]
+# E501: the formatter handles line length.
+# DJ001: Config.value is deliberately a nullable TextField: NULL is empty (None), distinct from "".
+ignore = ["E501", "DJ001"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.ruff.lint.isort]
+force-wrap-aliases = true
+split-on-trailing-comma = true
+known-first-party = ["dynamic_configs", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use plain asserts, dummy secrets and pytest.raises without match; they don't need docstrings.
+"tests/**" = ["S101", "S105", "S106", "PT011", "D"]
+"src/dynamic_configs/migrations/**" = ["D"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

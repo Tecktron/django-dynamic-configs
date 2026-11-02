@@ -1,0 +1,8 @@
+# Development requirements: an editable install of this package plus the tools to test and lint it.
+# The package's runtime dependencies are declared in pyproject.toml.
+-e .
+coverage
+pytest
+pytest-django
+ruff
+tox
