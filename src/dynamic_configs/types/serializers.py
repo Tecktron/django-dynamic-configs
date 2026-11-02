@@ -7,13 +7,22 @@ errors, and never include the value itself.
 
 from __future__ import annotations
 
+import json
 import math
 import re
-from datetime import date
+from datetime import date, datetime, timedelta
+from datetime import timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
+from typing import Any
+
+from django.conf import settings
+from django.utils import timezone
 
 _INT_RE = re.compile(r"-?\d+")
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+# HH:MM with optional seconds; fractions of 3 or 6 digits (all Python 3.10 accepts); optional Z or ±HH:MM offset.
+_DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{3}(\d{3})?)?)?(Z|[+-]\d{2}:\d{2})?")
+_PLAIN_NUMBER_RE = re.compile(r"-?\d+(\.\d+)?")
 _TRUE_WORDS = frozenset({"true", "1", "yes", "on"})
 _FALSE_WORDS = frozenset({"false", "0", "no", "off"})
 
@@ -142,3 +151,156 @@ class DateSerializer:
             return date.fromisoformat(stripped)
         except ValueError:
             raise ValueError("Enter a real date, such as 2026-11-02.") from None
+
+
+def normalize_datetime(value: datetime) -> datetime:
+    """Apply Django's time zone settings to ``value``.
+
+    With ``USE_TZ`` on, a naive datetime is read in ``TIME_ZONE`` (ambiguous or missing local times around a daylight
+    saving change follow ``zoneinfo``'s ``fold=0`` rule) and the result is converted to UTC. With ``USE_TZ`` off, an
+    aware datetime is converted to ``TIME_ZONE`` and made naive, Django's own convention for that mode.
+
+    :param value: a naive or aware datetime
+    :returns: an aware UTC datetime (``USE_TZ`` on) or a naive datetime in ``TIME_ZONE`` (``USE_TZ`` off)
+    :rtype: datetime
+    """
+    site_zone = timezone.get_default_timezone()
+    if settings.USE_TZ:
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, site_zone)
+        return value.astimezone(dt_timezone.utc)
+    if timezone.is_aware(value):
+        value = timezone.make_naive(value, site_zone)
+    return value
+
+
+class DateTimeSerializer:
+    """A date and time, stored as ISO 8601 after ``normalize_datetime`` (in UTC when ``USE_TZ`` is on)."""
+
+    def serialize(self, value: datetime) -> str:
+        """Return ``value`` normalized and in ISO 8601."""
+        return normalize_datetime(value).isoformat()
+
+    def deserialize(self, text: str) -> datetime:
+        """Return the datetime written in ``text``, normalized; a missing offset means the site's time zone."""
+        stripped = text.strip()
+        if not _DATETIME_RE.fullmatch(stripped):
+            raise ValueError("Enter a date and time as YYYY-MM-DD HH:MM, optionally with seconds and a UTC offset.")
+        if stripped.endswith("Z"):
+            # Python 3.10's fromisoformat doesn't accept "Z".
+            stripped = stripped[:-1] + "+00:00"
+        try:
+            value = datetime.fromisoformat(stripped)
+        except ValueError:
+            raise ValueError("Enter a real date and time.") from None
+        return normalize_datetime(value)
+
+
+class DurationSerializer:
+    """Base for per-unit durations, stored as a plain number of ``unit`` (a ``timedelta`` keyword)."""
+
+    unit: str
+
+    def serialize(self, value: timedelta) -> str:
+        """Return ``value`` as a number of this serializer's unit."""
+        return format_number(value / timedelta(**{self.unit: 1}))
+
+    def deserialize(self, text: str) -> timedelta:
+        """Return a timedelta of the number of units written in ``text``."""
+        stripped = text.strip()
+        if not _PLAIN_NUMBER_RE.fullmatch(stripped):
+            raise ValueError(f"Enter a number of {self.unit}, such as 1.5.")
+        try:
+            return timedelta(**{self.unit: float(stripped)})
+        except OverflowError:
+            raise ValueError(f"That many {self.unit} is too large.") from None
+
+
+class SecondsSerializer(DurationSerializer):
+    """A duration stored as a number of seconds."""
+
+    unit = "seconds"
+
+
+class MinutesSerializer(DurationSerializer):
+    """A duration stored as a number of minutes."""
+
+    unit = "minutes"
+
+
+class HoursSerializer(DurationSerializer):
+    """A duration stored as a number of hours."""
+
+    unit = "hours"
+
+
+class DaysSerializer(DurationSerializer):
+    """A duration stored as a number of days."""
+
+    unit = "days"
+
+
+class WeeksSerializer(DurationSerializer):
+    """A duration stored as a number of weeks."""
+
+    unit = "weeks"
+
+
+def _reject_json_constant(name: str) -> Any:
+    """Refuse NaN and Infinity, which ``json.loads`` would otherwise accept."""
+    raise ValueError(f"JSON can't contain {name}.")
+
+
+class JSONSerializer:
+    """A JSON object or array."""
+
+    def serialize(self, value: dict[str, Any] | list[Any]) -> str:
+        """Return ``value`` as JSON text."""
+        try:
+            return json.dumps(value, ensure_ascii=False, allow_nan=False)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"The value can't be stored as JSON: {error}") from error
+
+    def deserialize(self, text: str) -> dict[str, Any] | list[Any]:
+        """Return the object or array written in ``text``."""
+        try:
+            value = json.loads(text, parse_constant=_reject_json_constant)
+        except ValueError:
+            raise ValueError("Enter valid JSON.") from None
+        if not isinstance(value, (dict, list)):
+            raise ValueError("Enter a JSON object or array.")
+        return value
+
+
+class ListSerializer:
+    """A list, stored as a JSON array of each item's text (from the item type's serializer)."""
+
+    def __init__(self, item_serializer: Any) -> None:
+        """Use ``item_serializer`` for each item."""
+        self.item_serializer = item_serializer
+
+    def serialize(self, value: list[Any]) -> str:
+        """Return the items, in order, as a JSON array of their text."""
+        return json.dumps([self.item_serializer.serialize(item) for item in value], ensure_ascii=False)
+
+    def deserialize(self, text: str) -> list[Any]:
+        """Return the items stored in ``text``, in order."""
+        try:
+            raw = json.loads(text)
+        except ValueError:
+            raise ValueError("A list must be stored as a JSON array.") from None
+        if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+            raise ValueError("A list must be stored as a JSON array of strings.")
+        return [self.item_serializer.deserialize(item) for item in raw]
+
+
+class SetSerializer(ListSerializer):
+    """A set, stored like a list (in the order entered) and read back as a ``frozenset``."""
+
+    def deserialize(self, text: str) -> frozenset[Any]:  # type: ignore[override]
+        """Return the items stored in ``text`` as a frozenset, rejecting duplicates."""
+        items = super().deserialize(text)
+        result = frozenset(items)
+        if len(result) != len(items):
+            raise ValueError("A set can't contain the same item twice.")
+        return result
