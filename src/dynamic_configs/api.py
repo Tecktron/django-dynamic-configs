@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from asgiref.sync import sync_to_async
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
 
@@ -224,3 +225,25 @@ def _to_text(name: str, config_type: ConfigType, value: Any, *, allow_null: bool
             raise ConfigTypeError(f"Config {name!r} doesn't allow None; pass allow_null=True to allow it.")
         return None
     return config_type.to_text(value)
+
+
+async def aget(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any:
+    """Run :func:`get` without blocking the event loop; same parameters, return value and errors."""
+    return await sync_to_async(get)(name, default, no_cache=no_cache)
+
+
+async def aget_or_create(
+    name: str, type: str, value: Any, *, description: str = "", allow_null: bool = False
+) -> tuple[Any, bool]:
+    """Run :func:`get_or_create` without blocking the event loop; same parameters, return value and errors."""
+    return await sync_to_async(get_or_create)(name, type, value, description=description, allow_null=allow_null)
+
+
+async def aupdate(name: str, new_value: Any, *, allow_null: bool | None = None) -> None:
+    """Run :func:`update` without blocking the event loop; same parameters and errors."""
+    await sync_to_async(update)(name, new_value, allow_null=allow_null)
+
+
+async def adelete(name: str) -> bool:
+    """Run :func:`delete` without blocking the event loop; same parameter and return value."""
+    return await sync_to_async(delete)(name)
