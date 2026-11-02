@@ -12,6 +12,9 @@ __version__ = metadata.version("django-dynamic-configs")
 
 _LAZY = {
     "get": "dynamic_configs.api",
+    "get_or_create": "dynamic_configs.api",
+    "update": "dynamic_configs.api",
+    "delete": "dynamic_configs.api",
     "ConfigError": "dynamic_configs.exceptions",
     "ConfigTypeError": "dynamic_configs.exceptions",
     "ConfigValueError": "dynamic_configs.exceptions",

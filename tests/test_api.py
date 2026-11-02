@@ -1,4 +1,6 @@
 import logging
+from datetime import datetime
+from datetime import timezone as dt_timezone
 from unittest import mock
 
 import pytest
@@ -6,7 +8,7 @@ from django.db import DatabaseError
 
 import dynamic_configs
 from dynamic_configs import _overrides, cache
-from dynamic_configs.exceptions import ConfigValueError
+from dynamic_configs.exceptions import ConfigTypeError, ConfigValueError
 from dynamic_configs.models import Config, ConfigDoesNotExist
 
 pytestmark = pytest.mark.django_db
@@ -154,3 +156,165 @@ def test_a_logging_handler_that_reads_configs_does_not_recurse(settings):
         "Cache read failed for config 'SITE_NAME'; reading from the database",
         "Cache write failed for config 'SITE_NAME'; any old entry expires after the cache timeout",
     ]
+
+
+def test_get_or_create_creates_a_missing_setting(caplog):
+    caplog.set_level(logging.INFO, logger="dynamic_configs")
+    value, created = dynamic_configs.get_or_create("MAX_RETRIES", "int", 3, description="Retries per request.")
+    assert (value, created) == (3, True)
+    row = Config.objects.get(name="MAX_RETRIES")
+    assert (row.type, row.value, row.allow_null, row.description) == ("int", "3", False, "Retries per request.")
+    assert "Created config 'MAX_RETRIES' (type 'int')" in caplog.text
+
+
+def test_get_or_create_returns_an_existing_value_and_refreshes_the_cache():
+    make("MAX_RETRIES", "int", "5")
+    assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 3) == (5, False)
+    assert cache.read("MAX_RETRIES") == ("int", "5")
+
+
+def test_get_or_create_refuses_an_existing_setting_of_another_type():
+    make("MAX_RETRIES", "int", "5")
+    with pytest.raises(ConfigTypeError, match="already exists with type 'int', not 'str'"):
+        dynamic_configs.get_or_create("MAX_RETRIES", "str", "5")
+
+
+def test_get_or_create_returns_the_value_as_get_will():
+    value, _ = dynamic_configs.get_or_create("STARTS_AT", "datetime", datetime(2026, 11, 2, 17, 0))
+    assert value == datetime(2026, 11, 2, 22, 0, tzinfo=dt_timezone.utc)
+    assert value.tzinfo is dt_timezone.utc
+
+
+@pytest.mark.parametrize(("name", "message"), [("max_retries", "UPPER_SNAKE_CASE"), (5, "must be strings")])
+def test_get_or_create_validates_the_name(name, message):
+    with pytest.raises(ConfigValueError, match=message):
+        dynamic_configs.get_or_create(name, "int", 3)
+
+
+def test_get_or_create_needs_a_registered_type():
+    with pytest.raises(ConfigTypeError, match="'nope' isn't a registered config type"):
+        dynamic_configs.get_or_create("MAX_RETRIES", "nope", 3)
+
+
+def test_get_or_create_checks_the_value_type():
+    with pytest.raises(ConfigTypeError, match="expects int, not str"):
+        dynamic_configs.get_or_create("MAX_RETRIES", "int", "3")
+
+
+def test_get_or_create_reports_serializer_rejections():
+    with pytest.raises(ConfigValueError, match="single line"):
+        dynamic_configs.get_or_create("SITE_NAME", "str", "two\nlines")
+
+
+def test_get_or_create_needs_allow_null_for_none():
+    with pytest.raises(ConfigTypeError, match="pass allow_null=True"):
+        dynamic_configs.get_or_create("SITE_NAME", "str", None)
+
+
+def test_get_or_create_can_create_an_empty_setting():
+    assert dynamic_configs.get_or_create("SITE_NAME", "str", None, allow_null=True) == (None, True)
+    row = Config.objects.get(name="SITE_NAME")
+    assert row.value is None
+    assert row.allow_null
+
+
+def test_get_or_create_handles_a_concurrent_create():
+    # Another process creates the row between our lookup and our insert.
+    make("MAX_RETRIES", "int", "5")
+    with mock.patch.object(Config.objects, "get", side_effect=Config.DoesNotExist):
+        assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 3) == (5, False)
+
+
+def test_get_or_create_returns_an_override_without_the_database(django_assert_num_queries):
+    token = _overrides.push({"MAX_RETRIES": 9})
+    try:
+        with django_assert_num_queries(0):
+            assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 3) == (9, False)
+    finally:
+        _overrides.pop(token)
+
+
+def test_update_changes_the_value(caplog):
+    caplog.set_level(logging.INFO, logger="dynamic_configs")
+    make("MAX_RETRIES", "int", "3")
+    dynamic_configs.update("MAX_RETRIES", 5)
+    assert dynamic_configs.get("MAX_RETRIES", no_cache=True) == 5
+    assert "Updated config 'MAX_RETRIES'" in caplog.text
+
+
+def test_update_refreshes_the_cache_on_commit(django_capture_on_commit_callbacks):
+    make()
+    dynamic_configs.get("SITE_NAME")
+    with django_capture_on_commit_callbacks(execute=True):
+        dynamic_configs.update("SITE_NAME", "Renamed")
+    assert cache.read("SITE_NAME") == ("str", "Renamed")
+
+
+def test_update_raises_for_a_missing_setting():
+    with pytest.raises(ConfigDoesNotExist):
+        dynamic_configs.update("MISSING", 1)
+
+
+def test_update_refuses_an_unregistered_type():
+    make("THEME", "gone", "dark")
+    with pytest.raises(ConfigValueError, match="isn't registered"):
+        dynamic_configs.update("THEME", "light")
+
+
+def test_update_checks_the_value_type():
+    make("MAX_RETRIES", "int", "3")
+    with pytest.raises(ConfigTypeError):
+        dynamic_configs.update("MAX_RETRIES", "5")
+
+
+def test_update_to_none_needs_allow_null():
+    make()
+    with pytest.raises(ConfigTypeError, match="allow_null"):
+        dynamic_configs.update("SITE_NAME", None)
+
+
+def test_update_to_none_when_allowed():
+    make(allow_null=True)
+    dynamic_configs.update("SITE_NAME", None)
+    assert Config.objects.get(name="SITE_NAME").value is None
+
+
+def test_update_can_turn_allow_null_on_with_the_value():
+    make()
+    dynamic_configs.update("SITE_NAME", None, allow_null=True)
+    row = Config.objects.get(name="SITE_NAME")
+    assert (row.value, row.allow_null) == (None, True)
+
+
+def test_update_can_turn_allow_null_off():
+    make(value=None, allow_null=True)
+    dynamic_configs.update("SITE_NAME", "Example", allow_null=False)
+    row = Config.objects.get(name="SITE_NAME")
+    assert (row.value, row.allow_null) == ("Example", False)
+
+
+def test_update_refuses_none_when_turning_allow_null_off():
+    make(allow_null=True)
+    with pytest.raises(ConfigTypeError):
+        dynamic_configs.update("SITE_NAME", None, allow_null=False)
+
+
+def test_delete_returns_true_and_logs(caplog):
+    caplog.set_level(logging.INFO, logger="dynamic_configs")
+    make()
+    assert dynamic_configs.delete("SITE_NAME") is True
+    assert not Config.objects.filter(name="SITE_NAME").exists()
+    assert "Deleted config 'SITE_NAME'" in caplog.text
+
+
+def test_delete_returns_false_for_a_missing_setting():
+    assert dynamic_configs.delete("MISSING") is False
+
+
+def test_a_deleted_setting_reads_as_missing_after_commit(django_capture_on_commit_callbacks):
+    make()
+    dynamic_configs.get("SITE_NAME")
+    with django_capture_on_commit_callbacks(execute=True):
+        dynamic_configs.delete("SITE_NAME")
+    assert dynamic_configs.get("SITE_NAME", default=None) is None
+    assert cache.read("SITE_NAME") is cache.ABSENT
