@@ -11,11 +11,13 @@ Cache failures are logged and never raised: callers fall back to the database.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Final
 
 from django.core.cache import InvalidCacheBackendError, caches
 from django.core.cache.backends.base import BaseCache
 from django.core.cache.backends.dummy import DummyCache
+from django.db import transaction
 
 from dynamic_configs.conf import get_settings
 from dynamic_configs.log import log
@@ -89,14 +91,25 @@ def read(name: str) -> Entry | _Sentinel:
     return NOT_CACHED
 
 
-def write(name: str, entry: Entry | _Sentinel) -> None:
-    """Cache ``entry`` (a ``(type_key, text)`` tuple, or ``ABSENT``) for ``name``."""
+def write(name: str, entry: Entry | _Sentinel, *, overwrite: bool = True) -> None:
+    """Cache ``entry`` (a ``(type_key, text)`` tuple, or ``ABSENT``) for ``name``.
+
+    :param name: the setting's name
+    :param entry: what to cache
+    :param overwrite: replace an existing entry (``set``); when False, only fill an empty slot (``add``), so a slow
+        reader can't replace the newer entry a writer cached after committing
+    """
     backend = get_cache()
     if backend is None:
         return
     value = _ABSENT_MARKER if entry is ABSENT else entry
+    timeout = get_settings()["TIMEOUT"]
     try:
-        backend.set(cache_key(name), value, timeout=get_settings()["TIMEOUT"])
+        if overwrite:
+            backend.set(cache_key(name), value, timeout=timeout)
+            stored = True
+        else:
+            stored = backend.add(cache_key(name), value, timeout=timeout)
     except Exception:
         log(
             logger,
@@ -107,7 +120,19 @@ def write(name: str, entry: Entry | _Sentinel) -> None:
             exc_info=True,
         )
         return
-    log(logger, logging.DEBUG, "Cached config %r", name, config_name=name)
+    if stored:
+        log(logger, logging.DEBUG, "Cached config %r", name, config_name=name)
+    else:
+        log(logger, logging.DEBUG, "Config %r was already cached; kept that entry", name, config_name=name)
+
+
+def write_on_commit(name: str, entry: Entry | _Sentinel, *, using: str, overwrite: bool) -> None:
+    """Cache ``entry`` once the current transaction on ``using`` commits (at once outside a transaction).
+
+    A value read inside a transaction may never be committed; caching it straight away would leave a rolled-back
+    value in the cache for every process until it expired.
+    """
+    transaction.on_commit(partial(write, name, entry, overwrite=overwrite), using=using)
 
 
 def delete(name: str) -> None:

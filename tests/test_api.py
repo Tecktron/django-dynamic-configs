@@ -4,7 +4,7 @@ from datetime import timezone as dt_timezone
 from unittest import mock
 
 import pytest
-from django.db import DatabaseError
+from django.db import DatabaseError, transaction
 
 import dynamic_configs
 from dynamic_configs import _overrides, cache
@@ -23,9 +23,10 @@ def test_get_returns_the_typed_value():
     assert dynamic_configs.get("MAX_RETRIES") == 3
 
 
-def test_get_caches_what_it_reads():
+def test_get_caches_what_it_reads_once_committed(django_capture_on_commit_callbacks):
     make()
-    dynamic_configs.get("SITE_NAME")
+    with django_capture_on_commit_callbacks(execute=True):
+        dynamic_configs.get("SITE_NAME")
     assert cache.read("SITE_NAME") == ("str", "Example")
 
 
@@ -35,10 +36,11 @@ def test_get_uses_the_cache_without_querying(django_assert_num_queries):
         assert dynamic_configs.get("SITE_NAME") == "Cached"
 
 
-def test_no_cache_reads_the_database_and_refreshes_the_cache():
+def test_no_cache_reads_the_database_and_refreshes_the_cache(django_capture_on_commit_callbacks):
     make(value="Fresh")
     cache.write("SITE_NAME", ("str", "Stale"))
-    assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Fresh"
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Fresh"
     assert cache.read("SITE_NAME") == ("str", "Fresh")
 
 
@@ -51,8 +53,9 @@ def test_a_missing_setting_returns_the_default():
     assert dynamic_configs.get("MISSING", default=5) == 5
 
 
-def test_a_missing_setting_is_cached_as_absent(django_assert_num_queries):
-    dynamic_configs.get("MISSING", default=None)
+def test_a_missing_setting_is_cached_as_absent(django_assert_num_queries, django_capture_on_commit_callbacks):
+    with django_capture_on_commit_callbacks(execute=True):
+        dynamic_configs.get("MISSING", default=None)
     with django_assert_num_queries(0):
         assert dynamic_configs.get("MISSING", default=7) == 7
 
@@ -132,7 +135,9 @@ def test_overrides_win_without_touching_cache_or_database(django_assert_num_quer
         _overrides.pop(token)
 
 
+@pytest.mark.django_db(transaction=True)
 def test_a_logging_handler_that_reads_configs_does_not_recurse(settings):
+    # transaction=True: autocommit, so cache fills happen at once, as in a view outside ATOMIC_REQUESTS.
     # Review focus: only the outer get logs; the handler's own get is silenced by the re-entrancy guard.
     settings.DYNAMIC_CONFIGS = {"CACHE": "failing"}
 
@@ -167,9 +172,11 @@ def test_get_or_create_creates_a_missing_setting(caplog):
     assert "Created config 'MAX_RETRIES' (type 'int')" in caplog.text
 
 
-def test_get_or_create_returns_an_existing_value_and_refreshes_the_cache():
+def test_get_or_create_returns_an_existing_value_and_refreshes_the_cache(django_capture_on_commit_callbacks):
     make("MAX_RETRIES", "int", "5")
-    assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 3) == (5, False)
+    cache.write("MAX_RETRIES", ("int", "4"))
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 3) == (5, False)
     assert cache.read("MAX_RETRIES") == ("int", "5")
 
 
@@ -333,3 +340,19 @@ def test_a_broken_custom_type_does_not_stop_other_configs_being_read(settings):
     }
     make("MAX_RETRIES", "int", "3")
     assert dynamic_configs.get("MAX_RETRIES") == 3
+
+
+def test_a_read_inside_a_rolled_back_transaction_never_reaches_the_cache(django_capture_on_commit_callbacks):
+    # Review finding: get() cached the uncommitted value at once, so every process kept reading it after the rollback.
+    make("MAX_RETRIES", "int", "1")
+    with django_capture_on_commit_callbacks(execute=True):
+        try:
+            with transaction.atomic():
+                dynamic_configs.update("MAX_RETRIES", 2)
+                assert dynamic_configs.get("MAX_RETRIES") == 2
+                assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 5) == (2, False)
+                raise RuntimeError("roll back")
+        except RuntimeError:
+            pass
+    assert cache.read("MAX_RETRIES") is cache.NOT_CACHED
+    assert dynamic_configs.get("MAX_RETRIES", no_cache=True) == 1

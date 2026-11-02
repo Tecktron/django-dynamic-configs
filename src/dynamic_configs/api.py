@@ -7,7 +7,7 @@ from typing import Any
 
 from asgiref.sync import sync_to_async
 from django.core.exceptions import ValidationError
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, router, transaction
 
 from dynamic_configs import _overrides, cache
 from dynamic_configs.cache import Entry
@@ -62,7 +62,9 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
                     exc_info=True,
                 )
                 return default
-            cache.write(name, entry)
+            # Cached only once the read's transaction commits; a plain read only fills an empty slot, while
+            # no_cache=True refreshes whatever is there.
+            cache.write_on_commit(name, entry, using=router.db_for_read(Config), overwrite=no_cache)
     if entry is cache.ABSENT:
         if not has_default:
             raise ConfigDoesNotExist(f"Config {name!r} does not exist.")
@@ -144,7 +146,7 @@ def get_or_create(
     if not created:
         if config.type != type:
             raise ConfigTypeError(f"Config {name!r} already exists with type {config.type!r}, not {type!r}.")
-        cache.write(name, (config.type, config.value))
+        cache.write_on_commit(name, (config.type, config.value), using=config._state.db, overwrite=True)
     return _decode(name, config.type, config.value), created
 
 

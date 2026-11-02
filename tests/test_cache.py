@@ -91,3 +91,10 @@ def test_hits_and_misses_are_logged_at_debug(caplog):
 def test_markers_name_themselves_in_repr():
     assert repr(cache.ABSENT) == "ABSENT"
     assert repr(cache.NOT_CACHED) == "NOT_CACHED"
+
+
+def test_a_fill_never_replaces_an_existing_entry():
+    # Review finding: a slow reader's fill could overwrite the newer entry a writer cached after committing.
+    cache.write("SITE_NAME", ("str", "New"))
+    cache.write("SITE_NAME", ("str", "Old"), overwrite=False)
+    assert cache.read("SITE_NAME") == ("str", "New")
