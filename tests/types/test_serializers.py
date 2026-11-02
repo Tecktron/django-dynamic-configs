@@ -255,3 +255,21 @@ def test_sets_reject_duplicates_after_parsing():
     # "1" and "01" are different text but the same integer.
     with pytest.raises(ValueError, match="same item twice"):
         SetSerializer(IntSerializer()).deserialize('["1", "01"]')
+
+
+@pytest.mark.parametrize(
+    ("number", "text"), [(5e-05, "0.00005"), (1e16, "10000000000000000"), (-2.5e-07, "-0.00000025")]
+)
+def test_format_number_never_uses_exponent_notation(number, text):
+    assert format_number(number) == text
+
+
+@pytest.mark.parametrize(
+    "serializer", [SecondsSerializer(), MinutesSerializer(), HoursSerializer(), DaysSerializer(), WeeksSerializer()]
+)
+@pytest.mark.parametrize(
+    "value", [timedelta(microseconds=50), timedelta(seconds=1), timedelta(days=-3, microseconds=1)]
+)
+def test_durations_read_back_whatever_they_write(serializer, value):
+    # Review finding: tiny values were written as "5e-05", which the plain-number parser then rejected.
+    assert serializer.deserialize(serializer.serialize(value)) == value

@@ -28,8 +28,12 @@ _FALSE_WORDS = frozenset({"false", "0", "no", "off"})
 
 
 def format_number(number: float) -> str:
-    """Return ``number`` as text, without a trailing ``.0`` for whole numbers."""
-    return str(int(number)) if number.is_integer() else repr(number)
+    """Return ``number`` as plain decimal text: no exponent notation, and no trailing ``.0`` for whole numbers."""
+    if number.is_integer():
+        return str(int(number))
+    # repr() gives the shortest text that round-trips, but switches to exponent notation for very small or large
+    # numbers ("5e-05"), which the plain-number parsers reject; Decimal re-formats it exactly in plain notation.
+    return format(Decimal(repr(number)), "f")
 
 
 def _require_finite(number: float | Decimal) -> None:
