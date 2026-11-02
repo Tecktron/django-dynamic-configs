@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -37,7 +38,8 @@ class ConfigType:
     serializer: Serializer
     help_text: str = ""
     listable: bool = True
-    form_class: type | None = None
+    # A form field class, or a callable that returns a field (a functools.partial setting a widget, say).
+    form_class: Callable[..., Any] | None = None
     item_type: ConfigType | None = None
     container: Literal["list", "set"] | None = None
 
