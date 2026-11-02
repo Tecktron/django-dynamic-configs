@@ -163,3 +163,27 @@ def test_changing_other_settings_keeps_the_registry(settings):
     first = get_registry()
     settings.USE_TZ = True
     assert get_registry() is first
+
+
+def test_a_broken_custom_type_is_skipped_at_runtime_with_an_error(settings, caplog):
+    # Review finding: one bad TYPES entry made every get() raise; system checks don't run under gunicorn/uwsgi.
+    settings.DYNAMIC_CONFIGS = {"TYPES": {"broken": {**PLAIN, "type": "tests.custom_types.Missing"}, "color": COLOR}}
+    registry = get_registry()
+    assert "broken" not in registry
+    assert "color" in registry
+    assert "int" in registry
+    [error] = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert "can't import" in error.getMessage()
+    assert "dynamic_configs.E002" in error.getMessage()
+
+
+def test_a_types_setting_that_is_not_a_dict_is_ignored_at_runtime(settings, caplog):
+    settings.DYNAMIC_CONFIGS = {"TYPES": ["color"]}
+    assert "int" in get_registry()
+    assert "must be a dict" in caplog.text
+
+
+def test_a_strict_build_still_raises_for_a_broken_custom_type():
+    with pytest.raises(TypeConfigError, match="can't import") as error:
+        build_registry({"broken": {**PLAIN, "type": "tests.custom_types.Missing"}})
+    assert error.value.check_id == "dynamic_configs.E002"

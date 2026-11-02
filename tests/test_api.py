@@ -325,3 +325,11 @@ def test_a_value_too_deeply_nested_to_read_returns_the_default(caplog):
     make("DEEP", "json", "[" * 100_000 + "]" * 100_000)
     assert dynamic_configs.get("DEEP", default=[]) == []
     assert caplog.records[0].levelno == logging.ERROR
+
+
+def test_a_broken_custom_type_does_not_stop_other_configs_being_read(settings):
+    settings.DYNAMIC_CONFIGS = {
+        "TYPES": {"broken": {"type": "tests.custom_types.Missing", "serializer": "tests.custom_types.ColorSerializer"}}
+    }
+    make("MAX_RETRIES", "int", "3")
+    assert dynamic_configs.get("MAX_RETRIES") == 3

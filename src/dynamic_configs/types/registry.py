@@ -175,18 +175,29 @@ class Registry:
         return iter(sorted(self._types.values(), key=lambda config_type: config_type.label.lower()))
 
 
-def build_registry(types_setting: Any) -> Registry:
+def build_registry(types_setting: Any, *, strict: bool = True) -> Registry:
     """Return a registry of the built-ins, the custom types in ``types_setting``, and their variants.
 
     :param types_setting: the value of ``DYNAMIC_CONFIGS["TYPES"]``
+    :param strict: raise on an invalid setting or entry; when False, log each problem at ERROR and skip it, so the
+        built-ins and every valid custom type keep working (configs of a skipped type read as unregistered)
     :rtype: Registry
-    :raises TypeConfigError: the setting or one of its entries is invalid
+    :raises TypeConfigError: the setting or one of its entries is invalid (only when ``strict``)
     """
-    if not isinstance(types_setting, Mapping):
-        raise TypeConfigError("DYNAMIC_CONFIGS['TYPES'] must be a dict.", "dynamic_configs.E001")
     base = {config_type.key: config_type for config_type in BUILTIN_TYPES}
+    if not isinstance(types_setting, Mapping):
+        error = TypeConfigError("DYNAMIC_CONFIGS['TYPES'] must be a dict.", "dynamic_configs.E001")
+        if strict:
+            raise error
+        _log_skipped(error)
+        types_setting = {}
     for key, entry in types_setting.items():
-        base[key] = load_custom_type(key, entry)
+        try:
+            base[key] = load_custom_type(key, entry)
+        except TypeConfigError as error:
+            if strict:
+                raise
+            _log_skipped(error)
     types = list(base.values())
     for config_type in base.values():
         if config_type.listable:
@@ -194,6 +205,17 @@ def build_registry(types_setting: Any) -> Registry:
             if config_type.hashable:
                 types.append(set_variant(config_type))
     return Registry(types)
+
+
+def _log_skipped(error: TypeConfigError) -> None:
+    """Log a custom-type problem that the non-strict build skipped."""
+    log(
+        logger,
+        logging.ERROR,
+        "Skipping invalid config type setting: %s [%s]; run manage.py check for details",
+        error,
+        error.check_id,
+    )
 
 
 _registry: Registry | None = None
@@ -204,7 +226,9 @@ def get_registry() -> Registry:
     # A lazily built module-level singleton, reset when DYNAMIC_CONFIGS changes.
     global _registry
     if _registry is None:
-        _registry = build_registry(get_settings()["TYPES"])
+        # Not strict: a broken TYPES entry must not stop every config being read (system checks don't run under
+        # gunicorn or uwsgi). The problem is logged and only configs of the broken type are affected.
+        _registry = build_registry(get_settings()["TYPES"], strict=False)
         log(logger, logging.DEBUG, "Built the config type registry (%d types)", len(list(_registry)))
     return _registry
 
