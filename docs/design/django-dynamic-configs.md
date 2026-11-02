@@ -5,10 +5,7 @@ Status: draft for review, 2026-11-02.
 ## Purpose
 
 A reusable, public Django app for runtime configuration: typed values that can be **added** and edited in the Django
-admin, and read from code through a small, cached API. It replaces hand-rolled per-project settings models, and
-avoids the problems found in existing packages (django-extra-settings runs an admin-editable dotted path as code;
-django-content-settings is unmaintained and bundles eval/exec types; constance and dynamic-preferences can't add
-settings in the admin).
+admin, and read from code through a small, cached API. It replaces hand-rolled per-project settings models.
 
 ### Goals
 
