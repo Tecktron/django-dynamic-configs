@@ -73,9 +73,10 @@ Constraints such as "a positive number of hours" are expressed as a custom type 
 Every value passed to `get_or_create` or `update`, and every value produced by a form, is checked with `isinstance`
 against the type's Python type, with these exceptions:
 
-- `bool` is rejected for `int`, `float` and `decimal` (in Python, `bool` is a subclass of `int`).
+- `bool` is rejected where the Python type is `int`, `float` or `Decimal` (in Python, `bool` is a subclass of `int`).
 - `datetime` is rejected for `date` (in Python, `datetime` is a subclass of `date`).
-- An `int` is accepted for `float` and `decimal`, and converted.
+- An `int` is accepted where the Python type is `float` or `Decimal`, and converted. These rules go by Python type,
+  so they apply to custom types too (an `int` given to the `money` type becomes a `Decimal`).
 - A naive `datetime` is accepted and interpreted in Django's `TIME_ZONE` (see Datetimes and time zones).
 - For list types: the value must be a `list` or `tuple` (returned as a `list`), and each item is checked against the
   item type.
@@ -262,6 +263,8 @@ aget(...), aget_or_create(...), aupdate(...), adelete(...)  # async, same argume
 - **`get`** returns the deserialized value, or `None` for an empty `allow_null` setting. When the setting doesn't
   exist and no default was passed, it raises `ConfigDoesNotExist`. `no_cache=True` skips the cache read, then
   refreshes the cache entry with what it read.
+- Names that don't match the name pattern can never be saved, so `get` treats them as missing without touching the
+  cache or the database.
 - **`get_or_create`** always reads the database, then refreshes the cache. When the setting exists, it returns the
   stored value and `created=False`; if the stored type differs from `type`, it raises `ConfigTypeError`. When it
   doesn't exist, it validates the name, the type key and the value, creates the setting, and returns
@@ -304,7 +307,8 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
 - If the cache is down while a setting is saved or deleted, the failure is logged as a warning and the save still
   succeeds; the old entry, if one is left, expires after `TIMEOUT`.
 - Admin saves, `update`, `delete` and `get_or_create` all go through the model's `save`/`delete`, so they all trigger
-  this. `QuerySet.update()` and `QuerySet.delete()` bypass signals; the README documents this.
+  this. `QuerySet.update()`, `bulk_create()` and `bulk_update()` bypass signals; the README documents this.
+  (`QuerySet.delete()` does send `post_delete` for each row, because a receiver is connected.)
 - **Per-process caches:** with Django's default `LocMemCache`, an edit only refreshes the cache of the process that
   handled it; other processes see the old value until it expires. The README recommends a shared cache (Redis,
   Memcached) or a short `TIMEOUT`.
@@ -439,7 +443,7 @@ Hosted on Read the Docs, built with **Sphinx**:
 - Pages: Overview, Installation, Quick start, Reading and writing settings (the API), Types (built-in, list and set,
   custom, constraints as custom types), Worked example: the money types (writing a type, then extending it), Caching, Failure handling and logging, Admin and skins, simple-history, prettyjson,
   Testing, API reference, Changelog, and Development (contributing, running tox, this design document).
-- `.readthedocs.yaml` pins the build (Python version, `docs` dependency group, `fail_on_warning: true`).
+- `.readthedocs.yaml` pins the build (Python version, the package plus `docs/requirements.txt`, `fail_on_warning: true`).
 - `tox -e docs` builds it locally with warnings as errors (`sphinx-build -W`), and CI runs it, so broken references
   or docstrings fail the build.
 - Versioned docs: Read the Docs builds `latest` from `main` and a version per release tag.
@@ -462,11 +466,14 @@ src/dynamic_configs/
     conf.py             DYNAMIC_CONFIGS with defaults
     checks.py           system checks
     exceptions.py
+    log.py              logging helper with the re-entrancy guard
+    _overrides.py       overrides for the current context (read by the API, set by the test helpers)
     models.py           Config, ConfigDoesNotExist
     signals.py          post_save / post_delete cache handling
     admin.py            ConfigAdminMixin, ConfigAdmin
     apps.py
     types/
+        base.py         ConfigType: a type's definition, type check and text conversion
         registry.py     registry build, lookup, list and set variants
         builtin.py      built-in type definitions
         serializers.py  built-in serializers
@@ -496,8 +503,10 @@ tests/
   Python.
 - Extras: `simple-history` (`django-simple-history>=3.8`, the first release supporting Django 5.2; 3.11 added
   Django 6.0, and pip resolves the newest release anyway) and `prettyjson` (`django-prettyjson>=0.4.1`).
-- Development dependencies as PEP 735 dependency groups (not published): `test` (pytest, pytest-django, pytest-cov),
-  `lint` (ruff) and `docs` (sphinx, myst-parser, furo, sphinx-autodoc-typehints).
+- Development dependencies in `requirements.txt`: an editable install of the package plus coverage, pytest,
+  pytest-django, ruff and tox, installed into a `venv/` in the repository (ignored by git). The documentation tools
+  (sphinx, myst-parser, furo, sphinx-autodoc-typehints) go in `docs/requirements.txt`, which `requirements.txt`
+  includes and Read the Docs installs.
 - `pytest11` entry point: `dynamic_configs = "dynamic_configs.test.pytest_plugin"`.
 - Type hints throughout, with `py.typed`.
 - Ruff: 120 columns, double quotes, `target-version = "py310"`; rules `E, F, UP, B, S, C4, N, DJ, PT, I, PTH, D`
@@ -532,6 +541,8 @@ Plus:
 Configured in `pyproject.toml`:
 
 - `branch = true`, `parallel = true`, measuring only the `dynamic_configs` package; `migrations/` is omitted.
+- Tests run under `coverage run -m pytest`, not pytest-cov: pytest imports this package's pytest plugin at startup,
+  before pytest-cov would start measuring, so the plugin's module-level code would show as uncovered.
 - `[tool.coverage.paths]` maps the installed `site-packages/dynamic_configs` back to `src/dynamic_configs`, so data
   from every tox environment combines.
 - **100% branch coverage is enforced on the combined data** (`fail_under = 100`), not per environment, because
