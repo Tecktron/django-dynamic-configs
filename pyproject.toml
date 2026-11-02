@@ -41,6 +41,9 @@ Homepage = "https://github.com/Tecktron/django-dynamic-configs"
 Source = "https://github.com/Tecktron/django-dynamic-configs"
 Issues = "https://github.com/Tecktron/django-dynamic-configs/issues"
 
+[project.entry-points.pytest11]
+dynamic_configs = "dynamic_configs.test.pytest_plugin"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -48,7 +51,7 @@ where = ["src"]
 dynamic_configs = ["py.typed"]
 
 [tool.pytest.ini_options]
-addopts = ["--ds=tests.settings", "--strict-markers"]
+addopts = ["--ds=tests.settings", "--strict-markers", "-p", "pytester"]
 testpaths = ["tests"]
 pythonpath = ["."]
 
