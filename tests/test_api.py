@@ -318,3 +318,10 @@ def test_a_deleted_setting_reads_as_missing_after_commit(django_capture_on_commi
         dynamic_configs.delete("SITE_NAME")
     assert dynamic_configs.get("SITE_NAME", default=None) is None
     assert cache.read("SITE_NAME") is cache.ABSENT
+
+
+def test_a_value_too_deeply_nested_to_read_returns_the_default(caplog):
+    # Review finding: json.loads raised RecursionError, which escaped get's default guarantee.
+    make("DEEP", "json", "[" * 100_000 + "]" * 100_000)
+    assert dynamic_configs.get("DEEP", default=[]) == []
+    assert caplog.records[0].levelno == logging.ERROR

@@ -167,14 +167,19 @@ def normalize_datetime(value: datetime) -> datetime:
     :param value: a naive or aware datetime
     :returns: an aware UTC datetime (``USE_TZ`` on) or a naive datetime in ``TIME_ZONE`` (``USE_TZ`` off)
     :rtype: datetime
+    :raises ValueError: the converted datetime would fall outside the range ``datetime`` supports
     """
     site_zone = timezone.get_default_timezone()
-    if settings.USE_TZ:
-        if timezone.is_naive(value):
-            value = timezone.make_aware(value, site_zone)
-        return value.astimezone(dt_timezone.utc)
-    if timezone.is_aware(value):
-        value = timezone.make_naive(value, site_zone)
+    try:
+        if settings.USE_TZ:
+            if timezone.is_naive(value):
+                value = timezone.make_aware(value, site_zone)
+            return value.astimezone(dt_timezone.utc)
+        if timezone.is_aware(value):
+            value = timezone.make_naive(value, site_zone)
+    except OverflowError:
+        # Converting near year 1 or 9999 can leave the range datetime supports (e.g. 9999-12-31 23:59 in New York).
+        raise ValueError("That date and time is out of range once converted to UTC.") from None
     return value
 
 

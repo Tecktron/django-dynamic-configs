@@ -80,12 +80,17 @@ class ConfigType:
 
         :param text: stored text
         :returns: the value
-        :raises ConfigValueError: the text can't be read as this type
+        :raises ConfigValueError: the text can't be read as this type, or reading it failed in any other way
         """
         try:
             return self.serializer.deserialize(text)
         except ValueError as error:
             raise ConfigValueError(str(error)) from error
+        except Exception as error:
+            # Anything else (RecursionError on deeply nested JSON, a custom serializer's KeyError...) also means the
+            # stored text is unreadable, so get() can still answer with its default. Only the class is named: the
+            # exception's message may contain the stored value.
+            raise ConfigValueError(f"Reading the stored text failed with {type(error).__name__}.") from error
 
     def _coerce_scalar(self, value: Any) -> Any:
         """Apply the type check to a single value."""

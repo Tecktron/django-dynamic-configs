@@ -122,3 +122,18 @@ def test_hashable_follows_the_python_type():
     assert STR.hashable
     assert not JSON.hashable
     assert not ConfigType("thing", "Thing", Unhashable, StrSerializer()).hashable
+
+
+class CrashingSerializer:
+    def serialize(self, value):
+        return str(value)
+
+    def deserialize(self, text):
+        raise KeyError(text)
+
+
+def test_any_error_while_reading_stored_text_is_a_config_value_error():
+    # Review finding: a custom serializer raising something other than ValueError escaped get's default guarantee.
+    crashing = ConfigType("crashing", "Crashing", str, CrashingSerializer())
+    with pytest.raises(ConfigValueError, match="KeyError"):
+        crashing.from_text("anything")

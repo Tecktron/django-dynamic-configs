@@ -273,3 +273,11 @@ def test_format_number_never_uses_exponent_notation(number, text):
 def test_durations_read_back_whatever_they_write(serializer, value):
     # Review finding: tiny values were written as "5e-05", which the plain-number parser then rejected.
     assert serializer.deserialize(serializer.serialize(value)) == value
+
+
+def test_datetimes_beyond_the_utc_range_are_rejected_not_crashed():
+    # Review finding: 9999-12-31 23:59 in New York is past year 9999 in UTC, and astimezone raised OverflowError.
+    with pytest.raises(ValueError, match="out of range"):
+        DateTimeSerializer().deserialize("9999-12-31 23:59")
+    with pytest.raises(ValueError, match="out of range"):
+        DateTimeSerializer().serialize(datetime(9999, 12, 31, 23, 59))
