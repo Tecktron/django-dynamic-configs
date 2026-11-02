@@ -6,6 +6,7 @@ DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memor
 CACHES = {
     "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "dynamic-configs-tests"},
     "dummy": {"BACKEND": "django.core.cache.backends.dummy.DummyCache"},
+    "failing": {"BACKEND": "tests.failing_cache.FailingCache"},
 }
 USE_TZ = True
 # A zone with daylight saving, so the datetime rules are exercised for real.
