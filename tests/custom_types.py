@@ -58,3 +58,7 @@ class LeakySerializer:
 
     def deserialize(self, text):
         raise ValueError(f"{text!r} isn't allowed")
+
+
+class WrongTypeColorField(forms.CharField):
+    """Returns a plain string where the Color type expects a Color, to test the admin's type check."""
