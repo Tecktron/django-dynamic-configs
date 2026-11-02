@@ -107,7 +107,7 @@ def test_an_unreadable_value_returns_the_default_and_logs_an_error(caplog):
     assert dynamic_configs.get("MAX_RETRIES", default=1) == 1
     [record] = caplog.records
     assert record.levelno == logging.ERROR
-    assert record.getMessage() == "Config 'MAX_RETRIES' can't be read (type 'int'); returning the default"
+    assert record.getMessage() == "Config 'MAX_RETRIES' can't be read (type 'int', ValueError); returning the default"
     assert record.config_type == "int"
     assert "three" not in record.getMessage()
 
@@ -356,3 +356,16 @@ def test_a_read_inside_a_rolled_back_transaction_never_reaches_the_cache(django_
             pass
     assert cache.read("MAX_RETRIES") is cache.NOT_CACHED
     assert dynamic_configs.get("MAX_RETRIES", no_cache=True) == 1
+
+
+def test_an_unreadable_value_is_never_written_to_the_log(settings, caplog):
+    # Review finding: the ERROR log attached the traceback, whose chained message can contain the stored value.
+    settings.DYNAMIC_CONFIGS = {
+        "TYPES": {"leaky": {"type": "builtins.str", "serializer": "tests.custom_types.LeakySerializer"}}
+    }
+    make("API_TOKEN", "leaky", "s3cret-token")
+    assert dynamic_configs.get("API_TOKEN", default=None) is None
+    [record] = caplog.records
+    assert not record.exc_info
+    assert "s3cret-token" not in caplog.text
+    assert "ValueError" in record.getMessage()

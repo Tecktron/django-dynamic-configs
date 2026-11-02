@@ -48,3 +48,13 @@ class NoMethodsSerializer:
 
 def not_a_class():
     return None
+
+
+class LeakySerializer:
+    """Puts the text in its error message, as a custom serializer written for admin form errors might."""
+
+    def serialize(self, value):
+        return value
+
+    def deserialize(self, text):
+        raise ValueError(f"{text!r} isn't allowed")

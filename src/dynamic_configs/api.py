@@ -72,20 +72,29 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
     type_key, text = entry  # type: ignore[misc]
     try:
         return _decode(name, type_key, text)
-    except ConfigValueError:
+    except ConfigValueError as error:
         if not has_default:
             raise
+        # No traceback: the chained exception's message comes from the serializer (possibly a project's own) and may
+        # contain the stored value, which must never reach the logs. The exception class says what went wrong.
         log(
             logger,
             logging.ERROR,
-            "Config %r can't be read (type %r); returning the default",
+            "Config %r can't be read (type %r, %s); returning the default",
             name,
             type_key,
+            _root_cause(error).__name__,
             config_name=name,
             config_type=type_key,
-            exc_info=True,
         )
         return default
+
+
+def _root_cause(error: BaseException) -> type[BaseException]:
+    """Return the class of the exception at the bottom of ``error``'s ``__cause__`` chain."""
+    while error.__cause__ is not None:
+        error = error.__cause__
+    return type(error)
 
 
 def _load_entry(name: str) -> Entry | object:
