@@ -176,3 +176,51 @@ def test_a_custom_field_returning_the_wrong_type_is_a_form_error(settings):
     form = change_form(make("BRAND", "color", "#1a2b3c"), value="#ffffff")
     assert not form.is_valid()
     assert form.errors["value"] == ["Type 'color' expects Color, not str."]
+
+
+def test_names_are_stripped():
+    form = add_form(name="  SITE_NAME  ", value="x")
+    assert form.is_valid(), form.errors
+    assert form.save().name == "SITE_NAME"
+
+
+def test_adding_a_string_strips_it():
+    form = add_form(value="  Example  ")
+    assert form.is_valid(), form.errors
+    assert form.save().value == "Example"
+
+
+def test_adding_only_spaces_to_a_string_stores_the_empty_string():
+    form = add_form(value="   ")
+    assert form.is_valid(), form.errors
+    assert form.save().value == ""
+
+
+def test_adding_text_keeps_its_whitespace():
+    form = add_form(type="text", value="  indented\n\n")
+    assert form.is_valid(), form.errors
+    assert form.save().value == "  indented\n\n"
+
+
+def test_changing_a_string_strips_it():
+    form = change_form(make(), value="  New  ")
+    assert form.is_valid(), form.errors
+    assert form.save().value == "New"
+
+
+def test_descriptions_are_kept_as_typed():
+    added = add_form(value="x", description="  Notes,\n  indented.\n")
+    assert added.is_valid(), added.errors
+    assert added.save().description == "  Notes,\n  indented.\n"
+    changed = change_form(make("OTHER"), value="x", description="  kept  ")
+    assert changed.is_valid(), changed.errors
+    assert changed.save().description == "  kept  "
+
+
+def test_a_form_without_a_description_field_still_works():
+    # A skin may drop the description from its fieldsets; the form must not assume the field is there.
+    class ValueOnly(ConfigChangeForm):
+        class Meta(ConfigChangeForm.Meta):
+            fields = ("value", "allow_null")
+
+    assert "description" not in ValueOnly().fields

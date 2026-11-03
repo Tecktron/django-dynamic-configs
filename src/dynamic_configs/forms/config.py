@@ -36,8 +36,21 @@ def types_help_text(registry: Registry) -> SafeString:
     )
 
 
+def _field_strips(config_type: ConfigType) -> bool:
+    """Return whether the type's change-page field strips surrounding whitespace (``str`` does, ``text`` doesn't)."""
+    field = formfield_for(config_type)
+    return isinstance(field, forms.CharField) and field.strip
+
+
 class _ConfigForm(forms.ModelForm):
     """Shared handling of the value: the empty-value rules, then the type check and serializer."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Keep descriptions exactly as typed (Django strips text fields by default)."""
+        super().__init__(*args, **kwargs)
+        # A skin may leave the description out of its fieldsets.
+        if "description" in self.fields:
+            self.fields["description"].strip = False
 
     def stored_text(self, config_type: ConfigType, value: Any, *, allow_null: bool) -> str | None:
         """Return the text to store for ``value``, applying the empty-value rules.
@@ -96,7 +109,13 @@ class ConfigAddForm(_ConfigForm):
 
     @staticmethod
     def parse_text(config_type: ConfigType, text: str) -> Any:
-        """Return the value written in ``text``: one item per line for lists and sets, the serializer otherwise."""
+        """Return the value written in ``text``: one item per line for lists and sets, the serializer otherwise.
+
+        The text is stripped first when the type's change-page field would strip it, so whitespace is treated the
+        same on both pages: ``str`` values are stripped, ``text`` values are kept as typed.
+        """
+        if config_type.container is None and _field_strips(config_type):
+            text = text.strip()
         if text == "":
             return None
         if config_type.container is not None:

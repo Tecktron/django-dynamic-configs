@@ -393,6 +393,12 @@ apply. Projects can still override the standard templates (`admin/dynamic_config
   empty string for `str` and `text`, an empty list or set for list and set types, and a "required" error for every
   other type. (So
   a `str` setting with `allow_null` can't hold the empty string through the admin; code can still `update` it to `""`.)
+- **Whitespace:** on both pages the name and `str` values are stripped, as is any value whose type is edited in a
+  single-line text input (custom types without a `form`, for example). `text` values and descriptions are kept exactly
+  as typed.
+- **Widgets:** Django's plain date, split date/time and textarea widgets are swapped for the admin's versions (date
+  picker, styled textarea), keeping their attributes. A type's own widget is never replaced, even one built on
+  `Textarea`.
 - **Unregistered type:** a row whose type is no longer registered shows its stored text read-only, with a message
   saying the type is missing from settings.
 - Permissions are Django's standard add/change/delete/view permissions.
