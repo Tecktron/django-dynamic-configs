@@ -62,3 +62,16 @@ class LeakySerializer:
 
 class WrongTypeColorField(forms.CharField):
     """Returns a plain string where the Color type expects a Color, to test the admin's type check."""
+
+
+class CodeEditorWidget(forms.Textarea):
+    """Stands in for a third-party editor widget, which typically subclasses Textarea."""
+
+    def __init__(self, attrs=None):
+        super().__init__(attrs={"class": "code-editor", **(attrs or {})})
+
+
+class CodeEditorColorField(forms.CharField):
+    """A Color field edited in a code-editor widget, to test that the admin keeps a type's own widget."""
+
+    widget = CodeEditorWidget

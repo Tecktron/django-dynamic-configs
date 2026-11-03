@@ -115,3 +115,17 @@ def test_an_unregistered_type_is_read_only_with_a_warning(admin_client):
 
 def test_a_missing_config_redirects(admin_client):
     assert admin_client.get(change_url("MISSING")).status_code == 302
+
+
+def test_a_types_own_widget_is_kept(admin_client, settings):
+    settings.DYNAMIC_CONFIGS = {
+        "TYPES": {
+            "color": {
+                "type": "tests.custom_types.Color",
+                "serializer": "tests.custom_types.ColorSerializer",
+                "form": "tests.custom_types.CodeEditorColorField",
+            }
+        }
+    }
+    make("BRAND", "color", "#1a2b3c")
+    assert 'class="code-editor"' in admin_client.get(change_url("BRAND")).content.decode()

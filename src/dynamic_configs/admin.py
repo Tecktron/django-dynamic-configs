@@ -24,20 +24,20 @@ from dynamic_configs.types.registry import get_registry
 
 _PREVIEW_LENGTH = 80
 _FIELDS = ("name", "type", "value", "allow_null", "description")
-# Django's form fields mapped to the admin widget that gives them the admin's date pickers and styling.
-_ADMIN_WIDGETS: dict[type[forms.Field], type[forms.Widget]] = {
-    forms.DateField: admin_widgets.AdminDateWidget,
-    forms.SplitDateTimeField: admin_widgets.AdminSplitDateTime,
+# Django's plain widgets mapped to the admin's versions (date picker, split date/time, styled textarea). Matched by
+# exact type, so a type's own widget is never replaced, even one that subclasses Textarea (as code editors do).
+_ADMIN_WIDGETS: dict[type[forms.Widget], type[forms.Widget]] = {
+    forms.DateInput: admin_widgets.AdminDateWidget,
+    forms.SplitDateTimeWidget: admin_widgets.AdminSplitDateTime,
+    forms.Textarea: admin_widgets.AdminTextareaWidget,
 }
 
 
 def _use_admin_widget(field: forms.Field) -> None:
-    """Swap ``field``'s widget for the admin's equivalent, where there is one."""
-    widget_class = _ADMIN_WIDGETS.get(type(field))
+    """Swap ``field``'s widget for the admin's version when it's one of Django's plain widgets, keeping its attrs."""
+    widget_class = _ADMIN_WIDGETS.get(type(field.widget))
     if widget_class is not None:
-        field.widget = widget_class()
-    elif isinstance(field.widget, forms.Textarea):
-        field.widget = admin_widgets.AdminTextareaWidget()
+        field.widget = widget_class(attrs=field.widget.attrs)
 
 
 class ConfigAdminMixin:
