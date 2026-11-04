@@ -6,6 +6,7 @@ from functools import partial
 
 from django import forms
 
+from dynamic_configs.forms.datetime import datetime_field
 from dynamic_configs.forms.fields import DurationUnitField
 from dynamic_configs.forms.json import JSONTextField
 from dynamic_configs.types import serializers
@@ -79,7 +80,7 @@ BUILTIN_TYPES: tuple[ConfigType, ...] = (
             "A date and time as YYYY-MM-DD HH:MM, optionally with seconds and a UTC offset; "
             "without an offset the site's time zone is used."
         ),
-        form_class=forms.SplitDateTimeField,
+        form_class=datetime_field,
     ),
     ConfigType(
         "json",

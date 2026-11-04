@@ -19,18 +19,35 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.utils.text import Truncator
 
 from dynamic_configs.conf import get_settings
-from dynamic_configs.forms.config import ConfigTypeForm, add_form_for, change_form_for
+from dynamic_configs.forms.config import ADMIN_SCRIPT, ConfigTypeForm, add_form_for, change_form_for
+from dynamic_configs.forms.datetime import ZonedDateTimeWidget
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.registry import get_registry
 
 _PREVIEW_LENGTH = 80
 _FIELDS = ("name", "type", "value", "allow_null", "description")
-# Django's plain widgets mapped to the admin's versions (date picker, split date/time, styled textarea). Matched by
-# exact type, so a type's own widget is never replaced, even one that subclasses Textarea (as code editors do).
+
+
+class AdminZonedDateTimeWidget(ZonedDateTimeWidget):
+    """The zoned datetime widget with the admin's date and time pickers."""
+
+    date_widget = admin_widgets.AdminDateWidget
+    time_widget = admin_widgets.AdminTimeWidget
+
+    class Media:
+        """The optional script starts an empty value on the browser's zone and keeps the pickers in the chosen one."""
+
+        js = (ADMIN_SCRIPT,)
+
+
+# Django's plain widgets (and the zoned datetime widget) mapped to the admin's versions (date picker, split
+# date/time, styled textarea). Matched by exact type, so a type's own widget is never replaced, even one that
+# subclasses Textarea (as code editors do).
 _ADMIN_WIDGETS: dict[type[forms.Widget], type[forms.Widget]] = {
     forms.DateInput: admin_widgets.AdminDateWidget,
     forms.SplitDateTimeWidget: admin_widgets.AdminSplitDateTime,
+    ZonedDateTimeWidget: AdminZonedDateTimeWidget,
     forms.Textarea: admin_widgets.AdminTextareaWidget,
 }
 

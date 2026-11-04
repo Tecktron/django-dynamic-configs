@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from django import forms
 
+from dynamic_configs.forms.datetime import ZonedDateTimeField
 from dynamic_configs.forms.fields import DurationUnitField, formfield_for
 from dynamic_configs.forms.json import JSONTextField
 from dynamic_configs.types.builtin import BUILTIN_TYPES
@@ -57,7 +58,7 @@ EXPECTED_FIELDS = {
     "decimal": forms.DecimalField,
     "bool": forms.BooleanField,
     "date": forms.DateField,
-    "datetime": forms.SplitDateTimeField,
+    "datetime": ZonedDateTimeField,
     "json": JSONTextField,
     "seconds": DurationUnitField,
     "minutes": DurationUnitField,
@@ -74,7 +75,7 @@ SUBMITTED = {
     "decimal": "19.99",
     "bool": "on",
     "date": "2026-11-02",
-    "datetime": ["2026-11-02", "17:00"],
+    "datetime": ["2026-11-02", "17:00", "America/New_York"],
     "json": '{"sizes": [1, 2]}',
     "seconds": "90",
     "minutes": "1.5",

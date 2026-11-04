@@ -132,17 +132,69 @@ def test_dates_and_texts_use_the_admin_widgets(admin_client):
     assert "vLargeTextField" in admin_client.get(change_url("NOTES")).content.decode()
 
 
-def test_datetimes_are_entered_in_local_time_and_stored_in_utc(admin_client):
+def post_datetime(admin_client, name, day, clock, zone):
+    data = {"value_0": day, "value_1": clock, "value_2": zone, "description": "", "_save": "Save"}
+    return admin_client.post(change_url(name), data)
+
+
+def test_datetimes_are_shown_in_the_current_zone_and_stored_in_utc(admin_client):
     # Review focus: the admin works in the site's time zone; storage is UTC.
     make("STARTS_AT", "datetime", "2026-11-02T22:00:00+00:00")
     content = admin_client.get(change_url("STARTS_AT")).content.decode()
-    assert 'name="value_0"' in content
+    assert 'value="2026-11-02"' in content
     assert 'value="17:00:00"' in content
-    response = admin_client.post(
-        change_url("STARTS_AT"), {"value_0": "2026-11-03", "value_1": "09:30", "description": "", "_save": "Save"}
-    )
+    assert '<option value="America/New_York" selected>' in content
+    response = post_datetime(admin_client, "STARTS_AT", "2026-11-03", "09:30", "America/New_York")
     assert response.status_code == 302
     assert Config.objects.get(name="STARTS_AT").value == "2026-11-03T14:30:00+00:00"
+
+
+def test_a_datetime_can_be_entered_in_another_zone(admin_client):
+    make("STARTS_AT", "datetime", "2026-11-02T22:00:00+00:00")
+    assert post_datetime(admin_client, "STARTS_AT", "2026-11-03", "09:30", "Asia/Tokyo").status_code == 302
+    assert Config.objects.get(name="STARTS_AT").value == "2026-11-03T00:30:00+00:00"
+
+
+def test_saving_a_datetime_as_shown_keeps_its_instant(admin_client):
+    # Review focus: showing a UTC value in local time and saving it back must not move it.
+    make("STARTS_AT", "datetime", "2026-07-01T03:15:00+00:00")
+    content = admin_client.get(change_url("STARTS_AT")).content.decode()
+    assert 'value="2026-06-30"' in content
+    assert 'value="23:15:00"' in content
+    post_datetime(admin_client, "STARTS_AT", "2026-06-30", "23:15:00", "America/New_York")
+    assert Config.objects.get(name="STARTS_AT").value == "2026-07-01T03:15:00+00:00"
+
+
+def test_a_time_skipped_by_daylight_saving_is_a_form_error(admin_client):
+    make("STARTS_AT", "datetime", "2026-11-02T22:00:00+00:00")
+    response = post_datetime(admin_client, "STARTS_AT", "2026-03-08", "02:30", "America/New_York")
+    assert response.status_code == 200
+    assert "couldn&#x27;t be interpreted in time zone America/New_York" in response.content.decode()
+
+
+def test_the_datetime_picker_uses_the_admin_widgets_and_script(admin_client):
+    make("STARTS_AT", "datetime", None, allow_null=True)
+    content = admin_client.get(change_url("STARTS_AT")).content.decode()
+    assert "vDateField" in content
+    assert "vTimeField" in content
+    assert "data-dynamic-configs-zone" in content
+    assert "dynamic_configs/admin.js" in content
+    assert "A date, a time and the time zone they're in." in content
+    assert "YYYY-MM-DD HH:MM" not in content
+    assert "server's time zone" not in content
+
+
+def test_the_add_page_has_the_datetime_picker(admin_client):
+    assert 'name="value_2"' in admin_client.get(f"{URL}add/?type=datetime").content.decode()
+
+
+def test_with_use_tz_off_the_admin_says_which_zone_times_are_in(admin_client, settings):
+    settings.USE_TZ = False
+    make("STARTS_AT", "datetime", "2026-11-02T17:00:00")
+    content = admin_client.get(change_url("STARTS_AT")).content.decode()
+    assert "A date and a time. Times are in the server's time zone (America/New_York)." in content
+    assert 'name="value_2"' not in content
+    assert 'value="17:00:00"' in content
 
 
 def test_booleans_that_allow_null_get_a_three_way_choice(admin_client):

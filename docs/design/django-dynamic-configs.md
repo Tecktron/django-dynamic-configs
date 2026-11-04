@@ -93,7 +93,7 @@ A failed check raises `ConfigTypeError`.
 | `decimal`  | Decimal        | `Decimal`          | `str(value)`; NaN and infinity rejected      | `DecimalField`                        |
 | `bool`     | Boolean        | `bool`             | `"true"` / `"false"`; parses true/false, 1/0, yes/no, on/off (any case) | `BooleanField`, or `NullBooleanField` when `allow_null` |
 | `date`     | Date           | `date`             | ISO 8601 (`2026-11-01`)                      | `DateField` + admin date widget       |
-| `datetime` | Date and time  | `datetime`         | ISO 8601 (see Datetimes and time zones)      | `SplitDateTimeField` + admin widget   |
+| `datetime` | Date and time  | `datetime`         | ISO 8601 (see Datetimes and time zones)      | `ZonedDateTimeField` + admin pickers  |
 | `json`     | JSON           | `dict` or `list`   | `json.dumps(value, ensure_ascii=False)`      | `JSONTextField` (see below)           |
 | `seconds`  | Seconds        | `timedelta`        | the number of seconds (`"90"`, `"1.5"`)      | `DurationUnitField("seconds")`        |
 | `minutes`  | Minutes        | `timedelta`        | the number of minutes                        | `DurationUnitField("minutes")`        |
@@ -123,8 +123,18 @@ The `datetime` type follows Django's time zone settings:
   resolved by Python's `zoneinfo` rules (`fold=0`).
 - **`USE_TZ = False`**: an aware datetime is converted to `TIME_ZONE` and made naive, which is Django's own convention
   for this mode; values are stored and returned naive.
-- The admin's date and time widgets already interpret input in the current time zone, so admin input follows the same
-  rules.
+- **In the admin** (with `USE_TZ` on), a datetime is entered as a date, a time and a time zone: the admin's date and
+  time pickers plus a select of IANA zones, UTC first (`ZonedDateTimeField`). The select starts on the current time
+  zone (`TIME_ZONE` unless the project activates another), and a stored value is shown in that zone. When the value
+  is empty, the admin script starts the select on the browser's own zone instead, and it keeps the pickers' Today
+  and Now links in whichever zone is chosen. A time that a daylight-saving change skips or repeats is a form error
+  rather than resolved with `fold=0`: the admin typed it, so it isn't guessed. The value's help reads "A date, a
+  time and the time zone they're in." rather than the typed format, which still applies to code, list items and text.
+- **In the admin with `USE_TZ` off** there are no zones to choose: the value uses Django's split date and time
+  pickers, and its help reads "A date and a time. Times are in the server's time zone (<TIME_ZONE>)." The zone note
+  appears only in this mode.
+- Items of a `list:datetime` or `set:datetime` are typed as text, one per line; an item can carry its zone as a UTC
+  offset (`2026-11-02 17:00+09:00`), and one without is in `TIME_ZONE`.
 
 ### List and set types
 
@@ -398,8 +408,8 @@ without it. Projects can still override the standard templates (`admin/dynamic_c
   single-line text input (custom types without a `form`, for example). `text` values and descriptions are kept exactly
   as typed.
 - **Widgets:** Django's plain date, split date/time and textarea widgets are swapped for the admin's versions (date
-  picker, styled textarea), keeping their attributes. A type's own widget is never replaced, even one built on
-  `Textarea`.
+  picker, styled textarea), and the zoned datetime widget gets the admin's date and time pickers, keeping their
+  attributes. A type's own widget is never replaced, even one built on `Textarea`.
 - **Unregistered type:** a row whose type is no longer registered shows its stored text read-only, with a message
   saying the type is missing from settings.
 - Permissions are Django's standard add/change/delete/view permissions.
@@ -477,7 +487,7 @@ src/dynamic_configs/
     _overrides.py       overrides for the current context (read by the API, set by the test helpers)
     models.py           Config, ConfigDoesNotExist
     signals.py          post_save / post_delete cache handling
-    admin.py            ConfigAdminMixin, ConfigAdmin
+    admin.py            ConfigAdminMixin, ConfigAdmin, AdminZonedDateTimeWidget
     apps.py
     static/dynamic_configs/admin.js   the admin's optional script
     types/
@@ -489,6 +499,7 @@ src/dynamic_configs/
     forms/
         list.py         LineListField, TypedLineListField
         json.py         JSONTextField
+        datetime.py     ZonedDateTimeField, ZonedDateTimeWidget, datetime_field
         fields.py       SerializerField, DurationUnitField, formfield_for
         money.py        MoneyField, MoneyCurrencyField
         config.py       ConfigTypeForm, ConfigAddForm, add_form_for, ConfigChangeForm, change_form_for (the admin's model forms)
