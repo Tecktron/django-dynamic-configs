@@ -1,6 +1,7 @@
 """Django admin for configs.
 
-The admin ships no templates, CSS or JavaScript of its own, only Django's admin widgets, so admin skins apply. All of
+The admin ships no templates or CSS of its own, only Django's admin widgets and one optional script, so admin skins
+apply. All of
 the behaviour is in ``ConfigAdminMixin``: skins with their own ``ModelAdmin`` base unregister ``ConfigAdmin`` and
 register ``ConfigAdminMixin`` combined with their base.
 """
@@ -14,12 +15,13 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin import widgets as admin_widgets
 from django.contrib.admin.utils import unquote
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.utils.text import Truncator
 
 from dynamic_configs.conf import get_settings
-from dynamic_configs.forms.config import ConfigAddForm, change_form_for
+from dynamic_configs.forms.config import ConfigTypeForm, add_form_for, change_form_for
 from dynamic_configs.models import Config
+from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.registry import get_registry
 
 _PREVIEW_LENGTH = 80
@@ -40,6 +42,11 @@ def _use_admin_widget(field: forms.Field) -> None:
         field.widget = widget_class(attrs=field.widget.attrs)
 
 
+def _chosen_type(request: HttpRequest) -> ConfigType | None:
+    """Return the type chosen in the add page's first step (``?type=`` in the address), or None."""
+    return get_registry().get(request.GET.get("type", ""))
+
+
 class ConfigAdminMixin:
     """The config admin's behaviour; combine it with ``admin.ModelAdmin`` or a skin's ``ModelAdmin``."""
 
@@ -49,24 +56,50 @@ class ConfigAdminMixin:
     ordering = ("name",)
 
     def get_fieldsets(self, request: HttpRequest, obj: Config | None = None) -> list[tuple[Any, dict[str, Any]]]:
-        """Show the same fields on the add and change pages."""
+        """Show the type alone on the add page's first step, and the same fields on every other page."""
+        if obj is None and _chosen_type(request) is None:
+            return [(None, {"fields": ("type",)})]
         return [(None, {"fields": _FIELDS})]
 
     def get_readonly_fields(self, request: HttpRequest, obj: Config | None = None) -> tuple[str, ...]:
-        """Lock the name and type once created, and the value when its type isn't registered."""
+        """Lock the type once chosen, the name once created, and the value when its type isn't registered."""
         if obj is None:
-            return ()
+            return () if _chosen_type(request) is None else ("type",)
         if get_registry().get(obj.type) is None:
             return ("name", "type", "value")
         return ("name", "type")
 
     def get_form(self, request: HttpRequest, obj: Config | None = None, change: bool = False, **kwargs: Any) -> Any:
-        """Use the add form, or a change form with the value field for the config's type."""
-        kwargs["form"] = ConfigAddForm if obj is None else change_form_for(obj)
+        """Use the type step, the add form for the chosen type, or the change form for the config's type."""
+        if obj is not None:
+            kwargs["form"] = change_form_for(obj)
+        else:
+            config_type = _chosen_type(request)
+            kwargs["form"] = ConfigTypeForm if config_type is None else add_form_for(config_type)
         form = super().get_form(request, obj, change, **kwargs)  # type: ignore[misc]
-        if obj is not None and "value" in form.base_fields:
+        if "value" in form.base_fields:
             _use_admin_widget(form.base_fields["value"])
         return form
+
+    def add_view(
+        self, request: HttpRequest, form_url: str = "", extra_context: dict[str, Any] | None = None
+    ) -> HttpResponse:
+        """Ask for the type first, then show the add page with that type's value field (``?type=`` in the address)."""
+        if _chosen_type(request) is None:
+            if request.method == "POST":
+                form = ConfigTypeForm(request.POST)
+                if form.is_valid():
+                    # Keep the rest of the query (a popup's, say), so the second step behaves like the first.
+                    query = request.GET.copy()
+                    query["type"] = form.cleaned_data["type"]
+                    return HttpResponseRedirect(f"{request.path}?{query.urlencode()}")
+            # The first step saves nothing, so only its Save button (which moves on) applies.
+            extra_context = {
+                **(extra_context or {}),
+                "show_save_and_add_another": False,
+                "show_save_and_continue": False,
+            }
+        return super().add_view(request, form_url, extra_context)  # type: ignore[misc]
 
     def change_view(
         self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: dict[str, Any] | None = None

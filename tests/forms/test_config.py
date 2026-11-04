@@ -1,6 +1,7 @@
 import pytest
+from django import forms
 
-from dynamic_configs.forms.config import ConfigAddForm, ConfigChangeForm, change_form_for, types_help_text
+from dynamic_configs.forms.config import ConfigChangeForm, ConfigTypeForm, add_form_for, change_form_for
 from dynamic_configs.forms.list import TypedLineListField
 from dynamic_configs.models import Config
 from dynamic_configs.types.registry import get_registry
@@ -8,10 +9,10 @@ from dynamic_configs.types.registry import get_registry
 pytestmark = pytest.mark.django_db
 
 
-def add_form(**data):
-    fields = {"name": "SITE_NAME", "type": "str", "value": "", "description": ""}
+def add_form(type_key="str", **data):
+    fields = {"name": "SITE_NAME", "value": "", "description": ""}
     fields.update(data)
-    return ConfigAddForm(data=fields)
+    return add_form_for(get_registry().get(type_key))(data=fields)
 
 
 def change_form(config, **data):
@@ -29,66 +30,82 @@ def opened(config):
     return change_form_for(config)(instance=config)
 
 
-def test_the_type_choices_are_the_registered_types():
-    choices = dict(ConfigAddForm().fields["type"].choices)
-    assert choices["int"] == "Integer"
-    assert choices["set:str"] == "Set of String"
+def test_the_type_step_offers_the_registered_types_after_a_blank():
+    choices = ConfigTypeForm().fields["type"].choices
+    assert choices[0] == ("", "---------")
+    assert dict(choices)["int"] == "Integer"
+    assert dict(choices)["set:str"] == "Set of String"
 
 
-def test_the_value_help_lists_the_formats():
-    help_text = types_help_text(get_registry())
-    assert "Date: A date as YYYY-MM-DD" in help_text
-    assert "list:" not in help_text
-    assert "one item per line" in help_text
+def test_the_type_step_rejects_an_unknown_type():
+    form = ConfigTypeForm(data={"type": "nope"})
+    assert not form.is_valid()
+    assert "type" in form.errors
+
+
+def test_the_add_form_uses_the_types_field_and_sets_the_type():
+    form = add_form("date")
+    assert form.fields["value"].__class__.__name__ == "DateField"
+    assert form.fields["value"].help_text == "A date as YYYY-MM-DD, e.g. 2026-11-02."
+    assert form.instance.type == "date"
 
 
 def test_adding_stores_the_value_as_text():
-    form = add_form(name="MAX_RETRIES", type="int", value="42", description="Retries.")
+    form = add_form("int", name="MAX_RETRIES", value="42", description="Retries.")
     assert form.is_valid(), form.errors
     config = form.save()
     assert (config.type, config.value, config.description) == ("int", "42", "Retries.")
 
 
 def test_adding_a_list_takes_one_item_per_line():
-    form = add_form(name="HOSTS", type="list:str", value="a.example\n\nb.example\n")
+    form = add_form("list:str", name="HOSTS", value="a.example\n\nb.example\n")
     assert form.is_valid(), form.errors
     assert form.save().value == '["a.example", "b.example"]'
 
 
 def test_adding_reports_bad_lines():
-    form = add_form(type="list:int", value="1\nx")
+    form = add_form("list:int", value="1\nx")
     assert not form.is_valid()
     assert form.errors["value"] == ["Line 2: Enter a whole number, such as 42."]
 
 
-def test_adding_reports_bad_text():
-    form = add_form(type="int", value="forty-two")
+def test_adding_reports_a_bad_value():
+    form = add_form("int", value="forty-two")
     assert not form.is_valid()
-    assert form.errors["value"] == ["Enter a whole number, such as 42."]
-
-
-def test_an_unknown_type_is_reported_on_the_type_field_only():
-    form = add_form(type="nope", value="x")
-    assert not form.is_valid()
-    assert "type" in form.errors
-    assert "value" not in form.errors
+    assert form.errors["value"] == ["Enter a whole number."]
 
 
 @pytest.mark.parametrize(
     ("type_key", "allow_null", "stored"),
-    [("str", False, ""), ("list:int", False, "[]"), ("set:str", False, "[]"), ("int", True, None), ("str", True, None)],
+    [
+        ("str", False, ""),
+        ("list:int", False, "[]"),
+        ("set:str", False, "[]"),
+        ("int", True, None),
+        ("str", True, None),
+        ("bool", True, None),
+    ],
 )
 def test_adding_an_empty_value(type_key, allow_null, stored):
     data = {"allow_null": "on"} if allow_null else {}
-    form = add_form(type=type_key, value="", **data)
+    form = add_form(type_key, value="", **data)
     assert form.is_valid(), form.errors
     assert form.save().value == stored
 
 
-def test_an_empty_value_is_required_for_other_types():
-    form = add_form(type="int", value="")
+@pytest.mark.parametrize("type_key", ["int", "bool"])
+def test_an_empty_value_is_required_for_other_types(type_key):
+    form = add_form(type_key, value="")
     assert not form.is_valid()
     assert form.errors["value"] == ["This field is required."]
+
+
+def test_a_bool_is_added_with_a_yes_no_unknown_choice():
+    # The add page can't know allow_null until it's submitted, so a boolean must be able to be left empty.
+    form = add_form("bool", value="true")
+    assert isinstance(form.fields["value"], forms.NullBooleanField)
+    assert form.is_valid(), form.errors
+    assert form.save().value == "true"
 
 
 def test_names_are_validated_and_unique():
@@ -197,7 +214,7 @@ def test_adding_only_spaces_to_a_string_stores_the_empty_string():
 
 
 def test_adding_text_keeps_its_whitespace():
-    form = add_form(type="text", value="  indented\n\n")
+    form = add_form("text", value="  indented\n\n")
     assert form.is_valid(), form.errors
     assert form.save().value == "  indented\n\n"
 

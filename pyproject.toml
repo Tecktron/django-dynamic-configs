@@ -48,7 +48,7 @@ dynamic_configs = "dynamic_configs.test.pytest_plugin"
 where = ["src"]
 
 [tool.setuptools.package-data]
-dynamic_configs = ["py.typed"]
+dynamic_configs = ["py.typed", "static/dynamic_configs/*.js"]
 
 [tool.pytest.ini_options]
 addopts = ["--ds=tests.settings", "--strict-markers", "-p", "pytester"]

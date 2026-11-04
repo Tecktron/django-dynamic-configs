@@ -1,7 +1,9 @@
 """The admin's model forms for adding and changing configs.
 
-Both forms turn the submitted value into stored text with ``ConfigType.to_text``, so an admin save passes the same type
-check and serializer as the API, and apply the empty-value rules using the ``allow_null`` submitted in the same save.
+Adding takes two steps: ``ConfigTypeForm`` chooses the type, then ``add_form_for`` gives the add form with that type's
+value field, the same field the change page uses. Both turn the value into stored text with ``ConfigType.to_text``, so
+an admin save passes the same type check and serializer as the API, and apply the empty-value rules using the
+``allow_null`` submitted in the same save.
 """
 
 from __future__ import annotations
@@ -10,36 +12,16 @@ from typing import Any
 
 from django import forms
 from django.core.exceptions import ValidationError
-from django.utils.html import format_html, format_html_join
-from django.utils.safestring import SafeString
 
 from dynamic_configs.exceptions import ConfigError, ConfigValueError
 from dynamic_configs.forms.fields import formfield_for
-from dynamic_configs.forms.list import TypedLineListField
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
-from dynamic_configs.types.registry import Registry, get_registry
+from dynamic_configs.types.registry import get_registry
 from dynamic_configs.types.serializers import ListSerializer
 
-
-def types_help_text(registry: Registry) -> SafeString:
-    """Return the add page's help for the value: each base type's text format, then the list and set rule."""
-    formats = format_html_join(
-        "",
-        "<br>{}: {}",
-        ((config_type.label, config_type.help_text) for config_type in registry if config_type.container is None),
-    )
-    return format_html(
-        "Enter the value as text for the chosen type.{}<br>Lists and sets: one item per line; sets don't allow "
-        "repeats.",
-        formats,
-    )
-
-
-def _field_strips(config_type: ConfigType) -> bool:
-    """Return whether the type's change-page field strips surrounding whitespace (``str`` does, ``text`` doesn't)."""
-    field = formfield_for(config_type)
-    return isinstance(field, forms.CharField) and field.strip
+# The admin's optional script (static/dynamic_configs/admin.js): every page works without it.
+ADMIN_SCRIPT = "dynamic_configs/admin.js"
 
 
 class _ConfigForm(forms.ModelForm):
@@ -73,64 +55,72 @@ class _ConfigForm(forms.ModelForm):
             raise ValidationError(str(error)) from error
 
 
-class ConfigAddForm(_ConfigForm):
-    """The add page: a name, a type, and the value as text, cleaned for the chosen type."""
+class ConfigTypeForm(forms.ModelForm):
+    """The add page's first step: the type, whose value field the second step shows."""
 
-    type = forms.ChoiceField(label="Type")
-    # strip=False: whitespace can matter (multi-line text); each type's parser strips where it should.
-    value = forms.CharField(widget=forms.Textarea(attrs={"class": "vLargeTextField"}), required=False, strip=False)
+    type = forms.ChoiceField(
+        label="Type",
+        help_text="Choose the type, then click Save to enter the value.",
+        widget=forms.Select(attrs={"data-dynamic-configs-type": True}),
+    )
 
     class Meta:
-        """Fields shown on the add page."""
+        """The only field on the first step."""
 
         model = Config
-        fields = ("name", "type", "value", "allow_null", "description")
+        fields = ("type",)
+
+    class Media:
+        """The optional script moves on as soon as a type is chosen."""
+
+        js = (ADMIN_SCRIPT,)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """Offer the registered types, and explain each type's text format."""
+        """Offer the registered types after a blank, so choosing any of them is a change the script can act on."""
         super().__init__(*args, **kwargs)
-        registry = get_registry()
-        self.fields["type"].choices = [(config_type.key, config_type.label) for config_type in registry]
-        self.fields["value"].help_text = types_help_text(registry)
-
-    def clean(self) -> dict[str, Any]:
-        """Parse the value text for the chosen type and replace it with the text to store."""
-        cleaned = super().clean()
-        config_type = get_registry().get(cleaned.get("type", ""))
-        if config_type is None:
-            # The type field has already reported an invalid choice.
-            return cleaned
-        try:
-            value = self.parse_text(config_type, cleaned["value"])
-            cleaned["value"] = self.stored_text(config_type, value, allow_null=cleaned.get("allow_null", False))
-        except ValidationError as error:
-            self.add_error("value", error)
-        return cleaned
-
-    @staticmethod
-    def parse_text(config_type: ConfigType, text: str) -> Any:
-        """Return the value written in ``text``: one item per line for lists and sets, the serializer otherwise.
-
-        The text is stripped first when the type's change-page field would strip it, so whitespace is treated the
-        same on both pages: ``str`` values are stripped, ``text`` values are kept as typed.
-        """
-        if config_type.container is None and _field_strips(config_type):
-            text = text.strip()
-        if text == "":
-            return None
-        if config_type.container is not None:
-            field = TypedLineListField(config_type.item_type, unique=config_type.container == "set")
-            return field.to_python(text)
-        try:
-            return config_type.from_text(text)
-        except ConfigValueError as error:
-            raise ValidationError(str(error)) from error
+        self.fields["type"].choices = [("", "---------")] + [
+            (config_type.key, config_type.label) for config_type in get_registry()
+        ]
 
 
-class ConfigChangeForm(_ConfigForm):
-    """The change page; ``change_form_for`` adds the value field for the config's type."""
+class _TypedConfigForm(_ConfigForm):
+    """A form whose value field is its config type's; ``add_form_for`` and ``change_form_for`` set both."""
 
     config_type: ConfigType | None = None
+
+    def clean(self) -> dict[str, Any]:
+        """Replace the cleaned value with the text to store."""
+        cleaned = super().clean()
+        if self.config_type is not None and "value" in cleaned:
+            try:
+                cleaned["value"] = self.stored_text(
+                    self.config_type, cleaned["value"], allow_null=cleaned.get("allow_null", False)
+                )
+            except ValidationError as error:
+                self.add_error("value", error)
+        return cleaned
+
+
+class ConfigAddForm(_TypedConfigForm):
+    """The add page's second step: the name and the value, for the type chosen in the first step."""
+
+    # Always set: add_form_for builds every add form.
+    config_type: ConfigType
+
+    class Meta:
+        """Fields entered on the add page (the type is shown read-only)."""
+
+        model = Config
+        fields = ("name", "value", "allow_null", "description")
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Give the new config its type, so the page can show it and the save stores it."""
+        super().__init__(*args, **kwargs)
+        self.instance.type = self.config_type.key
+
+
+class ConfigChangeForm(_TypedConfigForm):
+    """The change page; ``change_form_for`` adds the value field for the config's type."""
 
     class Meta:
         """Fields edited on the change page (name and type are read-only there)."""
@@ -155,17 +145,29 @@ class ConfigChangeForm(_ConfigForm):
         except (ConfigValueError, ValueError):
             return None
 
-    def clean(self) -> dict[str, Any]:
-        """Replace the cleaned value with the text to store."""
-        cleaned = super().clean()
-        if self.config_type is not None and "value" in cleaned:
-            try:
-                cleaned["value"] = self.stored_text(
-                    self.config_type, cleaned["value"], allow_null=cleaned.get("allow_null", False)
-                )
-            except ValidationError as error:
-                self.add_error("value", error)
-        return cleaned
+
+def _value_field(config_type: ConfigType, *, allow_null: bool) -> forms.Field:
+    """Return the value field for ``config_type``, as both pages show it."""
+    return formfield_for(
+        config_type,
+        allow_null=allow_null,
+        # Never required here: the empty-value rules in clean() decide, using the allow_null submitted with it.
+        required=False,
+        label="Value",
+        help_text=config_type.help_text,
+    )
+
+
+def add_form_for(config_type: ConfigType) -> type[ConfigAddForm]:
+    """Return the add form for a new config of ``config_type``.
+
+    :param config_type: the type chosen in the first step
+    :rtype: type[ConfigAddForm]
+    """
+    # allow_null=True: whether the config allows None isn't known until it's saved, so a boolean gets the
+    # yes/no/unknown choice and the empty-value rules decide.
+    field = _value_field(config_type, allow_null=True)
+    return type("ConfigAddForm", (ConfigAddForm,), {"value": field, "config_type": config_type})
 
 
 def change_form_for(config: Config) -> type[ConfigChangeForm]:
@@ -177,12 +179,5 @@ def change_form_for(config: Config) -> type[ConfigChangeForm]:
     config_type = get_registry().get(config.type)
     if config_type is None:
         return ConfigChangeForm
-    field = formfield_for(
-        config_type,
-        allow_null=config.allow_null,
-        # Never required here: the empty-value rules in clean() decide, using the allow_null submitted with it.
-        required=False,
-        label="Value",
-        help_text=config_type.help_text,
-    )
+    field = _value_field(config_type, allow_null=config.allow_null)
     return type("ConfigChangeForm", (ConfigChangeForm,), {"value": field, "config_type": config_type})

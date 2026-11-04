@@ -1,6 +1,7 @@
 import pytest
 from django.contrib import admin
 from django.contrib.admin import AdminSite
+from django.contrib.staticfiles import finders
 
 from dynamic_configs.admin import ConfigAdmin, register_admin
 from dynamic_configs.models import Config
@@ -48,26 +49,72 @@ def test_the_list_shows_type_labels_and_value_previews(admin_client):
     assert "x" * 79 + "…" in content
 
 
-def test_the_add_page_offers_every_type(admin_client):
+def test_the_add_page_starts_with_the_type(admin_client):
     content = admin_client.get(f"{URL}add/").content.decode()
     assert "List of Integer" in content
-    assert "vLargeTextField" in content
+    assert 'name="name"' not in content
+    assert 'name="value"' not in content
+    assert 'name="_save"' in content
+    assert 'name="_addanother"' not in content
+    assert 'name="_continue"' not in content
+    assert "data-dynamic-configs-type" in content
+    assert "dynamic_configs/admin.js" in content
+
+
+def test_choosing_a_type_moves_to_its_value(admin_client):
+    response = admin_client.post(f"{URL}add/", {"type": "list:int", "_save": "Save"})
+    assert response.status_code == 302
+    assert response["Location"] == f"{URL}add/?type=list%3Aint"
+
+
+def test_choosing_a_type_keeps_the_pages_query(admin_client):
+    # Review focus: a popup add must stay a popup through the redirect.
+    response = admin_client.post(f"{URL}add/?_popup=1", {"type": "int", "_save": "Save"})
+    assert response["Location"] == f"{URL}add/?_popup=1&type=int"
+
+
+def test_choosing_no_type_is_an_error(admin_client):
+    response = admin_client.post(f"{URL}add/", {"type": "", "_save": "Save"})
+    assert response.status_code == 200
+    assert "This field is required." in response.content.decode()
+
+
+def test_an_unknown_type_in_the_address_starts_again(admin_client):
+    # Review focus: a stale or hand-edited ?type= gives the first step, not a server error.
+    content = admin_client.get(f"{URL}add/?type=gone").content.decode()
+    assert "data-dynamic-configs-type" in content
+    assert 'name="value"' not in content
+
+
+def test_the_value_step_shows_the_type_and_its_field(admin_client):
+    content = admin_client.get(f"{URL}add/?type=date").content.decode()
+    assert 'name="name"' in content
+    assert 'name="type"' not in content
+    assert '<div class="readonly">date</div>' in content
+    assert "vDateField" in content
+    assert 'name="_addanother"' in content
 
 
 def test_adding_saves_and_redirects(admin_client):
     response = admin_client.post(
-        f"{URL}add/", {"name": "PORTS", "type": "list:int", "value": "80\n443", "description": "", "_save": "Save"}
+        f"{URL}add/?type=list:int", {"name": "PORTS", "value": "80\n443", "description": "", "_save": "Save"}
     )
     assert response.status_code == 302
-    assert Config.objects.get(name="PORTS").value == '["80", "443"]'
+    config = Config.objects.get(name="PORTS")
+    assert (config.type, config.value) == ("list:int", '["80", "443"]')
 
 
 def test_adding_shows_line_errors(admin_client):
     response = admin_client.post(
-        f"{URL}add/", {"name": "PORTS", "type": "list:int", "value": "80\nhttp", "description": "", "_save": "Save"}
+        f"{URL}add/?type=list:int", {"name": "PORTS", "value": "80\nhttp", "description": "", "_save": "Save"}
     )
     assert response.status_code == 200
     assert "Line 2: Enter a whole number" in response.content.decode()
+
+
+def test_the_admin_script_is_shipped():
+    # Under tox the suite runs against the built wheel, so this also checks the script is packaged.
+    assert finders.find("dynamic_configs/admin.js") is not None
 
 
 def test_the_change_page_shows_name_and_type_read_only(admin_client):

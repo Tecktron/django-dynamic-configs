@@ -55,8 +55,8 @@ def test_money_with_currency_and_its_set_variant():
 def test_money_in_the_admin(admin_client):
     url = "/admin/dynamic_configs/config/"
     response = admin_client.post(
-        f"{url}add/",
-        {"name": "PRICE", "type": "money_currency", "value": "9.99 cad", "description": "", "_save": "Save"},
+        f"{url}add/?type=money_currency",
+        {"name": "PRICE", "value_0": "9.99", "value_1": "cad", "description": "", "_save": "Save"},
     )
     assert response.status_code == 302
     assert Config.objects.get(name="PRICE").value == "9.99 CAD"
@@ -72,10 +72,9 @@ def test_money_in_the_admin(admin_client):
 
 def test_a_set_of_money_rejects_the_same_amount_twice_in_the_admin(admin_client):
     response = admin_client.post(
-        "/admin/dynamic_configs/config/add/",
+        "/admin/dynamic_configs/config/add/?type=set:money_currency",
         {
             "name": "PRICES",
-            "type": "set:money_currency",
             "value": "9.99 CAD\n9.99 cad",
             "description": "",
             "_save": "Save",

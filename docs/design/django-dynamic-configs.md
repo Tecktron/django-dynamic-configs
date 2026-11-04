@@ -106,7 +106,7 @@ for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are writte
 `"2.0"`).
 
 Every type, built-in or custom, has a short `help_text` describing its text format (for example "YYYY-MM-DD" for
-`date`, "one number of hours, e.g. 1.5" for `hours`), shown on the admin's add page.
+`date`, "one number of hours, e.g. 1.5" for `hours`), shown as the value's help on the admin's add and change pages.
 
 `JSONTextField` is a textarea showing the value pretty-printed (`indent=2`), validated on the server. When
 `"prettyjson"` is in `INSTALLED_APPS`, it uses `prettyjson.widgets.PrettyJSONWidget` instead of the plain textarea.
@@ -372,8 +372,9 @@ All keys are optional. Settings are read through `dynamic_configs/conf.py`, whic
 
 ## Admin
 
-The admin ships **no templates, CSS or JavaScript** of its own; it uses stock `ModelAdmin` pages, so admin skins
-apply. Projects can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
+The admin ships **no templates or CSS** of its own; it uses stock `ModelAdmin` pages, so admin skins apply. Its one
+script, `dynamic_configs/admin.js`, is optional: it only fills in defaults and saves clicks, and every page works
+without it. Projects can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
 
 - **`ConfigAdminMixin`** holds all the behaviour. **`ConfigAdmin`** is `ConfigAdminMixin` + `admin.ModelAdmin`, and is
   registered automatically by `dynamic_configs.admin.register_admin()` unless `REGISTER_ADMIN` is `False`; calling it
@@ -381,12 +382,12 @@ apply. Projects can still override the standard templates (`admin/dynamic_config
   register `ConfigAdminMixin` + their `ModelAdmin`.
 - **List page:** name, type label, a value preview (list and set items joined with `, `, long values truncated), description
   and modified time. Search on name and description; filter by type.
-- **Add page:** name, type (a select of registered types, including list and set variants), `allow_null`, description,
-  and the value as a plain textarea, with each type's `help_text` listed as the field's help. On save, the text is
-  cleaned for the chosen type: list and set types use `TypedLineListField` (one item per line; duplicates rejected for
-  sets), every other type uses its serializer's
-  `deserialize` (so `bool` takes `true`, `date` takes `2026-11-02`, `datetime` takes ISO 8601 with or without a zone).
-  No JavaScript is needed.
+- **Add page:** two steps, so the value can use its type's own field. The first step asks only for the type (a
+  select of registered types, including list and set variants); Save moves to the second step at
+  `add/?type=<key>`, which shows the name, the type (read-only), the value in its type's form field, `allow_null` and
+  the description, as on the change page. With the admin script, choosing a type moves on without clicking Save. An
+  unknown `?type=` shows the first step again, and other query parameters (a popup's, say) are kept. A boolean gets
+  the yes/no/unknown choice on this page, since whether the config allows None isn't known until it's saved.
 - **Change page:** name and type are read-only; the value uses its type's form field (checkbox, date picker, one item
   per line, and so on).
 - On both pages, an empty value is saved as `None` when `allow_null` is set. When it isn't set, an empty value is the
@@ -478,6 +479,7 @@ src/dynamic_configs/
     signals.py          post_save / post_delete cache handling
     admin.py            ConfigAdminMixin, ConfigAdmin
     apps.py
+    static/dynamic_configs/admin.js   the admin's optional script
     types/
         base.py         ConfigType: a type's definition, type check and text conversion
         registry.py     registry build, lookup, list and set variants
@@ -489,7 +491,7 @@ src/dynamic_configs/
         json.py         JSONTextField
         fields.py       SerializerField, DurationUnitField, formfield_for
         money.py        MoneyField, MoneyCurrencyField
-        config.py       ConfigAddForm, ConfigChangeForm, change_form_for (the admin's model forms)
+        config.py       ConfigTypeForm, ConfigAddForm, add_form_for, ConfigChangeForm, change_form_for (the admin's model forms)
     test/
         __init__.py     override_configs
         pytest_plugin.py
