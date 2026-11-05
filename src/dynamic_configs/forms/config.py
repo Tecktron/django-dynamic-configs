@@ -13,7 +13,7 @@ from typing import Any
 from django import forms
 from django.core.exceptions import ValidationError
 
-from dynamic_configs.exceptions import ConfigError, ConfigValueError
+from dynamic_configs.exceptions import ConfigError
 from dynamic_configs.forms.fields import formfield_for
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
@@ -142,7 +142,7 @@ class ConfigChangeForm(_TypedConfigForm):
                 # Keep the stored order (a set would lose it), so the admin sees items as they were entered.
                 return ListSerializer.deserialize(config_type.serializer, text)
             return config_type.from_text(text)
-        except (ConfigValueError, ValueError):
+        except ValueError:  # ConfigValueError included
             return None
 
 

@@ -1,9 +1,8 @@
 """Django admin for configs.
 
 The admin ships no templates or CSS of its own, only Django's admin widgets and one optional script, so admin skins
-apply. All of
-the behaviour is in ``ConfigAdminMixin``: skins with their own ``ModelAdmin`` base unregister ``ConfigAdmin`` and
-register ``ConfigAdminMixin`` combined with their base.
+apply. All of the behaviour is in ``ConfigAdminMixin``: skins with their own ``ModelAdmin`` base unregister
+``ConfigAdmin`` and register ``ConfigAdminMixin`` combined with their base.
 """
 
 from __future__ import annotations
