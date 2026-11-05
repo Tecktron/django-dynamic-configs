@@ -267,8 +267,14 @@ class JSONSerializer:
         """Return ``value`` as JSON text."""
         try:
             return json.dumps(value, ensure_ascii=False, allow_nan=False)
-        except (TypeError, ValueError) as error:
+        except TypeError as error:
+            # json's message names only the type ("Object of type date is not JSON serializable").
             raise ValueError(f"The value can't be stored as JSON: {error}") from error
+        except ValueError as error:
+            # json's message here ends with the number it rejected, and messages never include the value.
+            raise ValueError(
+                "The value can't be stored as JSON: it contains NaN or infinity, or contains itself."
+            ) from error
 
     def deserialize(self, text: str) -> dict[str, Any] | list[Any]:
         """Return the object or array written in ``text``."""

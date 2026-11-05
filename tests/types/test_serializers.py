@@ -222,6 +222,14 @@ def test_json_rejects_values_json_cannot_hold(value):
         JSONSerializer().serialize(value)
 
 
+@pytest.mark.parametrize("number", [float("nan"), float("inf"), float("-inf")])
+def test_json_rejects_nan_and_infinity_without_echoing_them(number):
+    # Docstring audit: json's own message ended with the number it rejected, and messages never include the value.
+    with pytest.raises(ValueError) as error:
+        JSONSerializer().serialize({"ratio": number})
+    assert str(error.value) == "The value can't be stored as JSON: it contains NaN or infinity, or contains itself."
+
+
 @pytest.mark.parametrize(("text", "message"), [("{", "valid JSON"), ("[NaN]", "valid JSON"), ("5", "object or array")])
 def test_json_rejects_bad_text(text, message):
     with pytest.raises(ValueError, match=message):
