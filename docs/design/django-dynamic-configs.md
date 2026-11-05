@@ -446,7 +446,10 @@ into the admin. Installable with `django-dynamic-configs[prettyjson]`.
 - **`dynamic_configs.test.override_configs(**values)`**: a context manager and decorator (for functions, methods and
   classes). Overridden values are returned by `get` and `get_or_create` (as `(value, False)`) without touching the
   cache or the database. Restored in a `finally` block. Built on `contextvars`, so overrides don't leak between
-  threads or async tasks, and they propagate into the async variants.
+  threads or async tasks, and they propagate into the async variants. On a class, like `override_settings`, it covers
+  the whole class: its `test*` methods, inherited ones included, and the setup and teardown hooks of unittest, Django
+  and pytest (`setUp`, `setUpClass`, `setUpTestData`, `setup_method`, `setup_class` and their teardowns). A
+  subclass's values win over a decorated base's; stacked on one class, the inner decorator wins, as on functions.
 - **pytest plugin** (`dynamic_configs/test/pytest_plugin.py`, registered under the `pytest11` entry point): a
   `config_overrides` fixture whose `.set(**values)` applies overrides for the rest of the test, cleared at teardown.
   (It isn't named `dynamic_configs`, which would hide the module inside tests that also call `dynamic_configs.get`.)
