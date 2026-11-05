@@ -142,7 +142,9 @@ class ConfigChangeForm(_TypedConfigForm):
                 # Keep the stored order (a set would lose it), so the admin sees items as they were entered.
                 return ListSerializer.deserialize(config_type.serializer, text)
             return config_type.from_text(text)
-        except ValueError:  # ConfigValueError included
+        except Exception:
+            # Whatever reading it raises (a RecursionError on JSON nested too deeply, a custom serializer's KeyError),
+            # as from_text treats it for get(): the stored text is unreadable, and the admin needs the page to fix it.
             return None
 
 

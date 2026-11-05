@@ -140,6 +140,13 @@ def test_an_unreadable_value_opens_empty():
     assert form.initial["value"] is None
 
 
+def test_an_unreadable_list_opens_empty_whatever_the_error():
+    # Docstring audit: lists and sets skipped from_text's catch-all, so JSON nested too deeply to parse (a
+    # RecursionError) was a server error rather than an empty value.
+    form = opened(make("PORTS", "list:int", "[" * 100_000 + "]" * 100_000))
+    assert form.initial["value"] is None
+
+
 def test_an_empty_value_opens_empty():
     form = opened(make(value=None, allow_null=True))
     assert form.initial["value"] is None
