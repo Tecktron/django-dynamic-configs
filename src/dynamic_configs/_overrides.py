@@ -23,7 +23,9 @@ def current() -> Mapping[str, Any]:
 def lookup(name: str) -> tuple[bool, Any]:
     """Return ``(True, value)`` if ``name`` is overridden here, otherwise ``(False, None)``."""
     values = current()
-    if name in values:
+    # Overrides are keyed by keyword names, so only a string can be one; checking first also keeps an unhashable name
+    # (a list, say) from raising here, before the caller's own name check.
+    if isinstance(name, str) and name in values:
         return True, values[name]
     return False, None
 

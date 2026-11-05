@@ -71,6 +71,8 @@ def test_invalid_names_are_missing_without_touching_cache_or_database(settings, 
         assert dynamic_configs.get("site name", default=1) == 1
         with pytest.raises(ConfigDoesNotExist):
             dynamic_configs.get(42)
+        # Review: an unhashable name raised TypeError from the override lookup, despite the default.
+        assert dynamic_configs.get(["SITE_NAME"], default=1) == 1
     assert caplog.records == []
 
 
@@ -192,7 +194,9 @@ def test_get_or_create_returns_the_value_as_get_will():
     assert value.tzinfo is dt_timezone.utc
 
 
-@pytest.mark.parametrize(("name", "message"), [("max_retries", "UPPER_SNAKE_CASE"), (5, "must be strings")])
+@pytest.mark.parametrize(
+    ("name", "message"), [("max_retries", "UPPER_SNAKE_CASE"), (5, "must be strings"), (["X"], "must be strings")]
+)
 def test_get_or_create_validates_the_name(name, message):
     with pytest.raises(ConfigValueError, match=message):
         dynamic_configs.get_or_create(name, "int", 3)
