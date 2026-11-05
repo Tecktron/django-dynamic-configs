@@ -104,6 +104,16 @@ class TestPytestSetupHooks:
 
 
 @override_configs(SITE_NAME="Class")
+class TestPlainSetupClass:
+    # pytest also takes setup_class as a plain function, which it calls with the class.
+    def setup_class(cls):  # noqa: N805
+        cls.seen_in_setup_class = _overrides.lookup("SITE_NAME")
+
+    def test_a_plain_setup_class_sees_the_overrides(self):
+        assert self.seen_in_setup_class == (True, "Class")
+
+
+@override_configs(SITE_NAME="Class")
 class TestDjangoTestCaseHooks(TestCase):
     @classmethod
     def setUpTestData(cls):

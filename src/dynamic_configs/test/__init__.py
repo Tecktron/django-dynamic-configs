@@ -138,6 +138,9 @@ class override_configs:  # noqa: N801 - lowercase like Django's override_setting
             elif inspect.isfunction(member) and not hasattr(member, _WRAPPED):
                 if name in _METHOD_HOOKS:
                     setattr(cls, name, _marked(_wrap_hook(member, _instance_values)))
+                elif name in _CLASS_HOOKS:
+                    # pytest also takes setup_class and teardown_class as plain functions, called with the class.
+                    setattr(cls, name, _marked(_wrap_hook(member, _class_hook_values)))
                 elif name.startswith("test"):
                     setattr(cls, name, _marked(_wrap(member, _instance_values)))
         return cls
