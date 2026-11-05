@@ -6,6 +6,12 @@ cached API.
 **Status:** alpha, under active development. The design is in
 [docs/design/django-dynamic-configs.md](docs/design/django-dynamic-configs.md).
 
+## Known limitations
+
+- **Datetimes in the admin keep whole seconds.** Like Django's own admin, the time input shows hours, minutes and
+  seconds. A datetime set from code with fractions of a second loses them when its config is saved in the admin, even
+  if the datetime itself wasn't changed. Keep such values in code (`dynamic_configs.update`).
+
 ## Development
 
 Set up a virtual environment in the repository and install the development requirements:
