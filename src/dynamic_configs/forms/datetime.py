@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import zoneinfo
-from datetime import date, datetime, time
-from functools import cache
+from datetime import date, datetime, time, timedelta
+from datetime import timezone as dt_timezone
+from functools import lru_cache
 from typing import Any
 
 from django import forms
@@ -12,15 +13,41 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
+# Not zones to offer: "localtime" is the server's own zone file, so it means something different on each server, and
+# "Factory" is a placeholder with no real offset.
+_NOT_ZONES = frozenset({"localtime", "Factory"})
 
-@cache
-def zone_choices() -> list[tuple[str, str]]:
-    """Return the time zones to choose from: UTC first, then every IANA zone by name.
 
+def zone_choices(at: datetime | None = None) -> list[tuple[str, str]]:
+    """Return the time zones to choose from, labelled with their UTC offset and ordered by it.
+
+    Zones run from the most negative offset to the most positive, by name within an offset, with UTC first among the
+    zones at +0:00. Offsets are the ones in effect at the start of ``at``'s hour, so labels follow daylight saving.
+
+    :param at: an aware datetime whose offsets to show; defaults to now
     :rtype: list[tuple[str, str]]
     """
-    zones = sorted(zoneinfo.available_timezones() - {"UTC"})
-    return [("UTC", "UTC")] + [(zone, zone) for zone in zones]
+    at = at or datetime.now(dt_timezone.utc)
+    return _zone_choices(at.replace(minute=0, second=0, microsecond=0))
+
+
+# One hour's list, kept: building it takes about 20 ms, and every datetime form needs it twice.
+@lru_cache(maxsize=1)
+def _zone_choices(hour: datetime) -> list[tuple[str, str]]:
+    offsets = {
+        # A ZoneInfo always has an offset; the fallback only satisfies the type.
+        zone: hour.astimezone(zoneinfo.ZoneInfo(zone)).utcoffset() or timedelta(0)
+        for zone in zoneinfo.available_timezones() - _NOT_ZONES
+    }
+    zones = sorted(offsets, key=lambda zone: (offsets[zone], zone != "UTC", zone))
+    return [(zone, f"{zone} ({_offset_label(offsets[zone])})") for zone in zones]
+
+
+def _offset_label(offset: timedelta) -> str:
+    """Return ``offset`` as ``+5:30`` or ``-5:00``."""
+    total = int(offset.total_seconds()) // 60
+    hours, minutes = divmod(abs(total), 60)
+    return f"{'-' if total < 0 else '+'}{hours}:{minutes:02d}"
 
 
 class ZonedDateTimeWidget(forms.MultiWidget):

@@ -35,7 +35,14 @@
     // Django's date and time pickers take Today and Now from the page's server offset, read on every click, so point
     // it at the chosen zone. (A config's page has one value, so one zone.)
     function followZone(select) {
-        document.body.dataset.adminUtcOffset = String(utcOffset(select.value));
+        try {
+            document.body.dataset.adminUtcOffset = String(utcOffset(select.value));
+        } catch (error) {
+            // An older browser may not know a newer zone (a RangeError); the pickers keep the zone they had.
+            if (!(error instanceof RangeError)) {
+                throw error;
+            }
+        }
     }
 
     // A zoned datetime: start an empty value on the browser's zone, then keep the pickers in the chosen zone. A value

@@ -124,7 +124,10 @@ The `datetime` type follows Django's time zone settings:
 - **`USE_TZ = False`**: an aware datetime is converted to `TIME_ZONE` and made naive, which is Django's own convention
   for this mode; values are stored and returned naive.
 - **In the admin** (with `USE_TZ` on), a datetime is entered as a date, a time and a time zone: the admin's date and
-  time pickers plus a select of IANA zones, UTC first (`ZonedDateTimeField`). The select starts on the current time
+  time pickers plus a select of IANA zones (`ZonedDateTimeField`). Each zone is labelled with its current UTC offset,
+  such as `America/New_York (-5:00)`, and the zones run from the most negative offset to the most positive, by name
+  within an offset, with UTC first among those at `+0:00`; `localtime` and `Factory` aren't offered, since they
+  aren't real zones. The labels follow daylight saving, refreshed hourly. The select starts on the current time
   zone (`TIME_ZONE` unless the project activates another), and a stored value is shown in that zone. When the value
   is empty, the admin script starts the select on the browser's own zone instead, and it keeps the pickers' Today
   and Now links in whichever zone is chosen. A time that a daylight-saving change skips or repeats is a form error

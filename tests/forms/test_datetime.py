@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, time
 from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
@@ -19,13 +20,56 @@ def messages(*values):
     return error.value.messages
 
 
-def test_zone_choices_start_with_utc_then_every_zone_by_name():
-    choices = zone_choices()
-    assert choices[0] == ("UTC", "UTC")
-    names = [name for name, _ in choices[1:]]
-    assert names == sorted(names)
-    assert "America/New_York" in names
-    assert "UTC" not in names
+WINTER = datetime(2026, 1, 15, 12, tzinfo=dt_timezone.utc)
+SUMMER = datetime(2026, 7, 1, 12, tzinfo=dt_timezone.utc)
+
+
+def offset_minutes(label):
+    sign, hours, minutes = re.search(r"\(([+-])(\d+):(\d\d)\)$", label).groups()
+    return (-1 if sign == "-" else 1) * (int(hours) * 60 + int(minutes))
+
+
+# Zones without daylight saving, so their labels don't depend on today's date.
+@pytest.mark.parametrize(
+    ("zone", "label"),
+    [
+        ("UTC", "UTC (+0:00)"),
+        ("Asia/Tokyo", "Asia/Tokyo (+9:00)"),
+        ("Asia/Kolkata", "Asia/Kolkata (+5:30)"),
+        ("Pacific/Marquesas", "Pacific/Marquesas (-9:30)"),
+        ("Etc/GMT+12", "Etc/GMT+12 (-12:00)"),
+        ("Pacific/Kiritimati", "Pacific/Kiritimati (+14:00)"),
+    ],
+)
+def test_zones_are_labelled_with_their_utc_offset(zone, label):
+    assert dict(zone_choices())[zone] == label
+
+
+def test_zones_run_from_the_most_negative_offset_to_the_most_positive_with_utc_first_at_zero():
+    keys = [(offset_minutes(label), name) for name, label in zone_choices(WINTER)]
+    assert keys == sorted(keys, key=lambda key: (key[0], key[1] != "UTC", key[1]))
+    assert keys[0][0] < 0 < keys[-1][0]
+    assert "America/New_York" in [name for _, name in keys]
+
+
+@pytest.mark.parametrize(("at", "label"), [(WINTER, "America/New_York (-5:00)"), (SUMMER, "America/New_York (-4:00)")])
+def test_labels_follow_daylight_saving(at, label):
+    assert dict(zone_choices(at))["America/New_York"] == label
+
+
+def test_the_list_is_for_the_current_hour_and_reused_within_it():
+    assert zone_choices() == zone_choices(datetime.now(dt_timezone.utc))
+    assert zone_choices(WINTER) is zone_choices(WINTER.replace(minute=59))
+
+
+@pytest.mark.parametrize("zone", ["localtime", "Factory"])
+def test_placeholder_zones_are_not_offered(zone):
+    # "localtime" is the server's own zone file, so it means something different on each server; "Factory" has no
+    # real offset.
+    assert zone not in dict(zone_choices())
+    assert messages("2026-11-03", "09:30", zone) == [
+        f"Select a valid choice. {zone} is not one of the available choices."
+    ]
 
 
 def test_cleans_to_an_aware_datetime_in_the_chosen_zone():
