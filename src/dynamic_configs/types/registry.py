@@ -85,12 +85,14 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
 
 
 def _import(where: str, field: str, path: str) -> Any:
-    """Import ``path``, raising TypeConfigError (E002) when it can't be imported."""
+    """Import ``path``, raising TypeConfigError (E002) when it can't be imported, whatever importing it raises."""
     try:
         return import_string(path)
-    except ImportError as error:
+    except Exception as error:
+        # Not only ImportError: a module that fails while it's imported (a NameError, say) is just as unusable, and
+        # letting it escape would stop the non-strict build, and so every config read.
         raise TypeConfigError(
-            f"{where}[{field!r}]: can't import {path!r} ({error}).", "dynamic_configs.E002"
+            f"{where}[{field!r}]: can't import {path!r} ({type(error).__name__}: {error}).", "dynamic_configs.E002"
         ) from error
 
 

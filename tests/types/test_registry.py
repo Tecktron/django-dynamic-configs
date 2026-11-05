@@ -48,6 +48,7 @@ def test_label_help_text_form_and_listable_are_optional():
         ("color", {"serializer": COLOR["serializer"]}, "E001", "\\['type'\\] must be a dotted path"),
         ("color", {**COLOR, "serializer": 5}, "E001", "\\['serializer'\\] must be a dotted path"),
         ("color", {**COLOR, "type": "tests.custom_types.Missing"}, "E002", "can't import"),
+        ("color", {**COLOR, "type": "tests.broken_type_module.Color"}, "E002", "can't import.*ZeroDivisionError"),
         ("color", {**COLOR, "type": "tests.custom_types.not_a_class"}, "E001", "\\['type'\\] must be a class"),
         ("color", {**COLOR, "serializer": "tests.custom_types.not_a_class"}, "E003", "must be a class"),
         ("color", {**COLOR, "serializer": "tests.custom_types.NeedsArgumentSerializer"}, "E003", "no arguments"),
@@ -174,6 +175,20 @@ def test_a_broken_custom_type_is_skipped_at_runtime_with_an_error(settings, capl
     assert "int" in registry
     [error] = [record for record in caplog.records if record.levelno == logging.ERROR]
     assert "can't import" in error.getMessage()
+    assert "dynamic_configs.E002" in error.getMessage()
+
+
+def test_a_custom_type_whose_module_fails_to_import_is_skipped_at_runtime(settings, caplog):
+    # Docstring audit: only ImportError was caught, so a module raising anything else while imported made every get()
+    # raise, despite the non-strict build.
+    settings.DYNAMIC_CONFIGS = {
+        "TYPES": {"broken": {**PLAIN, "type": "tests.broken_type_module.Color"}, "color": COLOR}
+    }
+    registry = get_registry()
+    assert "broken" not in registry
+    assert "color" in registry
+    [error] = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert "can't import 'tests.broken_type_module.Color' (ZeroDivisionError:" in error.getMessage()
     assert "dynamic_configs.E002" in error.getMessage()
 
 
