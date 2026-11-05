@@ -14,7 +14,7 @@ from dynamic_configs.types.registry import TypeConfigError, load_custom_type
 
 @register()
 def check_settings(app_configs: Any = None, **kwargs: Any) -> list[CheckMessage]:
-    """Check ``DYNAMIC_CONFIGS``: its shape, the cache alias, the timeout and every custom type.
+    """Check ``DYNAMIC_CONFIGS``: its shape, the cache alias, the timeout, ``REGISTER_ADMIN`` and every custom type.
 
     :returns: one error per problem found
     :rtype: list[CheckMessage]

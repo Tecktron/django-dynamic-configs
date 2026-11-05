@@ -52,7 +52,11 @@ def cache_key(name: str) -> str:
 
 
 def get_cache() -> BaseCache | None:
-    """Return the configured cache, or None when caching is off (``CACHE`` is None or the backend is DummyCache)."""
+    """Return the configured cache, or None when caching is off.
+
+    Caching is off when ``CACHE`` is None or isn't a configured alias (logged as a warning), or the backend is
+    DummyCache.
+    """
     alias = get_settings()["CACHE"]
     if alias is None:
         return None

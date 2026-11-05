@@ -1,7 +1,8 @@
 """The admin's model forms for adding and changing configs.
 
 Adding takes two steps: ``ConfigTypeForm`` chooses the type, then ``add_form_for`` gives the add form with that type's
-value field, the same field the change page uses. Both turn the value into stored text with ``ConfigType.to_text``, so
+value field, built as on the change page, except that a boolean always offers yes/no/unknown, since ``allow_null``
+isn't known until the save. Both turn the value into stored text with ``ConfigType.to_text``, so
 an admin save passes the same type check and serializer as the API, and apply the empty-value rules using the
 ``allow_null`` submitted in the same save.
 """
