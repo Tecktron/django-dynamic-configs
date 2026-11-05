@@ -102,7 +102,11 @@ class ConfigAdminMixin:
         self, request: HttpRequest, form_url: str = "", extra_context: dict[str, Any] | None = None
     ) -> HttpResponse:
         """Ask for the type first, then show the add page with that type's value field (``?type=`` in the address)."""
-        if _chosen_type(request) is None:
+        if _chosen_type(request) is not None:
+            # Post the second step back to its own query. Left empty, Django points the form at the list's preserved
+            # filters alone (after a search, say), which drops type= and sends the save back to the first step.
+            form_url = form_url or f"?{request.GET.urlencode()}"
+        else:
             if request.method == "POST":
                 form = ConfigTypeForm(request.POST)
                 if form.is_valid():

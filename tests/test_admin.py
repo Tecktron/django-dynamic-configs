@@ -1,3 +1,6 @@
+import html
+import re
+
 import pytest
 from django.contrib import admin
 from django.contrib.admin import AdminSite
@@ -102,6 +105,19 @@ def test_adding_saves_and_redirects(admin_client):
     assert response.status_code == 302
     config = Config.objects.get(name="PORTS")
     assert (config.type, config.value) == ("list:int", '["80", "443"]')
+
+
+def test_adding_from_a_searched_list_saves(admin_client):
+    # Review: from a searched, filtered or sorted list, Django points the form at ?_changelist_filters=..., which
+    # dropped type= and sent the save back to the first step.
+    page = f"{URL}add/?_changelist_filters=q%3DSITE&type=int"
+    content = admin_client.get(page).content.decode()
+    action = html.unescape(re.search(r'<form action="([^"]*)"[^>]* id="config_form"', content).group(1))
+    data = {"name": "MAX_RETRIES", "value": "3", "description": "", "_save": "Save"}
+    response = admin_client.post(f"{URL}add/{action}", data)
+    assert response.status_code == 302
+    assert Config.objects.get(name="MAX_RETRIES").value == "3"
+    assert response["Location"] == f"{URL}?q=SITE"
 
 
 def test_adding_shows_line_errors(admin_client):
