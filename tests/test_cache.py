@@ -1,4 +1,7 @@
+import json
 import logging
+
+import pytest
 
 from dynamic_configs import cache
 
@@ -19,6 +22,14 @@ def test_absent_settings_are_cached_as_a_marker():
 
 def test_nothing_cached_reads_as_not_cached():
     assert cache.read("SITE_NAME") is cache.NOT_CACHED
+
+
+@pytest.mark.parametrize("text", ["Example", None])
+def test_entries_from_a_cache_that_stores_json_read_as_hits(text):
+    # Review: caches that serialize to JSON or msgpack (django-redis's JSON serializer, say) give lists back, which
+    # read as misses, so every get() went to the database and the fill (an add) never replaced the entry.
+    cache.get_cache().set(cache.cache_key("SITE_NAME"), json.loads(json.dumps(("str", text))))
+    assert cache.read("SITE_NAME") == ("str", text)
 
 
 def test_unexpected_cached_values_read_as_not_cached():
