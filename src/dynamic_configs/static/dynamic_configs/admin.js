@@ -110,14 +110,58 @@
         }
     }
 
+    function browserZone() {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+
+    function offers(select, zone) {
+        return Boolean(zone) && [...select.options].some((option) => option.value === zone);
+    }
+
     // Start an empty value on the browser's zone. A value that's already shown keeps its zone, since changing the zone
     // alone would change the instant.
     function startOnBrowserZone(select) {
         const empty = zoneInputs(select).every((input) => !input.value);
-        const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        if (empty && [...select.options].some((option) => option.value === browserZone)) {
-            select.value = browserZone;
+        if (empty && offers(select, browserZone())) {
+            select.value = browserZone();
         }
+    }
+
+    const ZONE_SHORTCUTS = "dynamic-configs-zone-shortcuts";
+    const PICK_ZONE = "data-dynamic-configs-pick-zone";
+
+    // "My zone | Server zone" after a zone select, styled like Django's Now and Today links, leaving out a zone the
+    // select doesn't offer (the page names the server's zone only when it's offered). Inline rows are copied from a
+    // template row that already has the links, so a select that has them is skipped.
+    function addZoneShortcuts(select) {
+        if (select.nextElementSibling?.classList.contains(ZONE_SHORTCUTS)) {
+            return;
+        }
+        const links = [
+            ["My zone", browserZone()],
+            ["Server zone", select.dataset.serverZone],
+        ]
+            .filter(([, zone]) => offers(select, zone))
+            .map(([text, zone]) => {
+                const link = document.createElement("a");
+                link.href = "#";
+                link.textContent = text;
+                link.title = zone;
+                link.setAttribute(PICK_ZONE, zone);
+                return link;
+            });
+        if (!links.length) {
+            return;
+        }
+        const shortcuts = document.createElement("span");
+        shortcuts.className = `datetimeshortcuts ${ZONE_SHORTCUTS}`;
+        links.forEach((link, index) => {
+            if (index) {
+                shortcuts.append(" | ");
+            }
+            shortcuts.append(link);
+        });
+        select.after(shortcuts);
     }
 
     // Listening on the document covers inline rows added later.
@@ -139,10 +183,21 @@
             renoteZone(event.target);
         }
     });
+    // Picking a zone with a link changes the select as choosing it would, so the note and pickers follow.
+    document.addEventListener("click", (event) => {
+        const link = event.target instanceof Element ? event.target.closest(`a[${PICK_ZONE}]`) : null;
+        const select = link?.parentElement.previousElementSibling;
+        if (select instanceof Element && select.matches(ZONE_SELECT)) {
+            event.preventDefault();
+            select.value = link.getAttribute(PICK_ZONE);
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+    });
     document.addEventListener("formset:added", (event) => {
         const selects = event.target.querySelectorAll(ZONE_SELECT);
         for (const select of selects) {
             startOnBrowserZone(select);
+            addZoneShortcuts(select);
         }
         // After Django has set up the new row's pickers and notes.
         setTimeout(() => selects.forEach(renoteZone));
@@ -155,6 +210,7 @@
         }
         const selects = document.querySelectorAll(ZONE_SELECT);
         selects.forEach(startOnBrowserZone);
+        selects.forEach(addZoneShortcuts);
         if (selects.length) {
             followZone(selects[0]);
         }

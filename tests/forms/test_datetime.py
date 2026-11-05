@@ -156,6 +156,19 @@ def test_the_widget_labels_its_inputs_and_marks_the_zone_select():
     assert '<option value="America/New_York" selected>' in html
 
 
+def test_the_zone_select_names_the_sites_zone_for_the_admin_script():
+    # The script's "Server zone" link selects it: the site's TIME_ZONE, not the zone active for this request.
+    with timezone.override("Asia/Tokyo"):
+        html = ZonedDateTimeWidget().render("value", None)
+    assert 'data-server-zone="America/New_York"' in html
+
+
+def test_a_site_zone_the_select_doesnt_offer_isnt_named(settings):
+    # A link to a zone that isn't a choice would select nothing, so the script hides it when there's no zone named.
+    settings.TIME_ZONE = "Factory"
+    assert "data-server-zone" not in ZonedDateTimeWidget().render("value", None)
+
+
 def test_with_use_tz_on_datetimes_get_the_zoned_field_with_help_for_it():
     # The type's help describes the typed format; next to a picker it would mislead.
     field = datetime_field(help_text="A date and time as YYYY-MM-DD HH:MM.")

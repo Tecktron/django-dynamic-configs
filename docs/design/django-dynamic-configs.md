@@ -131,8 +131,10 @@ The `datetime` type follows Django's time zone settings:
   zone (`TIME_ZONE` unless the project activates another), and a stored value is shown in that zone. UTC stands in
   when the select doesn't offer the current zone (a fixed offset a project activates) or a value can't be moved into
   it (near year 1 or 9999), so the page opens and saving it untouched keeps the instant. When the value
-  is empty, the admin script starts the select on the browser's own zone instead, and it keeps the pickers' Today
-  and Now links in whichever zone is chosen. A time that a daylight-saving change skips or repeats is a form error
+  is empty, the admin script starts the select on the browser's own zone instead, and it keeps each widget's Today
+  and Now links and time zone note in that widget's chosen zone. The script also puts "My zone | Server zone" links
+  beside the select, picking the browser's zone or `TIME_ZONE`; a link is left out when the select doesn't offer
+  its zone. A time that a daylight-saving change skips or repeats is a form error
   rather than resolved with `fold=0`: the admin typed it, so it isn't guessed. The value's help reads "A date, a
   time and the time zone they're in." rather than the typed format, which still applies to code, list items and text.
 - **In the admin with `USE_TZ` off** there are no zones to choose: the value uses Django's split date and time
