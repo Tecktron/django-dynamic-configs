@@ -4,5 +4,6 @@
 coverage
 pytest
 pytest-django
+pytest-mock
 ruff
 tox

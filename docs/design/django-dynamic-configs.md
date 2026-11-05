@@ -527,7 +527,8 @@ tests/
 - Extras: `simple-history` (`django-simple-history>=3.8`, the first release supporting Django 5.2; 3.11 added
   Django 6.0, and pip resolves the newest release anyway) and `prettyjson` (`django-prettyjson>=0.4.1`).
 - Development dependencies in `requirements.txt`: an editable install of the package plus coverage, pytest,
-  pytest-django, ruff and tox, installed into a `venv/` in the repository (ignored by git). The documentation tools
+  pytest-django, pytest-mock (tests patch with its `mocker` fixture, not `unittest.mock`), ruff and tox, installed
+  into a `venv/` in the repository (ignored by git). The documentation tools
   (sphinx, myst-parser, furo, sphinx-autodoc-typehints) go in `docs/requirements.txt`, which `requirements.txt`
   includes and Read the Docs installs.
 - `pytest11` entry point: `dynamic_configs = "dynamic_configs.test.pytest_plugin"`.
