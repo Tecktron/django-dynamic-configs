@@ -67,11 +67,22 @@ class ZonedDateTimeWidget(forms.MultiWidget):
         super().__init__(widgets, attrs)
 
     def decompress(self, value: datetime | None) -> list[Any]:
-        """Show ``value`` in the current time zone, which is also the zone the select starts on."""
+        """Show ``value`` in the current time zone, which is also the zone the select starts on.
+
+        UTC stands in when the select doesn't offer the current zone, or the value can't be moved into it.
+        """
         zone = timezone.get_current_timezone_name()
+        if zone not in {name for name, _ in zone_choices()}:
+            # A fixed offset (as per-user offset middleware activates) isn't a choice: nothing would be selected, the
+            # browser would submit UTC, and saving untouched would move the value.
+            zone = "UTC"
         if value is None:
             return [None, None, zone]
-        local = timezone.localtime(value)
+        try:
+            local = value.astimezone(zoneinfo.ZoneInfo(zone))
+        except OverflowError:
+            # Too near the ends of the calendar to move into the zone (9999-12-31 east of UTC, say); UTC keeps it.
+            local, zone = value.astimezone(dt_timezone.utc), "UTC"
         return [local.date(), local.time(), zone]
 
 

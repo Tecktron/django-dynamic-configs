@@ -128,7 +128,9 @@ The `datetime` type follows Django's time zone settings:
   such as `America/New_York (-5:00)`, and the zones run from the most negative offset to the most positive, by name
   within an offset, with UTC first among those at `+0:00`; `localtime` and `Factory` aren't offered, since they
   aren't real zones. The labels follow daylight saving, refreshed hourly. The select starts on the current time
-  zone (`TIME_ZONE` unless the project activates another), and a stored value is shown in that zone. When the value
+  zone (`TIME_ZONE` unless the project activates another), and a stored value is shown in that zone. UTC stands in
+  when the select doesn't offer the current zone (a fixed offset a project activates) or a value can't be moved into
+  it (near year 1 or 9999), so the page opens and saving it untouched keeps the instant. When the value
   is empty, the admin script starts the select on the browser's own zone instead, and it keeps the pickers' Today
   and Now links in whichever zone is chosen. A time that a daylight-saving change skips or repeats is a form error
   rather than resolved with `fold=0`: the admin typed it, so it isn't guessed. The value's help reads "A date, a

@@ -121,6 +121,28 @@ def test_the_widget_shows_a_value_in_the_current_zone():
         assert widget.decompress(value) == [date(2026, 11, 3), time(7, 0), "Asia/Tokyo"]
 
 
+@pytest.mark.parametrize(
+    ("value", "zone"),
+    [
+        # Moving these into the zone would leave the calendar (past 9999 or before year 1).
+        (datetime.max.replace(tzinfo=dt_timezone.utc), "Asia/Tokyo"),
+        (datetime.min.replace(tzinfo=dt_timezone.utc), "America/New_York"),
+    ],
+)
+def test_a_value_at_the_ends_of_the_calendar_is_shown_in_utc(value, zone):
+    with timezone.override(zone):
+        assert ZonedDateTimeWidget().decompress(value) == [value.date(), value.time(), "UTC"]
+
+
+def test_a_current_zone_the_select_doesnt_offer_shows_utc():
+    # Review: a fixed offset (as per-user offset middleware activates) isn't a choice, so nothing was selected and the
+    # browser submitted UTC, moving a value nobody edited.
+    value = datetime(2026, 11, 2, 22, 0, tzinfo=dt_timezone.utc)
+    with timezone.override(timezone.get_fixed_timezone(120)):
+        assert ZonedDateTimeWidget().decompress(value) == [date(2026, 11, 2), time(22, 0), "UTC"]
+        assert ZonedDateTimeWidget().decompress(None) == [None, None, "UTC"]
+
+
 def test_the_widget_starts_an_empty_value_on_the_current_zone():
     assert ZonedDateTimeWidget().decompress(None) == [None, None, "America/New_York"]
 

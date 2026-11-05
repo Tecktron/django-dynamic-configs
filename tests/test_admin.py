@@ -181,6 +181,14 @@ def test_saving_a_datetime_as_shown_keeps_its_instant(admin_client):
     assert Config.objects.get(name="STARTS_AT").value == "2026-07-01T03:15:00+00:00"
 
 
+def test_a_datetime_at_the_start_of_the_calendar_opens(admin_client):
+    # Review: in New York, 0001-01-01 00:00 UTC would be before year 1, which was a server error.
+    make("STARTS_AT", "datetime", "0001-01-01T00:00:00+00:00")
+    content = admin_client.get(change_url("STARTS_AT")).content.decode()
+    assert 'value="0001-01-01"' in content
+    assert '<option value="UTC" selected>' in content
+
+
 def test_a_time_skipped_by_daylight_saving_is_a_form_error(admin_client):
     make("STARTS_AT", "datetime", "2026-11-02T22:00:00+00:00")
     response = post_datetime(admin_client, "STARTS_AT", "2026-03-08", "02:30", "America/New_York")
