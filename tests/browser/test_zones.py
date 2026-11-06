@@ -17,8 +17,29 @@ ADD_EVENT = "/admin/browser/event/add/"
 
 
 def field(page, name):
-    """Return the form row for the field ``name``."""
-    return page.locator(f".field-{name}")
+    """Return the form row for the field ``name`` (not the inline's hidden template row, which has the class too)."""
+    return page.locator(f".field-{name}").filter(visible=True)
+
+
+def click_now(page, name):
+    # By its text, among the shortcuts beside the input (the clock popup has a Now too): Django 6 gives the link a
+    # button role, 5.2 doesn't.
+    field(page, name).locator(".datetimeshortcuts").get_by_text("Now", exact=True).click()
+
+
+def expect_notes_for(page, name, zone):
+    """Expect the notes under the field ``name`` to be for ``zone``.
+
+    Django 6 names the zone in its note and shows one per datetime; Django 5.2 shows one per input and doesn't name the
+    zone. Both say how far ahead the browser is.
+    """
+    now = datetime.now(dt_timezone.utc)
+    hours = (now.astimezone(ZoneInfo(BROWSER_ZONE)).utcoffset() - now.astimezone(ZoneInfo(zone)).utcoffset()) // (
+        timedelta(hours=1)
+    )
+    notes = field(page, name).locator(".timezonewarning")
+    expect(notes.first).to_contain_text(f"You are {hours} hours ahead")
+    assert all(f"You are {hours} hours ahead" in text for text in notes.all_inner_texts())
 
 
 def assert_shows_now_in(time_input, zone):
@@ -45,7 +66,7 @@ def test_a_stored_datetime_keeps_the_zone_it_is_shown_in(admin_page):
 def test_each_datetimes_note_follows_its_own_zone(admin_page):
     admin_page.goto(ADD_EVENT)
     admin_page.locator("select[name=starts_at_2]").select_option(SITE_ZONE)
-    expect(field(admin_page, "starts_at").locator(".timezonewarning")).to_contain_text(SITE_ZONE)
+    expect_notes_for(admin_page, "starts_at", SITE_ZONE)
     # Still on the browser's zone, so no note.
     expect(field(admin_page, "ends_at").locator(".timezonewarning")).to_have_count(0)
 
@@ -53,8 +74,8 @@ def test_each_datetimes_note_follows_its_own_zone(admin_page):
 def test_now_gives_the_time_in_each_datetimes_own_zone(admin_page):
     admin_page.goto(ADD_EVENT)
     admin_page.locator("select[name=starts_at_2]").select_option("UTC")
-    field(admin_page, "starts_at").get_by_role("button", name="Now").click()
-    field(admin_page, "ends_at").get_by_role("button", name="Now").click()
+    click_now(admin_page, "starts_at")
+    click_now(admin_page, "ends_at")
     assert_shows_now_in(admin_page.locator("[name=starts_at_1]"), "UTC")
     assert_shows_now_in(admin_page.locator("[name=ends_at_1]"), BROWSER_ZONE)
 
@@ -66,7 +87,7 @@ def test_the_zone_links_pick_the_sites_zone_and_the_browsers(admin_page):
     starts_at.get_by_role("link", name="Server zone").click()
     expect(zone).to_have_value(SITE_ZONE)
     # The link changes the select as choosing it would, so the note follows.
-    expect(starts_at.locator(".timezonewarning")).to_contain_text(SITE_ZONE)
+    expect_notes_for(admin_page, "starts_at", SITE_ZONE)
     starts_at.get_by_role("link", name="My zone").click()
     expect(zone).to_have_value(BROWSER_ZONE)
     expect(starts_at.locator(".timezonewarning")).to_have_count(0)

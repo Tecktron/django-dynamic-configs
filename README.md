@@ -57,7 +57,8 @@ venv/bin/coverage report
 ```
 
 Run the full matrix of Python and Django versions with tox (versions not installed locally are skipped). The matrix
-skips the browser tests; the `browser` environment runs them once, installing its own Chromium:
+skips the browser tests; the `browser-django52` and `browser-django61` environments run them on the oldest and newest
+Django, each installing its own Chromium:
 
 ```
 venv/bin/tox

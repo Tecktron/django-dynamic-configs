@@ -1,7 +1,7 @@
 """Fixtures for the browser tests: a live server, a logged-in admin in Chromium, and a check for console errors.
 
 These tests run the admin's scripts in a real browser with Playwright. The matrix tox environments skip this directory;
-the ``browser`` environment runs it.
+the ``browser-django52`` and ``browser-django61`` environments run it.
 """
 
 import os

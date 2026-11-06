@@ -588,9 +588,10 @@ Pairs follow Django's support table:
 The matrix environments skip `tests/browser` (`--ignore`), since the scripts don't change with Python or Django.
 
 Plus:
-- `browser`: newest Django and Python; runs `tests/browser` in headless Chromium with pytest-playwright, against
-  pytest-django's live server, installing the browser into the environment's Playwright package
-  (`PLAYWRIGHT_BROWSERS_PATH=0`). Without coverage, since the matrix holds the Python code to 100%. The browser tests
+- `browser-django52` and `browser-django61`: the oldest and newest Django (their admin markup differs: 5.2's time
+  zone note doesn't name the zone and sits beside each input), on the newest Python; each runs `tests/browser` in
+  headless Chromium with pytest-playwright, against pytest-django's live server, installing the browser into the
+  environment's Playwright package (`PLAYWRIGHT_BROWSERS_PATH=0`). Without coverage, since the matrix holds the Python code to 100%. The browser tests
   run after all other tests in any run: Playwright keeps an event loop on the test thread until the session ends, so
   Django's async check (`DJANGO_ALLOW_ASYNC_UNSAFE`) is relaxed only from the first browser test on.
 - `extras`: newest Django and Python, with django-simple-history installed and its app enabled in the test settings
@@ -619,8 +620,9 @@ Configured in `pyproject.toml`:
 
 - **`ci.yml`**, on pushes and pull requests:
   - `lint` and `docs` jobs.
-  - `browser` job: installs Chromium with `playwright install --with-deps --only-shell chromium` (`--with-deps` adds
-    the system libraries through the runner's `sudo`), then runs `tox -e browser`.
+  - `browser` job, a matrix over the two browser environments: installs Chromium with
+    `playwright install --with-deps --only-shell chromium` (`--with-deps` adds the system libraries through the
+    runner's `sudo`), then runs the environment.
   - `test` job: a matrix over the tox environments; each saves its coverage data as an artifact. The `postgres`
     environment runs with a PostgreSQL service container. `djangomain` uses `continue-on-error`.
   - `coverage` job: after `test`; combines the artifacts, fails under 100%, writes `coverage.xml` and uploads it to
