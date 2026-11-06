@@ -113,6 +113,59 @@ def test_enter_between_brackets_puts_the_closing_one_on_its_own_line(editor):
     assert field.evaluate("t => t.selectionStart") == 4
 
 
+def test_a_closing_bracket_alone_on_its_line_steps_back_a_level(editor):
+    field = textarea(editor)
+    field.fill('{\n  "a": [\n    1\n    ')
+    field.press("End")
+    field.press_sequentially("]")
+    expect(field).to_have_value('{\n  "a": [\n    1\n  ]')
+    field.press("Enter")
+    field.press_sequentially("}")
+    expect(field).to_have_value('{\n  "a": [\n    1\n  ]\n}')
+    # One undo takes back the bracket and the outdent together.
+    field.press("ControlOrMeta+z")
+    expect(field).to_have_value('{\n  "a": [\n    1\n  ]\n  ')
+
+
+def test_a_tab_indent_steps_back_one_tab(editor):
+    field = textarea(editor)
+    field.fill("[\n\t[\n\t\t")
+    field.press("End")
+    field.press_sequentially("]")
+    expect(field).to_have_value("[\n\t[\n\t]")
+
+
+def test_the_closing_bracket_steps_back_whichever_key_types_it(editor):
+    # Text arriving without key presses, as from a keyboard layout that types "}" with AltGr.
+    field = textarea(editor)
+    field.fill("{\n  ")
+    field.press("End")
+    editor.keyboard.insert_text("}")
+    expect(field).to_have_value("{\n}")
+
+
+@pytest.mark.parametrize(
+    ("before", "selected", "after"),
+    [
+        # Text before it on the line.
+        ("[\n  1", None, "[\n  1]"),
+        # No indent to take away.
+        ("[\n", None, "[\n]"),
+        # It replaces a selection.
+        ("[\n  x", "x", "[\n  ]"),
+    ],
+)
+def test_a_closing_bracket_otherwise_goes_in_as_typed(editor, before, selected, after):
+    field = textarea(editor)
+    field.fill(before)
+    if selected:
+        field.evaluate("(t, s) => t.setSelectionRange(t.value.indexOf(s), t.value.indexOf(s) + s.length)", selected)
+    else:
+        field.press("ControlOrMeta+End")
+    field.press_sequentially("]")
+    expect(field).to_have_value(after)
+
+
 def test_values_are_coloured_by_kind(editor):
     textarea(editor).fill('{"key": "text", "n": -1.5e3, "ok": true, "none": null}')
     copy = colours(editor)

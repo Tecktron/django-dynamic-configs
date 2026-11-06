@@ -273,6 +273,29 @@
         field.setSelectionRange(caret, caret);
     }
 
+    // A closing bracket typed on a line of nothing but indent steps back a level. It works on the character typed rather
+    // than the key, so it also works on keyboard layouts that type brackets with AltGr.
+    function closingBracket(event) {
+        if (event.inputType !== "insertText" || (event.data !== "}" && event.data !== "]")) {
+            return;
+        }
+        const field = event.target;
+        const { value, selectionStart: start, selectionEnd: end } = field;
+        // With a selection the bracket replaces it as usual. This also skips the insertion below, which selects the
+        // indent before replacing it.
+        if (start !== end) {
+            return;
+        }
+        const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+        const indent = value.slice(lineStart, start);
+        if (!/^[ \t]+$/.test(indent)) {
+            return;
+        }
+        const outdented = indent.endsWith("\t") ? indent.slice(0, -1) : indent.replace(/ {1,2}$/, "");
+        event.preventDefault();
+        replaceText(field, lineStart, start, outdented + event.data);
+    }
+
     // ---- Colours -----------------------------------------------------------------------------------------------
 
     // Copied from the textarea, so the coloured copy wraps exactly as the textarea does.
@@ -457,6 +480,7 @@
             }
         });
         field.addEventListener("keydown", newLine);
+        field.addEventListener("beforeinput", closingBracket);
         field.addEventListener("input", update);
         update();
     }

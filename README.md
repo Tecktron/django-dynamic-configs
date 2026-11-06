@@ -14,8 +14,8 @@ cached API.
 
 ## The admin's JSON editor
 
-JSON settings get a small editor in the admin: a Format link, Enter that keeps the indent, a note saying whether the
-JSON is valid (and where it isn't), and colours. It works on the text as typed and never re-encodes values, so numbers
+JSON settings get a small editor in the admin: a Format link, Enter that keeps the indent, a closing bracket on its own
+line that steps back a level, a note saying whether the JSON is valid (and where it isn't), and colours. It works on the text as typed and never re-encodes values, so numbers
 too large or too precise for JavaScript are kept exactly.
 
 The colours are CSS custom properties. Set any of them in your admin stylesheet to change them:
