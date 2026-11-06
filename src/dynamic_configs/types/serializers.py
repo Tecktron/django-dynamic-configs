@@ -270,6 +270,8 @@ class JSONSerializer:
         except TypeError as error:
             # json's message names only the type ("Object of type date is not JSON serializable").
             raise ValueError(f"The value can't be stored as JSON: {error}") from error
+        except RecursionError as error:
+            raise ValueError("The value can't be stored as JSON: it's nested too deeply.") from error
         except ValueError as error:
             # json's message here ends with the number it rejected, and messages never include the value.
             raise ValueError(
@@ -282,6 +284,9 @@ class JSONSerializer:
             value = json.loads(text, parse_constant=_reject_json_constant)
         except ValueError:
             raise ValueError("Enter valid JSON.") from None
+        except RecursionError:
+            # Python's reader recurses: deep enough nesting exhausts the stack (the admin's editor accepts any depth).
+            raise ValueError("The JSON is nested too deeply.") from None
         if not isinstance(value, (dict, list)):
             raise ValueError("Enter a JSON object or array.")
         return value

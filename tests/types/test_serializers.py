@@ -230,6 +230,23 @@ def test_json_rejects_nan_and_infinity_without_echoing_them(number):
     assert str(error.value) == "The value can't be stored as JSON: it contains NaN or infinity, or contains itself."
 
 
+DEPTH = 100_000
+
+
+def test_json_nested_too_deeply_to_read_is_rejected_not_crashed():
+    # Review: Python's JSON reader raises RecursionError, which the admin turned into a server error.
+    with pytest.raises(ValueError, match="nested too deeply"):
+        JSONSerializer().deserialize("[" * DEPTH + "]" * DEPTH)
+
+
+def test_json_nested_too_deeply_to_write_is_rejected_not_crashed():
+    value = []
+    for _ in range(DEPTH):
+        value = [value]
+    with pytest.raises(ValueError, match="nested too deeply"):
+        JSONSerializer().serialize(value)
+
+
 @pytest.mark.parametrize(("text", "message"), [("{", "valid JSON"), ("[NaN]", "valid JSON"), ("5", "object or array")])
 def test_json_rejects_bad_text(text, message):
     with pytest.raises(ValueError, match=message):

@@ -139,6 +139,15 @@ def test_the_json_editors_files_are_shipped(path):
     assert finders.find(path) is not None
 
 
+def test_json_nested_too_deeply_is_a_form_error(admin_client):
+    # Review: the editor accepts any depth, and saving one Python couldn't read was a server error.
+    depth = 100_000
+    data = {"name": "DEEP", "value": "[" * depth + "]" * depth, "description": "", "_save": "Save"}
+    response = admin_client.post(f"{URL}add/?type=json", data)
+    assert response.status_code == 200
+    assert "The JSON is nested too deeply." in response.content.decode()
+
+
 @pytest.mark.parametrize("view", ["change", "add"])
 def test_json_values_get_the_editor_in_the_admin(admin_client, view):
     make("FLAGS", "json", '{"beta": true}')
