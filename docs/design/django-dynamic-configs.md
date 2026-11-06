@@ -16,7 +16,7 @@ admin, and read from code through a small, cached API. It replaces hand-rolled p
 - Nothing an admin enters is ever imported, evaluated or executed. Types come only from code.
 - Cached reads when a cache is configured; a caller that passes a default is never broken by an outage.
 - Works under admin skins (jazzmin, grappelli, unfold) by using stock admin pages.
-- Optional, explicit integrations: django-simple-history and django-prettyjson. Neither is required.
+- Optional, explicit integration with django-simple-history. It isn't required.
 - Test helpers that need neither the database nor the cache.
 - Supports Django 5.2+ and every Python each supported Django release supports. 100% branch coverage of our code.
 - Clear logging at the proper levels, docstrings and comments throughout, and a documentation site on Read the Docs.
@@ -108,8 +108,8 @@ for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are writte
 Every type, built-in or custom, has a short `help_text` describing its text format (for example "YYYY-MM-DD" for
 `date`, "one number of hours, e.g. 1.5" for `hours`), shown as the value's help on the admin's add and change pages.
 
-`JSONTextField` is a textarea showing the value pretty-printed (`indent=2`), validated on the server. When
-`"prettyjson"` is in `INSTALLED_APPS`, it uses `prettyjson.widgets.PrettyJSONWidget` instead of the plain textarea.
+`JSONTextField` is a textarea (`JSONTextarea`, marked for the admin's JSON editor, with spell-checking off) showing
+the value pretty-printed (`indent=2`), validated on the server. In the admin it gets the JSON editor (see Admin).
 
 ### Datetimes and time zones
 
@@ -389,9 +389,10 @@ All keys are optional. Settings are read through `dynamic_configs/conf.py`, whic
 
 ## Admin
 
-The admin ships **no templates or CSS** of its own; it uses stock `ModelAdmin` pages, so admin skins apply. Its one
-script, `dynamic_configs/admin.js`, is optional: it only fills in defaults and saves clicks, and every page works
-without it. Projects can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
+The admin ships **no templates** of its own; it uses stock `ModelAdmin` pages, so admin skins apply. Its scripts are
+optional and every page works without them: `dynamic_configs/admin.js` fills in defaults and saves clicks, and
+`dynamic_configs/json_editor.js` is the JSON editor, with `dynamic_configs/admin.css`, which styles only the editor's
+own elements. Projects can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
 
 - **`ConfigAdminMixin`** holds all the behaviour. **`ConfigAdmin`** is `ConfigAdminMixin` + `admin.ModelAdmin`, and is
   registered automatically by `dynamic_configs.admin.register_admin()` unless `REGISTER_ADMIN` is `False`; calling it
@@ -417,6 +418,29 @@ without it. Projects can still override the standard templates (`admin/dynamic_c
 - **Widgets:** Django's plain date, split date/time and textarea widgets are swapped for the admin's versions (date
   picker, styled textarea), and the zoned datetime widget gets the admin's date and time pickers, keeping their
   attributes. A type's own widget is never replaced, even one built on `Textarea`.
+- **JSON editor:** the `json` type's textarea (`AdminJSONTextarea`) gets `json_editor.js` and `admin.css`:
+  - A **Format** link re-indents the value, two spaces per level, and on invalid JSON changes nothing and moves the
+    cursor to the error.
+  - **Enter** keeps the line's indent, adds a level after `{` or `[`, and between a pair of brackets puts the closing
+    one on its own line. Tab is left alone, so it still moves to the next field.
+  - A **note** under the field says "Valid JSON." or where and why it isn't ("Invalid JSON at line 2, column 7:
+    expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". An empty field gets
+    no note.
+  - **Colours:** a copy of the text, built only with `textContent`, sits behind the textarea, whose own text is made
+    transparent. Keys, strings, numbers, `true`/`false`/`null` and punctuation each have a colour, and the token where
+    the JSON breaks is underlined. The script copies the textarea's font, padding and size onto the copy and follows
+    its scrolling and resizing; if a stylesheet overrides those styles on the copy, or the two differ in height once
+    the textarea scrolls, the colours turn off and the plain textarea shows. Without `admin.css` the colours never
+    start, and Format and the note still work.
+  - The colours are custom properties (`--dynamic-configs-json-key`, `-string`, `-number`, `-literal`,
+    `-punctuation`, `-error`) that a project can set in its own admin stylesheet. The light set has at least 4.5:1
+    contrast on white; the dark set follows `prefers-color-scheme`, and Django's admin theme toggle (`data-theme`)
+    overrides either way, as in Django's own admin CSS.
+  - The script never parses values: it tokenizes the text and rebuilds it token by token, so numbers too large or too
+    precise for JavaScript (`12345678901234567890`, `1.10`) keep their exact text, and edits go through the browser's
+    undo. The checker uses a stack, not recursion, so deep nesting can't overflow it. (django-prettyjson and
+    django-json-widget were considered and dropped: both re-encode the value through JavaScript numbers, which rounds
+    large integers, and the second also blocks a strict Content Security Policy with inline scripts.)
 - **Unregistered type:** a row whose type is no longer registered shows its stored text read-only, with a message
   saying the type is missing from settings.
 - Permissions are Django's standard add/change/delete/view permissions.
@@ -436,12 +460,6 @@ Opt-in: install `django-dynamic-configs[simple-history]` and add `"dynamic_confi
 - Changes through `update`, `delete` and `get_or_create` are recorded too; the user comes from simple_history's
   `HistoryRequestMiddleware` when it's installed.
 - Check `dynamic_configs.E101`: the sub-app is installed but `simple_history` isn't in `INSTALLED_APPS`.
-
-### django-prettyjson
-
-Optional: when `"prettyjson"` is in `INSTALLED_APPS`, the `json` type's form uses `PrettyJSONWidget`. The package is
-not a dependency (its last release was 2018). Its viewer escapes keys and values, so stored JSON can't inject script
-into the admin. Installable with `django-dynamic-configs[prettyjson]`.
 
 ## Test helpers
 
@@ -468,7 +486,7 @@ Hosted on Read the Docs, built with **Sphinx**:
 - **MyST** so pages are written in Markdown; **autodoc** (with type hints) for the API reference, generated from the
   docstrings; the **furo** theme.
 - Pages: Overview, Installation, Quick start, Reading and writing settings (the API), Types (built-in, list and set,
-  custom, constraints as custom types), Worked example: the money types (writing a type, then extending it), Caching, Failure handling and logging, Admin and skins, simple-history, prettyjson,
+  custom, constraints as custom types), Worked example: the money types (writing a type, then extending it), Caching, Failure handling and logging, Admin and skins (including the JSON editor's colours), simple-history,
   Testing, API reference, Changelog, and Development (contributing, running tox, this design document).
 - `.readthedocs.yaml` pins the build (Python version, the package plus `docs/requirements.txt`, `fail_on_warning: true`).
 - `tox -e docs` builds it locally with warnings as errors (`sphinx-build -W`), and CI runs it, so broken references
@@ -497,9 +515,12 @@ src/dynamic_configs/
     _overrides.py       overrides for the current context (read by the API, set by the test helpers)
     models.py           Config, ConfigDoesNotExist
     signals.py          post_save / post_delete cache handling
-    admin.py            ConfigAdminMixin, ConfigAdmin, AdminZonedDateTimeWidget
+    admin.py            ConfigAdminMixin, ConfigAdmin, AdminZonedDateTimeWidget, AdminJSONTextarea
     apps.py
-    static/dynamic_configs/admin.js   the admin's optional script
+    static/dynamic_configs/
+        admin.js        the admin's optional script (type step, time zones)
+        json_editor.js  the admin's JSON editor
+        admin.css       the JSON editor's colours and layout
     types/
         base.py         ConfigType: a type's definition, type check and text conversion
         registry.py     registry build, lookup, list and set variants
@@ -508,7 +529,7 @@ src/dynamic_configs/
         money.py        Money, MoneySerializer, MoneyCurrencySerializer (example types, not registered by default)
     forms/
         list.py         LineListField, TypedLineListField
-        json.py         JSONTextField
+        json.py         JSONTextField, JSONTextarea
         datetime.py     ZonedDateTimeField, ZonedDateTimeWidget, datetime_field
         fields.py       SerializerField, DurationUnitField, formfield_for
         money.py        MoneyField, MoneyCurrencyField
@@ -522,6 +543,8 @@ src/dynamic_configs/
     py.typed
 tests/
     settings.py   conftest.py   then a mirror of src/dynamic_configs/
+    browser/      the admin's scripts in Chromium (Playwright), with a small test app (models with zoned
+                  datetimes and an inline)
 ```
 
 ## Packaging and tooling
@@ -531,11 +554,15 @@ tests/
   Tecktron". Author: `Tecktron` (name only, no email).
 - `requires-python = ">=3.10"`; dependency `Django>=5.2`. Classifiers for Django 5.2, 6.0, 6.1 and each supported
   Python.
-- Extras: `simple-history` (`django-simple-history>=3.8`, the first release supporting Django 5.2; 3.11 added
-  Django 6.0, and pip resolves the newest release anyway) and `prettyjson` (`django-prettyjson>=0.4.1`).
+- Extra: `simple-history` (`django-simple-history>=3.8`, the first release supporting Django 5.2; 3.11 added
+  Django 6.0, and pip resolves the newest release anyway).
+- Package data: `py.typed` and the static files (`static/dynamic_configs/*.js` and `*.css`); the suite checks they
+  are found, which under tox (installing the built wheel) checks they're packaged.
 - Development dependencies in `requirements.txt`: an editable install of the package plus coverage, pytest,
-  pytest-django, pytest-mock (tests patch with its `mocker` fixture, not `unittest.mock`), ruff and tox, installed
-  into a `venv/` in the repository (ignored by git). The documentation tools
+  pytest-django, pytest-mock (tests patch with its `mocker` fixture, not `unittest.mock`), pytest-playwright (the
+  browser tests), ruff and tox, installed into a `venv/` in the repository (ignored by git). The browser tests need
+  Chromium, installed into the virtualenv's Playwright package with
+  `PLAYWRIGHT_BROWSERS_PATH=0 venv/bin/playwright install --only-shell chromium`. The documentation tools
   (sphinx, myst-parser, furo, sphinx-autodoc-typehints) go in `docs/requirements.txt`, which `requirements.txt`
   includes and Read the Docs installs.
 - `pytest11` entry point: `dynamic_configs = "dynamic_configs.test.pytest_plugin"`.
@@ -558,9 +585,16 @@ Pairs follow Django's support table:
 | 6.0    | 3.12, 3.13, 3.14               |
 | 6.1    | 3.12, 3.13, 3.14, 3.15         |
 
+The matrix environments skip `tests/browser` (`--ignore`), since the scripts don't change with Python or Django.
+
 Plus:
-- `extras`: newest Django and Python, with django-simple-history and django-prettyjson installed and their apps
-  enabled in the test settings (`tests/settings.py` reads an environment variable).
+- `browser`: newest Django and Python; runs `tests/browser` in headless Chromium with pytest-playwright, against
+  pytest-django's live server, installing the browser into the environment's Playwright package
+  (`PLAYWRIGHT_BROWSERS_PATH=0`). Without coverage, since the matrix holds the Python code to 100%. The browser tests
+  run after all other tests in any run: Playwright keeps an event loop on the test thread until the session ends, so
+  Django's async check (`DJANGO_ALLOW_ASYNC_UNSAFE`) is relaxed only from the first browser test on.
+- `extras`: newest Django and Python, with django-simple-history installed and its app enabled in the test settings
+  (`tests/settings.py` reads an environment variable).
 - `postgres`: newest Django and Python against PostgreSQL (CI service container); every other environment uses SQLite.
 - `djangomain`: Django's main branch on the newest Python; non-blocking in CI.
 - `lint`: ruff check and format check.
@@ -585,6 +619,8 @@ Configured in `pyproject.toml`:
 
 - **`ci.yml`**, on pushes and pull requests:
   - `lint` and `docs` jobs.
+  - `browser` job: installs Chromium with `playwright install --with-deps --only-shell chromium` (`--with-deps` adds
+    the system libraries through the runner's `sudo`), then runs `tox -e browser`.
   - `test` job: a matrix over the tox environments; each saves its coverage data as an artifact. The `postgres`
     environment runs with a PostgreSQL service container. `djangomain` uses `continue-on-error`.
   - `coverage` job: after `test`; combines the artifacts, fails under 100%, writes `coverage.xml` and uploads it to
