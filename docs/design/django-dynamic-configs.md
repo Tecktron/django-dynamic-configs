@@ -438,9 +438,9 @@ own elements. Projects can still override the standard templates (`admin/dynamic
     `-punctuation`, `-error`) that a project can set in its own admin stylesheet. The light set has at least 4.5:1
     contrast on white; the dark set follows `prefers-color-scheme`, and Django's admin theme toggle (`data-theme`)
     overrides either way, as in Django's own admin CSS.
-  - The script never parses values: it tokenizes the text and rebuilds it token by token, so numbers too large or too
-    precise for JavaScript (`12345678901234567890`, `1.10`) keep their exact text, and edits go through the browser's
-    undo. The checker uses a stack, not recursion, so deep nesting can't overflow it. (django-prettyjson and
+  - The script never parses values: it tokenizes the text and rebuilds it token by token, so integers too large for
+    JavaScript (`12345678901234567890`) keep their exact text, and edits go through the browser's undo. Saving stores
+    numbers as Python's `json` reads them: integers exactly, other numbers as floats, so `1.10` is saved as `1.1`. The checker uses a stack, not recursion, so deep nesting can't overflow it. (django-prettyjson and
     django-json-widget were considered and dropped: both re-encode the value through JavaScript numbers, which rounds
     large integers, and the second also blocks a strict Content Security Policy with inline scripts.)
 - **Unregistered type:** a row whose type is no longer registered shows its stored text read-only, with a message
