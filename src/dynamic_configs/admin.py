@@ -1,8 +1,9 @@
 """Django admin for configs.
 
-The admin ships no templates or CSS of its own, only Django's admin widgets and one optional script, so admin skins
-apply. All of the behaviour is in ``ConfigAdminMixin``: skins with their own ``ModelAdmin`` base unregister
-``ConfigAdmin`` and register ``ConfigAdminMixin`` combined with their base.
+The admin ships no templates of its own, only Django's admin widgets, an optional script, and the JSON editor's
+optional script and stylesheet (which styles only the editor's own elements), so admin skins apply. All of the
+behaviour is in ``ConfigAdminMixin``: skins with their own ``ModelAdmin`` base unregister ``ConfigAdmin`` and register
+``ConfigAdminMixin`` combined with their base.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from django.utils.text import Truncator
 from dynamic_configs.conf import get_settings
 from dynamic_configs.forms.config import ADMIN_SCRIPT, ConfigTypeForm, add_form_for, change_form_for
 from dynamic_configs.forms.datetime import ZonedDateTimeWidget
+from dynamic_configs.forms.json import JSONTextarea
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.registry import get_registry
@@ -40,6 +42,16 @@ class AdminZonedDateTimeWidget(ZonedDateTimeWidget):
         js = (ADMIN_SCRIPT,)
 
 
+class AdminJSONTextarea(admin_widgets.AdminTextareaWidget):
+    """The admin's textarea for JSON: the editor script formats, checks and colours it as it's typed."""
+
+    class Media:
+        """The editor's script, and the stylesheet with its colours."""
+
+        js = ("dynamic_configs/json_editor.js",)
+        css = {"all": ("dynamic_configs/admin.css",)}
+
+
 # Django's plain widgets (and the zoned datetime widget) mapped to the admin's versions (date picker, split
 # date/time, styled textarea). Matched by exact type, so a type's own widget is never replaced, even one that
 # subclasses Textarea (as code editors do).
@@ -48,6 +60,7 @@ _ADMIN_WIDGETS: dict[type[forms.Widget], type[forms.Widget]] = {
     forms.SplitDateTimeWidget: admin_widgets.AdminSplitDateTime,
     ZonedDateTimeWidget: AdminZonedDateTimeWidget,
     forms.Textarea: admin_widgets.AdminTextareaWidget,
+    JSONTextarea: AdminJSONTextarea,
 }
 
 

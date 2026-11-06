@@ -50,6 +50,15 @@ def test_json_fields_parse_objects_and_show_them_indented():
     assert field.prepare_value('{"as": "typed"}') == '{"as": "typed"}'
 
 
+def test_json_fields_mark_their_textarea_for_the_admin_editor():
+    # The admin's script finds the textarea by the marker; outside the admin there's no script to load.
+    widget = JSONTextField().widget
+    html = widget.render("value", '{"a": 1}')
+    assert "data-dynamic-configs-json" in html
+    assert 'spellcheck="false"' in html
+    assert not widget.media._js
+
+
 def test_containers_get_a_typed_line_list():
     field = formfield_for(build_registry({}).get("set:int"), required=False)
     assert isinstance(field, TypedLineListField)

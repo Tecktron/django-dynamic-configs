@@ -133,6 +133,23 @@ def test_the_admin_script_is_shipped():
     assert finders.find("dynamic_configs/admin.js") is not None
 
 
+@pytest.mark.parametrize("path", ["dynamic_configs/json_editor.js", "dynamic_configs/admin.css"])
+def test_the_json_editors_files_are_shipped(path):
+    # The stylesheet needs its own package-data pattern, which this catches under tox.
+    assert finders.find(path) is not None
+
+
+@pytest.mark.parametrize("view", ["change", "add"])
+def test_json_values_get_the_editor_in_the_admin(admin_client, view):
+    make("FLAGS", "json", '{"beta": true}')
+    url = change_url("FLAGS") if view == "change" else f"{URL}add/?type=json"
+    content = admin_client.get(url).content.decode()
+    assert "vLargeTextField" in content
+    assert "data-dynamic-configs-json" in content
+    assert "dynamic_configs/json_editor.js" in content
+    assert "dynamic_configs/admin.css" in content
+
+
 def test_the_change_page_shows_name_and_type_read_only(admin_client):
     make("MAX_RETRIES", "int", "3")
     content = admin_client.get(change_url("MAX_RETRIES")).content.decode()

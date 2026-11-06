@@ -1,0 +1,93 @@
+/*
+ * The dynamic-configs admin's JSON editor (json_editor.js). Without the script, none of this applies.
+ *
+ * Colours are custom properties, so a project can change them in its own admin stylesheet:
+ *
+ *     :root { --dynamic-configs-json-key: #7a3e9d; }
+ *
+ * The dark set follows the browser's preference unless the admin's theme toggle picks light or dark.
+ */
+:root {
+    --dynamic-configs-json-key: #0451a5;
+    --dynamic-configs-json-string: #a31515;
+    --dynamic-configs-json-number: #098658;
+    --dynamic-configs-json-literal: #0000ff;
+    --dynamic-configs-json-punctuation: #6b6b6b;
+    --dynamic-configs-json-error: #ba2121;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --dynamic-configs-json-key: #9cdcfe;
+        --dynamic-configs-json-string: #ce9178;
+        --dynamic-configs-json-number: #b5cea8;
+        --dynamic-configs-json-literal: #569cd6;
+        --dynamic-configs-json-punctuation: #a0a0a0;
+        --dynamic-configs-json-error: #ff7b72;
+    }
+}
+
+:root[data-theme="dark"] {
+    --dynamic-configs-json-key: #9cdcfe;
+    --dynamic-configs-json-string: #ce9178;
+    --dynamic-configs-json-number: #b5cea8;
+    --dynamic-configs-json-literal: #569cd6;
+    --dynamic-configs-json-punctuation: #a0a0a0;
+    --dynamic-configs-json-error: #ff7b72;
+}
+
+/* The textarea and the coloured copy of its text behind it. The script copies the textarea's font, padding and size
+   onto the copy, and turns the colours off if the two stop lining up. */
+.dynamic-configs-json-editor {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    vertical-align: top;
+}
+
+.dynamic-configs-json-highlight {
+    position: absolute;
+    margin: 0;
+    overflow: hidden;
+    pointer-events: none;
+    border-color: transparent;
+    background: transparent;
+    color: var(--body-fg, inherit);
+}
+
+.dynamic-configs-json-editor.dynamic-configs-json-coloured > textarea {
+    position: relative;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--body-fg, CanvasText);
+}
+
+/* Selected text is drawn by the textarea, over the copy, so give it a colour. */
+.dynamic-configs-json-editor.dynamic-configs-json-coloured > textarea::selection {
+    color: var(--body-fg, CanvasText);
+}
+
+.dynamic-configs-json-key { color: var(--dynamic-configs-json-key); }
+.dynamic-configs-json-string { color: var(--dynamic-configs-json-string); }
+.dynamic-configs-json-number { color: var(--dynamic-configs-json-number); }
+.dynamic-configs-json-literal { color: var(--dynamic-configs-json-literal); }
+.dynamic-configs-json-punctuation { color: var(--dynamic-configs-json-punctuation); }
+
+.dynamic-configs-json-invalid {
+    text-decoration: underline wavy var(--dynamic-configs-json-error);
+    text-decoration-skip-ink: none;
+}
+
+/* The Format link and the note under the field. */
+.dynamic-configs-json-tools {
+    margin-top: 4px;
+}
+
+.dynamic-configs-json-status {
+    margin-left: 0.5em;
+    color: var(--body-quiet-color, #666);
+}
+
+.dynamic-configs-json-status.dynamic-configs-json-has-error {
+    color: var(--dynamic-configs-json-error);
+}
