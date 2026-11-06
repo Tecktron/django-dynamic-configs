@@ -9,6 +9,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "dynamic_configs",
+    # Models and an admin for the browser tests.
+    "tests.browser",
 ]
 MIDDLEWARE = [
     "django.contrib.sessions.middleware.SessionMiddleware",

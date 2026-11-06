@@ -52,6 +52,10 @@ dynamic_configs = ["py.typed", "static/dynamic_configs/*.js"]
 
 [tool.pytest.ini_options]
 addopts = ["--ds=tests.settings", "--strict-markers", "-p", "pytester"]
+filterwarnings = [
+    # From pytest-base-url, which pytest-playwright installs, not from this project.
+    "ignore:Session-scoped fixtures defined as instance methods are deprecated",
+]
 testpaths = ["tests"]
 pythonpath = ["."]
 

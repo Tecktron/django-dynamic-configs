@@ -5,5 +5,7 @@ coverage
 pytest
 pytest-django
 pytest-mock
+# For tests/browser; it also needs a browser: PLAYWRIGHT_BROWSERS_PATH=0 playwright install --only-shell chromium
+pytest-playwright
 ruff
 tox
