@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import Any
 
 from django import forms
@@ -25,7 +26,7 @@ LIST_PREFIX = "list:"
 SET_PREFIX = "set:"
 # No ":" allowed, because it marks list and set variants.
 TYPE_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
-_ENTRY_KEYS = frozenset({"type", "serializer", "form", "label", "help_text", "listable"})
+_ENTRY_KEYS = frozenset({"type", "serializer", "form", "label", "help_text", "listable", "sort_key", "sort_compare"})
 
 
 class TypeConfigError(ImproperlyConfigured):
@@ -42,7 +43,7 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
 
     :param key: the type key, such as ``"color"``
     :param entry: the entry's dict (``type``, ``serializer`` and optionally ``form``, ``label``, ``help_text``,
-        ``listable``)
+        ``listable``, ``sort_key``, ``sort_compare``)
     :returns: the loaded type
     :rtype: ConfigType
     :raises TypeConfigError: the entry is invalid; ``check_id`` says which system check reports it
@@ -66,6 +67,7 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
         raise TypeConfigError(f"{where}['type'] must be a class.", "dynamic_configs.E001")
     serializer = _load_serializer(where, entry["serializer"])
     form_class = _load_form(where, entry["form"]) if "form" in entry else None
+    sort_key = _load_sort_key(where, entry)
     label = entry.get("label", key)
     help_text = entry.get("help_text", "")
     listable = entry.get("listable", True)
@@ -81,6 +83,7 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
         help_text=help_text,
         listable=listable,
         form_class=form_class,
+        sort_key=sort_key,
     )
 
 
@@ -122,6 +125,24 @@ def _load_form(where: str, path: Any) -> type:
     if not (isinstance(form_class, type) and issubclass(form_class, forms.Field)):
         raise TypeConfigError(f"{where}['form'] must be a django.forms.Field subclass.", "dynamic_configs.E004")
     return form_class
+
+
+def _load_sort_key(where: str, entry: Mapping[str, Any]) -> Callable[[Any], Any] | None:
+    """Return the entry's sort key: its ``sort_key``, its ``sort_compare`` made into a key, or None."""
+    if "sort_key" in entry and "sort_compare" in entry:
+        raise TypeConfigError(f"{where}: Give 'sort_key' or 'sort_compare', not both.", "dynamic_configs.E001")
+    for field in ("sort_key", "sort_compare"):
+        if field not in entry:
+            continue
+        path = entry[field]
+        if not isinstance(path, str):
+            raise TypeConfigError(f"{where}[{field!r}] must be a dotted path string.", "dynamic_configs.E001")
+        function = _import(where, field, path)
+        if not callable(function):
+            raise TypeConfigError(f"{where}[{field!r}] must be callable.", "dynamic_configs.E001")
+        # A compare function becomes a key, so ConfigType holds one optional sort_key either way.
+        return function if field == "sort_key" else functools.cmp_to_key(function)
+    return None
 
 
 def _variant_help(prefix: str, item: ConfigType) -> str:

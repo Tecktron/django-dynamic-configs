@@ -65,6 +65,20 @@ def test_label_help_text_form_and_listable_are_optional():
         ("color", {**COLOR, "label": 5}, "E001", "must be strings"),
         ("color", {**COLOR, "help_text": None}, "E001", "must be strings"),
         ("color", {**COLOR, "listable": "yes"}, "E001", "a boolean"),
+        (
+            "color",
+            {**COLOR, "sort_key": "tests.custom_types.color_hex", "sort_compare": "tests.custom_types.compare_colors"},
+            "E001",
+            "Give 'sort_key' or 'sort_compare', not both",
+        ),
+        ("color", {**COLOR, "sort_key": 5}, "E001", "\\['sort_key'\\] must be a dotted path"),
+        (
+            "color",
+            {**COLOR, "sort_compare": "tests.custom_types.NOT_CALLABLE"},
+            "E001",
+            "\\['sort_compare'\\] must be callable",
+        ),
+        ("color", {**COLOR, "sort_key": "tests.custom_types.missing_key"}, "E002", "can't import"),
     ],
 )
 def test_invalid_custom_types_raise_with_their_check_id(key, entry, check_id, message):
@@ -202,3 +216,19 @@ def test_a_strict_build_still_raises_for_a_broken_custom_type():
     with pytest.raises(TypeConfigError, match="can't import") as error:
         build_registry({"broken": {**PLAIN, "type": "tests.custom_types.Missing"}})
     assert error.value.check_id == "dynamic_configs.E002"
+
+
+def test_a_sort_key_is_loaded_from_its_dotted_path():
+    color = load_custom_type("color", {**COLOR, "sort_key": "tests.custom_types.color_hex"})
+    assert color.sortable
+    assert color.sort([Color("#bbbbbb"), Color("#aaaaaa")]) == [Color("#aaaaaa"), Color("#bbbbbb")]
+
+
+def test_a_compare_function_becomes_a_key():
+    color = load_custom_type("color", {**COLOR, "sort_compare": "tests.custom_types.compare_colors"})
+    assert color.sort([Color("#bbbbbb"), Color("#aaaaaa")], descending=True) == [Color("#bbbbbb"), Color("#aaaaaa")]
+
+
+def test_without_a_key_a_type_sorts_only_if_its_values_have_an_order():
+    assert load_custom_type("color", COLOR).sort_key is None
+    assert not load_custom_type("color", COLOR).sortable

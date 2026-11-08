@@ -2,7 +2,14 @@ from decimal import Decimal
 
 import pytest
 
-from dynamic_configs.types.money import Money, MoneyCurrencySerializer, MoneySerializer, check_amount
+from dynamic_configs.types.money import (
+    Money,
+    MoneyCurrencySerializer,
+    MoneySerializer,
+    by_currency_then_amount,
+    check_amount,
+)
+from dynamic_configs.types.registry import load_custom_type
 
 
 def test_amounts_are_kept_with_exactly_two_places():
@@ -78,3 +85,19 @@ def test_the_currency_serializer_builds_on_the_amount_serializer():
 def test_the_currency_serializer_rejects_bad_text(text):
     with pytest.raises(ValueError):
         MoneyCurrencySerializer().deserialize(text)
+
+
+MONEY_CURRENCY = {
+    "type": "dynamic_configs.types.money.Money",
+    "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
+    "form": "dynamic_configs.forms.money.MoneyCurrencyField",
+    "sort_key": "dynamic_configs.types.money.by_currency_then_amount",
+}
+
+
+def test_money_with_currency_sorts_by_currency_then_amount():
+    values = [Money(Decimal("20"), "USD"), Money(Decimal("10"), "CAD"), Money(Decimal("5"), "USD")]
+    expected = [Money(Decimal("10"), "CAD"), Money(Decimal("5"), "USD"), Money(Decimal("20"), "USD")]
+    assert sorted(values, key=by_currency_then_amount) == expected
+    # As the design document's entry enables it.
+    assert load_custom_type("money_currency", MONEY_CURRENCY).sort(values) == expected

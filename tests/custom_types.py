@@ -83,3 +83,21 @@ class UnstrippedColorField(forms.CharField):
     def __init__(self, **kwargs):
         kwargs.setdefault("strip", False)
         super().__init__(**kwargs)
+
+
+def color_hex(color):
+    """A sort key for Color, which defines no order."""
+    return color.hex
+
+
+def compare_colors(first, second):
+    """A compare function for Color: negative, zero or positive."""
+    return (first.hex > second.hex) - (first.hex < second.hex)
+
+
+def failing_key(color):
+    """A sort key that fails, as a project's buggy key might."""
+    raise KeyError(color.hex)
+
+
+NOT_CALLABLE = 5

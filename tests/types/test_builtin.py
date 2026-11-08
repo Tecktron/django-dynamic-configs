@@ -105,3 +105,8 @@ def test_text_uses_a_textarea_and_keeps_whitespace():
 @pytest.mark.parametrize("unit", ["seconds", "minutes", "hours", "days", "weeks"])
 def test_duration_fields_use_their_unit(unit):
     assert formfield_for(BY_KEY[unit]).unit == unit
+
+
+def test_strings_sort_ignoring_case():
+    for key in ("str", "text"):
+        assert BY_KEY[key].sort(["b", "A", "a", "B"]) == ["A", "a", "b", "B"]

@@ -20,6 +20,8 @@ BUILTIN_TYPES: tuple[ConfigType, ...] = (
         serializers.StrSerializer(),
         help_text="A single line of text.",
         form_class=forms.CharField,
+        # Ignoring case, so "apple" comes before "Zebra".
+        sort_key=str.casefold,
     ),
     ConfigType(
         "text",
@@ -30,6 +32,7 @@ BUILTIN_TYPES: tuple[ConfigType, ...] = (
         listable=False,
         # strip=False: leading spaces and blank lines in multi-line text are meaningful.
         form_class=partial(forms.CharField, widget=forms.Textarea, strip=False),
+        sort_key=str.casefold,
     ),
     ConfigType(
         "int",

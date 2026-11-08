@@ -57,6 +57,15 @@ class Money:
         return f"{self.amount} {self.currency}"
 
 
+def by_currency_then_amount(money: Money) -> tuple[str, Decimal]:
+    """Return the sort key for ``money_currency`` lists: currency, then amount.
+
+    ``Money`` defines no order, since amounts in different currencies don't compare, so its ``TYPES`` entry names this
+    as its ``sort_key`` (the worked example of the key).
+    """
+    return (money.currency, money.amount)
+
+
 class MoneySerializer:
     """An amount of money: plain decimal text with at most 2 decimal places, stored with exactly 2 (``10.00``)."""
 
