@@ -2,7 +2,7 @@ import pytest
 from django import forms
 
 from dynamic_configs.forms.config import ConfigChangeForm, ConfigTypeForm, add_form_for, change_form_for
-from dynamic_configs.forms.list import TypedLineListField
+from dynamic_configs.forms.list import StoredTexts, TypedLineListField
 from dynamic_configs.models import Config
 from dynamic_configs.types.registry import get_registry
 
@@ -131,7 +131,7 @@ def test_a_set_is_shown_in_the_order_it_was_entered():
     form = opened(make("HOSTS", "set:str", '["b.example", "a.example"]'))
     assert isinstance(form.fields["value"], TypedLineListField)
     assert form.initial["value"] == ["b.example", "a.example"]
-    assert form["value"].value() == "b.example\na.example"
+    assert form["value"].value() == StoredTexts(["b.example", "a.example"])
 
 
 def test_an_unreadable_value_opens_empty():
