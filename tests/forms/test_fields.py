@@ -4,7 +4,7 @@ import pytest
 from django import forms
 from django.core.exceptions import ValidationError
 
-from dynamic_configs.forms.fields import DurationUnitField, SerializerField, formfield_for
+from dynamic_configs.forms.fields import DurationUnitField, SerializerField, formfield_for, strips_typed_strings
 from dynamic_configs.forms.json import JSONTextField
 from dynamic_configs.forms.list import TypedLineListField
 from dynamic_configs.types.base import ConfigType
@@ -85,3 +85,29 @@ def test_booleans_that_allow_null_get_a_three_way_field():
     flag = ConfigType("flag", "Flag", bool, BoolSerializer(), form_class=forms.BooleanField)
     assert type(formfield_for(flag, required=False)) is forms.BooleanField
     assert type(formfield_for(flag, allow_null=True, required=False)) is forms.NullBooleanField
+
+
+@pytest.mark.parametrize(
+    ("setting", "single", "item"), [(None, True, False), (True, True, True), (False, False, False)]
+)
+def test_strip_strings_decides_how_typed_strings_are_stripped(settings, setting, single, item):
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": setting}
+    assert strips_typed_strings(item=False) is single
+    assert strips_typed_strings(item=True) is item
+
+
+@pytest.mark.parametrize("setting", [None, True, False])
+def test_single_line_string_fields_follow_strip_strings(settings, setting):
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": setting}
+    registry = build_registry({"plain": PLAIN_COLOR})
+    # str has a CharField; a custom type without a form gets a SerializerField (a text input).
+    for key in ("str", "plain"):
+        assert formfield_for(registry.get(key)).strip is strips_typed_strings(item=False)
+        assert formfield_for(registry.get(key), item=True).strip is strips_typed_strings(item=True)
+
+
+def test_multi_line_text_is_never_stripped(settings):
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": True}
+    text = build_registry({}).get("text")
+    assert formfield_for(text).strip is False
+    assert formfield_for(text, item=True).strip is False

@@ -214,6 +214,13 @@ def test_adding_a_string_strips_it():
     assert form.save().value == "Example"
 
 
+def test_strings_keep_their_spaces_when_strip_strings_is_false(settings):
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": False}
+    form = add_form(value="  Example  ")
+    assert form.is_valid(), form.errors
+    assert form.save().value == "  Example  "
+
+
 def test_adding_only_spaces_to_a_string_stores_the_empty_string():
     form = add_form(value="   ")
     assert form.is_valid(), form.errors

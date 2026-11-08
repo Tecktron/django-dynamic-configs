@@ -14,7 +14,9 @@ from dynamic_configs.types.registry import TypeConfigError, load_custom_type
 
 @register()
 def check_settings(app_configs: Any = None, **kwargs: Any) -> list[CheckMessage]:
-    """Check ``DYNAMIC_CONFIGS``: its shape, the cache alias, the timeout, ``REGISTER_ADMIN`` and every custom type.
+    """Check ``DYNAMIC_CONFIGS``.
+
+    Covers its shape, the cache alias, the timeout, ``REGISTER_ADMIN``, ``STRIP_STRINGS`` and every custom type.
 
     :returns: one error per problem found
     :rtype: list[CheckMessage]
@@ -42,6 +44,10 @@ def check_settings(app_configs: Any = None, **kwargs: Any) -> list[CheckMessage]
         )
     if not isinstance(project.get("REGISTER_ADMIN", DEFAULTS["REGISTER_ADMIN"]), bool):
         errors.append(Error("DYNAMIC_CONFIGS['REGISTER_ADMIN'] must be True or False.", id="dynamic_configs.E001"))
+    strip = project.get("STRIP_STRINGS", DEFAULTS["STRIP_STRINGS"])
+    # Tested by type: 1 and 0 would pass a membership test against (True, False, None).
+    if strip is not None and not isinstance(strip, bool):
+        errors.append(Error("DYNAMIC_CONFIGS['STRIP_STRINGS'] must be True, False or None.", id="dynamic_configs.E001"))
     errors += _check_types(project.get("TYPES", DEFAULTS["TYPES"]))
     return errors
 

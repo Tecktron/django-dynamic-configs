@@ -7,6 +7,7 @@ from typing import Any
 from django import forms
 from django.core.exceptions import ValidationError
 
+from dynamic_configs.conf import get_settings
 from dynamic_configs.forms.list import TypedLineListField
 from dynamic_configs.types.base import ConfigType, Serializer
 from dynamic_configs.types.serializers import (
@@ -64,11 +65,30 @@ class DurationUnitField(SerializerField):
         super().__init__(_DURATION_SERIALIZERS[unit](), **kwargs)
 
 
-def formfield_for(config_type: ConfigType, *, allow_null: bool = False, **kwargs: Any) -> forms.Field:
+def strips_typed_strings(*, item: bool) -> bool:
+    """Return whether the admin strips spaces from the ends of a string typed in a single-line input.
+
+    Follows ``DYNAMIC_CONFIGS["STRIP_STRINGS"]``: ``True`` strips single values and list items, ``False`` neither, and
+    ``None`` (the default) single values only.
+
+    :param item: whether the string is one item of a list or set, rather than a single value
+    :rtype: bool
+    """
+    setting = get_settings()["STRIP_STRINGS"]
+    if setting is None:
+        return not item
+    return bool(setting)
+
+
+def formfield_for(
+    config_type: ConfigType, *, allow_null: bool = False, item: bool = False, **kwargs: Any
+) -> forms.Field:
     """Return the form field for editing a value of ``config_type``.
 
     :param config_type: the config's type
     :param allow_null: whether the config may be empty; a boolean then gets a three-way (yes/no/unknown) field
+    :param item: whether the field edits one item of a list or set (the admin's item editor), which decides whether a
+        typed string is stripped (``STRIP_STRINGS``)
     :param kwargs: options for the field, such as ``required``, ``label`` and ``help_text``
     :returns: a ``TypedLineListField`` for list and set types, the type's ``form_class``, or a ``SerializerField``
     :rtype: forms.Field
@@ -77,8 +97,13 @@ def formfield_for(config_type: ConfigType, *, allow_null: bool = False, **kwargs
         return TypedLineListField(config_type.item_type, unique=config_type.container == "set", **kwargs)
     form_class = config_type.form_class
     if form_class is None:
-        return SerializerField(config_type.serializer, **kwargs)
-    if allow_null and form_class is forms.BooleanField:
-        # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
-        form_class = forms.NullBooleanField
-    return form_class(**kwargs)
+        field: forms.Field = SerializerField(config_type.serializer, **kwargs)
+    else:
+        if allow_null and form_class is forms.BooleanField:
+            # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
+            form_class = forms.NullBooleanField
+        field = form_class(**kwargs)
+    if isinstance(field, forms.CharField) and not isinstance(field.widget, forms.Textarea):
+        # A string typed in a single-line input. Multi-line text keeps its own setting, so it's never stripped.
+        field.strip = strips_typed_strings(item=item)
+    return field
