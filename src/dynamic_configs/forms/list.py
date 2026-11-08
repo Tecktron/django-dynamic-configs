@@ -89,7 +89,8 @@ class ListWidget(forms.Textarea):
             return super().value_from_datadict(data, files, name)
         try:
             texts = json.loads(data.get(f"{name}{ITEMS_SUFFIX}", ""))
-        except ValueError:
+        except (ValueError, RecursionError):
+            # RecursionError: JSON nested too deeply, which Python's reader raises rather than a ValueError.
             return UnreadableItems()
         if not isinstance(texts, list) or not all(isinstance(text, str) for text in texts):
             return UnreadableItems()
