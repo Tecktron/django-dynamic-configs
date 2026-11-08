@@ -75,3 +75,11 @@ class CodeEditorColorField(forms.CharField):
     """A Color field edited in a code-editor widget, to test that the admin keeps a type's own widget."""
 
     widget = CodeEditorWidget
+
+
+class UnstrippedColorField(forms.CharField):
+    """A Color field that deliberately keeps the spaces typed in it, to test that STRIP_STRINGS leaves it alone."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("strip", False)
+        super().__init__(**kwargs)

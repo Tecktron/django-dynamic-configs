@@ -96,14 +96,35 @@ def test_strip_strings_decides_how_typed_strings_are_stripped(settings, setting,
     assert strips_typed_strings(item=True) is item
 
 
+@pytest.mark.parametrize("key", ["str", "plain"])
 @pytest.mark.parametrize("setting", [None, True, False])
-def test_single_line_string_fields_follow_strip_strings(settings, setting):
+def test_single_line_string_fields_follow_strip_strings(settings, setting, key):
     settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": setting}
-    registry = build_registry({"plain": PLAIN_COLOR})
     # str has a CharField; a custom type without a form gets a SerializerField (a text input).
-    for key in ("str", "plain"):
-        assert formfield_for(registry.get(key)).strip is strips_typed_strings(item=False)
-        assert formfield_for(registry.get(key), item=True).strip is strips_typed_strings(item=True)
+    config_type = build_registry({"plain": PLAIN_COLOR}).get(key)
+    assert formfield_for(config_type).strip is strips_typed_strings(item=False)
+    assert formfield_for(config_type, item=True).strip is strips_typed_strings(item=True)
+
+
+@pytest.mark.parametrize("setting", [None, True, False])
+def test_a_custom_form_field_keeps_its_own_strip(settings, setting):
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": setting}
+    registry = build_registry(
+        {
+            "stripped": {**PLAIN_COLOR, "form": "tests.custom_types.ColorField"},
+            "unstripped": {**PLAIN_COLOR, "form": "tests.custom_types.UnstrippedColorField"},
+        }
+    )
+    for item in (False, True):
+        assert formfield_for(registry.get("stripped"), item=item).strip is True
+        assert formfield_for(registry.get("unstripped"), item=item).strip is False
+
+
+def test_a_duration_field_keeps_its_own_strip(settings):
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": False}
+    field = formfield_for(build_registry({}).get("hours"))
+    assert isinstance(field, DurationUnitField)
+    assert field.strip is True
 
 
 def test_multi_line_text_is_never_stripped(settings):

@@ -68,6 +68,7 @@ class DurationUnitField(SerializerField):
 def strips_typed_strings(*, item: bool) -> bool:
     """Return whether the admin strips spaces from the ends of a string typed in a single-line input.
 
+    This applies to ``str`` values, the items of ``list:str`` and ``set:str``, and custom types without a ``form``.
     Follows ``DYNAMIC_CONFIGS["STRIP_STRINGS"]``: ``True`` strips single values and list items, ``False`` neither, and
     ``None`` (the default) single values only.
 
@@ -88,7 +89,7 @@ def formfield_for(
     :param config_type: the config's type
     :param allow_null: whether the config may be empty; a boolean then gets a three-way (yes/no/unknown) field
     :param item: whether the field edits one item of a list or set (the admin's item editor), which decides whether a
-        typed string is stripped (``STRIP_STRINGS``)
+        typed string is stripped (``STRIP_STRINGS``, which covers only ``str`` and custom types without a ``form``)
     :param kwargs: options for the field, such as ``required``, ``label`` and ``help_text``
     :returns: a ``TypedLineListField`` for list and set types, the type's ``form_class``, or a ``SerializerField``
     :rtype: forms.Field
@@ -98,12 +99,15 @@ def formfield_for(
     form_class = config_type.form_class
     if form_class is None:
         field: forms.Field = SerializerField(config_type.serializer, **kwargs)
-    else:
-        if allow_null and form_class is forms.BooleanField:
-            # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
-            form_class = forms.NullBooleanField
-        field = form_class(**kwargs)
-    if isinstance(field, forms.CharField) and not isinstance(field.widget, forms.Textarea):
-        # A string typed in a single-line input. Multi-line text keeps its own setting, so it's never stripped.
+        # A custom type without a form gets a plain text input, which follows STRIP_STRINGS.
+        field.strip = strips_typed_strings(item=item)
+        return field
+    if allow_null and form_class is forms.BooleanField:
+        # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
+        form_class = forms.NullBooleanField
+    field = form_class(**kwargs)
+    if config_type.key == "str":
+        # Only the built-in str follows STRIP_STRINGS; every other type's own form field (a custom form, a duration,
+        # multi-line text) keeps its own strip.
         field.strip = strips_typed_strings(item=item)
     return field
