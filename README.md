@@ -34,6 +34,34 @@ The colours are CSS custom properties. Set any of them in your admin stylesheet 
 
 There's a dark set too. It follows the browser's light or dark preference, and the admin's theme toggle overrides it.
 
+## The admin's list editor
+
+List and set settings are edited one item at a time. Each item gets its type's own input (a number box, the date picker,
+a datetime's date, time and zone), and the server checks it when you click Add or Update, so the rules are the same as
+when saving. Select an item to load it back into the input. Remove, Up and Down act on the selected item, and Sort
+orders the list by value, flipping direction on each click; sets have no Up, Down or Sort. Raw mode edits the whole list
+as text, one item per line, for pasting. Every line is an item, blank ones included, and Apply says which lines were
+blank. Without JavaScript, the field is that text.
+
+Saving keeps each item exactly: spaces at the ends, empty items and line breaks within an item all survive.
+
+A custom type can say how its lists sort with `sort_key` (a function from an item to what to sort by) or
+`sort_compare` (a function comparing two items) in its `TYPES` entry. Without either, a list sorts by its values when
+their class defines an order, and otherwise has no Sort.
+
+### Spaces in typed strings
+
+`DYNAMIC_CONFIGS["STRIP_STRINGS"]` decides whether the admin strips spaces from the ends of strings typed in a
+single-line input (`str` values and items, and custom types without a `form`):
+
+| `STRIP_STRINGS`  | A single value | List and set items |
+|------------------|----------------|--------------------|
+| `None` (default) | stripped       | kept exactly       |
+| `True`           | stripped       | stripped           |
+| `False`          | kept exactly   | kept exactly       |
+
+Values set from code are always stored exactly, and multi-line `text` is never stripped.
+
 ## Development
 
 Set up a virtual environment in the repository and install the development requirements:
