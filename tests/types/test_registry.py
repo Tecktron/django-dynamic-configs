@@ -102,14 +102,16 @@ def test_list_and_set_variants_wrap_the_item_type():
         "set",
         frozenset,
     )
-    assert as_list.help_text == "One item per line. Each item: A hex color, e.g. #1a2b3c."
-    assert as_set.help_text == "One item per line, with no repeats. Each item: A hex color, e.g. #1a2b3c."
+    assert as_list.help_text == "Each item: A hex color, e.g. #1a2b3c."
+    assert as_set.help_text == "No repeats. Each item: A hex color, e.g. #1a2b3c."
     assert not as_list.listable
     assert not as_set.listable
 
 
 def test_variant_help_text_without_item_help_text():
-    assert list_variant(load_custom_type("plain", PLAIN)).help_text == "One item per line."
+    plain = load_custom_type("plain", PLAIN)
+    assert list_variant(plain).help_text == ""
+    assert set_variant(plain).help_text == "No repeats."
 
 
 def test_the_registry_has_built_ins_and_their_variants():
@@ -117,7 +119,8 @@ def test_the_registry_has_built_ins_and_their_variants():
     assert registry.get("int").label == "Integer"
     assert "list:int" in registry
     assert "set:hours" in registry
-    assert "list:text" not in registry
+    assert "list:text" in registry
+    assert "set:text" in registry
     assert "set:json" not in registry
     assert registry.get("nope") is None
 

@@ -46,8 +46,8 @@ def test_each_built_in_has_a_label_and_help_text(key):
     assert BY_KEY[key].help_text
 
 
-def test_only_text_and_json_have_no_list_variants():
-    assert {key for key, config_type in BY_KEY.items() if not config_type.listable} == {"text", "json"}
+def test_only_json_has_no_list_variants():
+    assert {key for key, config_type in BY_KEY.items() if not config_type.listable} == {"json"}
 
 
 EXPECTED_FIELDS = {

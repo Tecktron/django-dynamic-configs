@@ -29,7 +29,6 @@ BUILTIN_TYPES: tuple[ConfigType, ...] = (
         str,
         serializers.TextSerializer(),
         help_text="Text, which may span several lines.",
-        listable=False,
         # strip=False: leading spaces and blank lines in multi-line text are meaningful.
         form_class=partial(forms.CharField, widget=forms.Textarea, strip=False),
         sort_key=str.casefold,

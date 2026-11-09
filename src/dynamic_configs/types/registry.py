@@ -146,8 +146,11 @@ def _load_sort_key(where: str, entry: Mapping[str, Any]) -> Callable[[Any], Any]
 
 
 def _variant_help(prefix: str, item: ConfigType) -> str:
-    """Return a list or set variant's help text, built from its item type's."""
-    return f"{prefix} Each item: {item.help_text}" if item.help_text else prefix
+    """Return a list or set variant's help text: ``prefix``, then its item type's help."""
+    parts = [prefix] if prefix else []
+    if item.help_text:
+        parts.append(f"Each item: {item.help_text}")
+    return " ".join(parts)
 
 
 def list_variant(item: ConfigType) -> ConfigType:
@@ -157,7 +160,7 @@ def list_variant(item: ConfigType) -> ConfigType:
         label=f"List of {item.label}",
         python_type=list,
         serializer=ListSerializer(item.serializer),
-        help_text=_variant_help("One item per line.", item),
+        help_text=_variant_help("", item),
         listable=False,
         item_type=item,
         container="list",
@@ -171,7 +174,7 @@ def set_variant(item: ConfigType) -> ConfigType:
         label=f"Set of {item.label}",
         python_type=frozenset,
         serializer=SetSerializer(item.serializer),
-        help_text=_variant_help("One item per line, with no repeats.", item),
+        help_text=_variant_help("No repeats.", item),
         listable=False,
         item_type=item,
         container="set",
