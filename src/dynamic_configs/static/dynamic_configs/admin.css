@@ -1,5 +1,6 @@
 /*
- * The dynamic-configs admin's JSON editor (json_editor.js). Without the script, none of this applies.
+ * The dynamic-configs admin's JSON and list editors (json_editor.js, list_editor.js): this styles the editors' own
+ * elements. Without the scripts, none of this applies.
  *
  * Colours are custom properties, so a project can change them in its own admin stylesheet:
  *
@@ -90,4 +91,38 @@
 
 .dynamic-configs-json-status.dynamic-configs-json-has-error {
     color: var(--dynamic-configs-json-error);
+}
+
+/* ---- The list editor ------------------------------------------------------------------------------------------ */
+
+.dynamic-configs-list [hidden] {
+    display: none !important;
+}
+
+.dynamic-configs-list-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 4px 0;
+}
+
+.dynamic-configs-list-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.dynamic-configs-list-items {
+    min-width: 20em;
+    max-width: 100%;
+}
+
+.dynamic-configs-list-message {
+    color: var(--error-fg, #ba2121);
+    margin: 4px 0;
+}
+
+.dynamic-configs-list-message:empty {
+    display: none;
 }

@@ -43,16 +43,25 @@ def _django_from_playwright():
 
 
 @pytest.fixture
-def admin_page(page, live_server, django_user_model):
-    """Return a Playwright page logged in to the admin, failing the test on any console error."""
+def admin_cookie(live_server, django_user_model):
+    """Return the session cookie of a logged-in superuser, for any browser context."""
     user = django_user_model.objects.create_superuser("admin", "admin@example.com", "password")
     client = Client()
     client.force_login(user)
-    page.context.add_cookies(
-        [{"name": "sessionid", "value": client.cookies["sessionid"].value, "url": live_server.url}]
-    )
-    errors = []
-    page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
-    page.on("pageerror", lambda error: errors.append(str(error)))
+    return {"name": "sessionid", "value": client.cookies["sessionid"].value, "url": live_server.url}
+
+
+@pytest.fixture
+def console_errors():
+    """Collect the page's console errors; a test that expects one (a failed request, say) clears the list."""
+    return []
+
+
+@pytest.fixture
+def admin_page(page, admin_cookie, console_errors):
+    """Return a Playwright page logged in to the admin, failing the test on any console error."""
+    page.context.add_cookies([admin_cookie])
+    page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+    page.on("pageerror", lambda error: console_errors.append(str(error)))
     yield page
-    assert errors == []
+    assert console_errors == []

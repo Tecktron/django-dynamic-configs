@@ -135,7 +135,12 @@ class LineListField(forms.CharField):
         return attrs
 
     def prepare_value(self, value: Any) -> Any:
-        """Show a list as its items' stored texts; leave stored texts and text (re-displayed input) as they are."""
+        """Show a list as its items' stored texts, and no value (a blank page) as no items.
+
+        Stored texts and non-empty text (re-displayed input) stay as they are. An empty text is an empty list anyway.
+        """
+        if value is None or value == "":
+            return StoredTexts()
         if isinstance(value, (list, tuple)) and not isinstance(value, StoredTexts):
             return StoredTexts(self.item_to_text(item) for item in value)
         return value

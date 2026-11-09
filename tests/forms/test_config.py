@@ -147,6 +147,22 @@ def test_an_unreadable_list_opens_empty_whatever_the_error():
     assert form.initial["value"] is None
 
 
+def test_a_list_with_an_unreadable_item_opens_with_its_stored_texts():
+    # The editor shows every item, so the unreadable one can be selected and removed.
+    form = opened(make("PORTS", "list:int", '["1", "x"]'))
+    assert isinstance(form.initial["value"], StoredTexts)
+    assert form.initial["value"] == ["1", "x"]
+
+
+@pytest.mark.parametrize("text", ["not json", "[1, 2]", '{"a": "b"}'])
+def test_a_list_that_isnt_an_array_of_strings_opens_empty(text):
+    assert opened(make("PORTS", "list:int", text)).initial["value"] is None
+
+
+def test_an_unreadable_single_value_still_opens_empty_when_it_looks_like_a_list():
+    assert opened(make("MAX_RETRIES", "int", '["1"]')).initial["value"] is None
+
+
 def test_an_empty_value_opens_empty():
     form = opened(make(value=None, allow_null=True))
     assert form.initial["value"] is None

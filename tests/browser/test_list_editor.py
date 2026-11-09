@@ -1,0 +1,231 @@
+"""The admin's list editor (list_editor.js), in a real browser: list mode."""
+
+import json
+from datetime import datetime
+from datetime import timezone as dt_timezone
+
+from playwright.sync_api import expect
+
+from dynamic_configs.models import Config
+from dynamic_configs.types.registry import get_registry
+
+ADD = "/admin/dynamic_configs/config/add/?type={}"
+CHANGE = "/admin/dynamic_configs/config/{}/change/"
+COLOR = {"type": "tests.custom_types.Color", "serializer": "tests.custom_types.ColorSerializer"}
+
+
+def open_config(page, name, type_key, texts):
+    Config.objects.create(name=name, type=type_key, value=json.dumps(texts))
+    page.goto(CHANGE.format(name))
+
+
+def stored(name):
+    return json.loads(Config.objects.get(name=name).value)
+
+
+def items(page):
+    return page.get_by_role("listbox", name="Items")
+
+
+def options(page):
+    return items(page).locator("option")
+
+
+def item_input(page):
+    return page.locator("[name=value__item]")
+
+
+def button(page, name):
+    return page.get_by_role("button", name=name, exact=True)
+
+
+def message(page):
+    return page.locator(".dynamic-configs-list-message")
+
+
+def save(page):
+    page.get_by_role("button", name="Save", exact=True).click()
+
+
+def test_add_checks_each_item_with_the_server(admin_page):
+    admin_page.goto(ADD.format("list:int"))
+    item_input(admin_page).fill("07")
+    button(admin_page, "Add").click()
+    expect(options(admin_page)).to_have_text(["7"])
+    expect(item_input(admin_page)).to_have_value("")
+    # Chromium won't type letters into a number input; 1.5 can be typed, and isn't a whole number.
+    item_input(admin_page).fill("1.5")
+    button(admin_page, "Add").click()
+    expect(message(admin_page)).to_have_text("Enter a whole number.")
+    expect(options(admin_page)).to_have_text(["7"])
+
+
+def test_an_empty_text_item_can_be_added(admin_page):
+    admin_page.goto(ADD.format("list:str"))
+    button(admin_page, "Add").click()
+    expect(options(admin_page)).to_have_count(1)
+
+
+def test_selecting_an_item_loads_it_and_update_replaces_it(admin_page):
+    open_config(admin_page, "PORTS", "list:int", ["80", "443", "8080"])
+    items(admin_page).select_option(index=1)
+    expect(item_input(admin_page)).to_have_value("443")
+    expect(button(admin_page, "Update")).to_be_visible()
+    item_input(admin_page).fill("8443")
+    button(admin_page, "Update").click()
+    expect(options(admin_page)).to_have_text(["80", "8443", "8080"])
+    button(admin_page, "Clear").click()
+    expect(button(admin_page, "Add")).to_be_visible()
+    expect(item_input(admin_page)).to_have_value("")
+    expect(items(admin_page)).to_have_js_property("selectedIndex", -1)
+
+
+def test_remove_up_and_down_then_save(admin_page):
+    open_config(admin_page, "PORTS", "list:int", ["1", "2", "3"])
+    items(admin_page).select_option(index=2)
+    button(admin_page, "Up").click()
+    button(admin_page, "Up").click()
+    expect(options(admin_page)).to_have_text(["3", "1", "2"])
+    expect(button(admin_page, "Up")).to_be_disabled()
+    button(admin_page, "Down").click()
+    expect(options(admin_page)).to_have_text(["1", "3", "2"])
+    items(admin_page).select_option(index=0)
+    expect(item_input(admin_page)).to_have_value("1")
+    button(admin_page, "Remove").click()
+    expect(options(admin_page)).to_have_text(["3", "2"])
+    expect(button(admin_page, "Remove")).to_be_disabled()
+    save(admin_page)
+    expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
+    assert stored("PORTS") == ["3", "2"]
+
+
+def test_sort_goes_by_value_and_flips_direction(admin_page):
+    open_config(admin_page, "PORTS", "list:int", ["10", "9", "100"])
+    button(admin_page, "Sort ↑").click()
+    expect(options(admin_page)).to_have_text(["9", "10", "100"])
+    button(admin_page, "Sort ↓").click()
+    expect(options(admin_page)).to_have_text(["100", "10", "9"])
+
+
+def test_text_sorts_ignoring_case(admin_page):
+    open_config(admin_page, "NAMES", "list:str", ["b", "A", "a"])
+    button(admin_page, "Sort ↑").click()
+    expect(options(admin_page)).to_have_text(["A", "a", "b"])
+
+
+def test_sets_have_no_order_buttons_and_refuse_repeats(admin_page):
+    open_config(admin_page, "CODES", "set:int", ["1"])
+    for name in ("Up", "Down", "Sort ↑"):
+        expect(button(admin_page, name)).to_have_count(0)
+    item_input(admin_page).fill("01")
+    button(admin_page, "Add").click()
+    expect(message(admin_page)).to_have_text("That's already in the set.")
+
+
+def test_types_that_cant_be_sorted_have_no_sort(admin_page, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": {"color": COLOR}}
+    open_config(admin_page, "COLORS", "list:color", ["#000000", "#ffffff"])
+    expect(button(admin_page, "Sort ↑")).to_have_count(0)
+    expect(button(admin_page, "Up")).to_have_count(1)
+
+
+def test_a_datetime_item_loads_into_its_date_time_and_zone(admin_page):
+    datetimes = get_registry().get("datetime")
+    text = datetimes.to_text(datetime(2026, 11, 2, 22, tzinfo=dt_timezone.utc))
+    open_config(admin_page, "LAUNCHES", "list:datetime", [text])
+    items(admin_page).select_option(index=0)
+    expect(admin_page.locator("[name=value__item_0]")).to_have_value("2026-11-02")
+    expect(admin_page.locator("[name=value__item_1]")).to_have_value("17:00:00")
+    expect(admin_page.locator("[name=value__item_2]")).to_have_value("America/New_York")
+    admin_page.locator("[name=value__item_1]").fill("18:00:00")
+    button(admin_page, "Update").click()
+    expect(options(admin_page)).not_to_have_text([text])
+    assert datetimes.from_text(options(admin_page).first.text_content()) == datetime(
+        2026, 11, 2, 23, tzinfo=dt_timezone.utc
+    )
+
+
+def test_saving_keeps_items_exactly(admin_page):
+    texts = ["  INV-", "", "PO-"]
+    open_config(admin_page, "PREFIXES", "list:str", texts)
+    expect(options(admin_page)).to_have_count(3)
+    save(admin_page)
+    expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
+    assert stored("PREFIXES") == texts
+
+
+def test_a_multi_line_text_item_survives_a_save(admin_page):
+    texts = ["Regards,\nThe team", "Thanks"]
+    open_config(admin_page, "SIGNATURES", "list:text", texts)
+    expect(options(admin_page)).to_have_count(2)
+    save(admin_page)
+    expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
+    assert stored("SIGNATURES") == texts
+
+
+def test_save_is_stopped_while_the_editor_holds_an_unfinished_item(admin_page):
+    open_config(admin_page, "PORTS", "list:int", ["80"])
+    item_input(admin_page).fill("443")
+    save(admin_page)
+    expect(message(admin_page)).to_have_text("You have an unsaved change to an item: click Update or Clear.")
+    items(admin_page).select_option(index=0)
+    expect(item_input(admin_page)).to_have_value("80")
+    item_input(admin_page).fill("81")
+    save(admin_page)
+    expect(message(admin_page)).to_have_text("You have an unsaved change to an item: click Update or Clear.")
+    button(admin_page, "Clear").click()
+    save(admin_page)
+    expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
+    assert stored("PORTS") == ["80"]
+
+
+def test_enter_in_the_item_editor_adds_the_item(admin_page):
+    admin_page.goto(ADD.format("list:int"))
+    item_input(admin_page).fill("7")
+    item_input(admin_page).press("Enter")
+    expect(options(admin_page)).to_have_text(["7"])
+    # The page wasn't submitted: the name is still waiting to be filled in, with no error.
+    expect(admin_page.locator("[name=name]")).to_be_visible()
+    expect(admin_page.locator(".errornote")).to_have_count(0)
+
+
+def test_an_unreachable_check_url_changes_nothing(admin_page, console_errors):
+    admin_page.goto(ADD.format("list:int"))
+    admin_page.route("**/list-item/**", lambda route: route.fulfill(status=500))
+    item_input(admin_page).fill("7")
+    button(admin_page, "Add").click()
+    expect(message(admin_page)).to_have_text("Couldn't check the item; try again.")
+    expect(options(admin_page)).to_have_count(0)
+    # The browser logs the failed request; that error is expected.
+    console_errors.clear()
+
+
+def test_the_buttons_wait_for_the_servers_answer(admin_page):
+    # Review focus: a second click while the first is pending must not add the item twice.
+    held = []
+    admin_page.goto(ADD.format("list:int"))
+    admin_page.route("**/list-item/**", lambda route: held.append(route))
+    item_input(admin_page).fill("7")
+    button(admin_page, "Add").click()
+    expect(button(admin_page, "Add")).to_be_disabled()
+    while not held:
+        admin_page.wait_for_timeout(20)
+    held[0].continue_()
+    expect(options(admin_page)).to_have_text(["7"])
+    expect(button(admin_page, "Add")).to_be_enabled()
+
+
+def test_item_text_is_shown_as_text(admin_page):
+    # Review focus: markup in an item stays text.
+    open_config(admin_page, "SNIPPETS", "list:str", ["<img src=x onerror=alert(1)>"])
+    expect(options(admin_page)).to_have_text(["<img src=x onerror=alert(1)>"])
+    expect(admin_page.locator(".dynamic-configs-list img")).to_have_count(0)
+
+
+def test_an_unreadable_item_can_be_selected_and_removed(admin_page):
+    # Review focus: a hand-edited row.
+    open_config(admin_page, "PORTS", "list:int", ["1", "x"])
+    items(admin_page).select_option(index=1)
+    expect(message(admin_page)).to_have_text("Enter a whole number, such as 42.")
+    button(admin_page, "Remove").click()
+    expect(options(admin_page)).to_have_text(["1"])

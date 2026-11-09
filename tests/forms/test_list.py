@@ -165,6 +165,17 @@ def test_lists_display_as_their_stored_texts():
     assert LineListField().prepare_value("a\nb") == "a\nb"
 
 
+@pytest.mark.parametrize("empty", [None, ""])
+def test_no_value_is_no_items(empty):
+    # A blank add page: an empty text is an empty list, so the editor starts in list mode.
+    value = typed("int").prepare_value(empty)
+    assert isinstance(value, StoredTexts)
+    assert value == []
+    html = ListWidget().render("value", value)
+    assert 'name="value__items" value="[]"' in html
+    assert 'name="value__mode" value="raw"' in html
+
+
 # ---- The widget ----
 
 
