@@ -131,7 +131,9 @@ def test_a_set_is_shown_in_the_order_it_was_entered():
     form = opened(make("HOSTS", "set:str", '["b.example", "a.example"]'))
     assert isinstance(form.fields["value"], TypedLineListField)
     assert form.initial["value"] == ["b.example", "a.example"]
-    assert form["value"].value() == StoredTexts(["b.example", "a.example"])
+    # A plain list equals StoredTexts too, so the type is checked on its own.
+    assert isinstance(form["value"].value(), StoredTexts)
+    assert form["value"].value() == ["b.example", "a.example"]
 
 
 def test_an_unreadable_value_opens_empty():

@@ -9,6 +9,7 @@ import pytest
 from django.contrib.auth.models import Permission
 from django.test import Client
 
+from dynamic_configs.forms.list import StoredTexts
 from dynamic_configs.models import Config
 from dynamic_configs.types.registry import get_registry
 
@@ -97,6 +98,12 @@ def test_lines_return_stored_texts_or_line_errors(admin_client):
     }
 
 
+def test_lines_are_checked_as_saving_checks_them(admin_client):
+    assert answer(admin_client, "list:str", "lines", lines=json.dumps(["a\x00b"])) == {
+        "errors": ["Line 1: Null characters are not allowed."]
+    }
+
+
 def test_sort_orders_by_value_either_way(admin_client):
     items = '["10", "9", "100"]'
     assert answer(admin_client, "list:int", "sort", items=items, direction="ascending") == {"texts": ["9", "10", "100"]}
@@ -145,12 +152,13 @@ def test_the_check_url_needs_a_login(client):
     assert "/admin/login/" in response["Location"]
 
 
-def test_the_check_url_needs_add_or_change_permission(client, django_user_model):
+@pytest.mark.parametrize("codename", ["change_config", "add_config"])
+def test_the_check_url_needs_add_or_change_permission(client, django_user_model, codename):
     user = django_user_model.objects.create_user("staff", password="unused", is_staff=True)
     client.force_login(user)
     fields = {"value__item": "7", "items": "[]", "position": ""}
     assert ask(client, "list:int", "check", **fields).status_code == 403
-    user.user_permissions.add(Permission.objects.get(codename="change_config"))
+    user.user_permissions.add(Permission.objects.get(codename=codename))
     assert ask(client, "list:int", "check", **fields).json() == {"text": "7"}
 
 
@@ -206,3 +214,29 @@ def test_an_unreadable_stored_item_is_named_when_saving(admin_client):
     )
     assert response.status_code == 200
     assert "Item 2: Enter a whole number" in response.content.decode()
+
+
+def test_a_list_that_cant_be_read_shows_the_stored_items_again(admin_client):
+    # Review focus: a tampered or truncated request. The page shows the stored list, not an empty one, so saving
+    # again keeps it.
+    Config.objects.create(name="PORTS", type="list:int", value='["1", "2"]')
+    response = admin_client.post(
+        change_url("PORTS"),
+        {"value": "", "value__mode": "list", "value__items": "[1,", "description": "", "_save": "Save"},
+    )
+    assert response.status_code == 200
+    assert "The list couldn&#x27;t be read. Reload the page and try again." in response.content.decode()
+    shown = response.context["adminform"].form["value"].value()
+    assert isinstance(shown, StoredTexts)
+    assert shown == ["1", "2"]
+    assert 'name="value__items" value="[&quot;1&quot;, &quot;2&quot;]"' in response.content.decode()
+
+
+def test_a_raw_save_names_the_line_a_validator_refuses(admin_client):
+    Config.objects.create(name="NAMES", type="list:str", value='["x"]')
+    response = admin_client.post(
+        change_url("NAMES"), {"value": "a\nb\x00c", "value__mode": "raw", "description": "", "_save": "Save"}
+    )
+    assert response.status_code == 200
+    assert response.context["adminform"].form.errors["value"] == ["Line 2: Null characters are not allowed."]
+    assert Config.objects.get(name="NAMES").value == '["x"]'

@@ -54,9 +54,16 @@ def test_a_required_field_takes_blank_lines_as_items():
     assert LineListField().clean("\n") == ["", ""]
 
 
-def test_validators_run_on_each_item():
-    with pytest.raises(ValidationError, match="at most 3"):
-        LineListField(max_length=3, required=False).clean("abc\nabcd")
+def test_validators_run_on_each_item_and_name_it():
+    with pytest.raises(ValidationError) as error:
+        LineListField(max_length=3, required=False).clean("abc\nabcd\nabcde")
+    assert error.value.messages == [
+        "Line 2: Ensure this value has at most 3 characters (it has 4).",
+        "Line 3: Ensure this value has at most 3 characters (it has 5).",
+    ]
+    with pytest.raises(ValidationError) as error:
+        LineListField(max_length=3, required=False).clean(StoredTexts(["abcd", "abc"]))
+    assert error.value.messages == ["Item 1: Ensure this value has at most 3 characters (it has 4)."]
 
 
 def test_the_textarea_gets_no_length_limits():
@@ -158,8 +165,13 @@ def test_unreadable_list_data_is_a_form_error():
 
 
 def test_lists_display_as_their_stored_texts():
-    assert typed("date").prepare_value([date(2026, 11, 2)]) == StoredTexts(["2026-11-02"])
-    assert LineListField().prepare_value(["a", "b"]) == ["a", "b"]
+    # A plain list equals StoredTexts too, so the type is checked on its own.
+    shown = typed("date").prepare_value([date(2026, 11, 2)])
+    assert isinstance(shown, StoredTexts)
+    assert shown == ["2026-11-02"]
+    shown = LineListField().prepare_value(["a", "b"])
+    assert isinstance(shown, StoredTexts)
+    assert shown == ["a", "b"]
     texts = StoredTexts(["x"])
     assert typed("str").prepare_value(texts) is texts
     assert LineListField().prepare_value("a\nb") == "a\nb"
@@ -315,3 +327,9 @@ def test_raw_lines_become_stored_texts_or_line_errors():
     with pytest.raises(ValidationError) as error:
         typed("int").texts_from_lines(["1", "x"])
     assert error.value.messages == ["Line 2: Enter a whole number, such as 42."]
+
+
+def test_raw_lines_are_checked_by_the_fields_validators_as_saving_checks_them():
+    with pytest.raises(ValidationError) as error:
+        typed("str").texts_from_lines(["a", "b\x00c"])
+    assert error.value.messages == ["Line 2: Null characters are not allowed."]

@@ -134,6 +134,12 @@ class LineListField(forms.CharField):
         attrs.pop("minlength", None)
         return attrs
 
+    def bound_data(self, data: Any, initial: Any) -> Any:
+        """Show the initial list again when the submitted one couldn't be read, so saving again doesn't empty it."""
+        if isinstance(data, UnreadableItems):
+            return initial
+        return super().bound_data(data, initial)
+
     def prepare_value(self, value: Any) -> Any:
         """Show a list as its items' stored texts, and no value (a blank page) as no items.
 
@@ -189,10 +195,26 @@ class LineListField(forms.CharField):
         """Return the items, in order."""
         return [item for *_, item in self.numbered_items(value)]
 
-    def run_validators(self, value: list[Any]) -> None:
-        """Run the field's validators on each item."""
-        for item in value:
-            super().run_validators(item)
+    def clean(self, value: Any) -> Any:
+        """Clean as Django does, naming validator errors as ``numbered_items`` names its own ("Item 2", "Line 2")."""
+        items = self.to_python(value)
+        self.validate(items)
+        self.run_validators(items, noun="Item" if isinstance(value, StoredTexts) else "Line")
+        return items
+
+    def run_validators(self, value: list[Any], noun: str = "Item") -> None:
+        """Run the field's validators on each item, naming each error by ``noun`` and number ("Line 2: …").
+
+        :raises ValidationError: every failing item's errors
+        """
+        errors: list[str] = []
+        for number, item in enumerate(value, start=1):
+            try:
+                super().run_validators(item)
+            except ValidationError as error:
+                errors.extend(f"{noun} {number}: {message}" for message in error.messages)
+        if errors:
+            raise ValidationError(errors)
 
 
 class TypedLineListField(LineListField):
@@ -318,6 +340,9 @@ class TypedLineListField(LineListField):
     def texts_from_lines(self, lines: Sequence[str]) -> list[str]:
         """Return the stored texts of raw mode's ``lines``, checked as saving checks them.
 
-        :raises ValidationError: one message per bad line ("Line 4: …"), and a set's repeats
+        :raises ValidationError: one message per bad line ("Line 4: …"), a set's repeats, and the field's validators'
+            errors ("Line 2: Null characters are not allowed.")
         """
-        return [self.item_type.to_text(item) for item in self.to_python("\n".join(lines))]
+        items = self.to_python("\n".join(lines))
+        self.run_validators(items, noun="Line")
+        return [self.item_type.to_text(item) for item in items]

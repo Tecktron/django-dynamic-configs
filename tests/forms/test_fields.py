@@ -120,6 +120,20 @@ def test_a_custom_form_field_keeps_its_own_strip(settings, setting):
         assert formfield_for(registry.get("unstripped"), item=item).strip is False
 
 
+def test_a_projects_replacement_str_with_its_own_form_keeps_its_own_strip(settings):
+    # Only the built-in str follows STRIP_STRINGS; a TYPES entry replacing it with its own form is a custom form.
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": True}
+    replacement = {
+        "type": "builtins.str",
+        "serializer": "dynamic_configs.types.serializers.StrSerializer",
+        "form": "tests.custom_types.UnstrippedColorField",
+    }
+    registry = build_registry({"str": replacement})
+    assert formfield_for(registry.get("str")).strip is False
+    assert formfield_for(registry.get("str"), item=True).strip is False
+    assert formfield_for(registry.get("list:str")).item_field.strip is False
+
+
 def test_a_duration_field_keeps_its_own_strip(settings):
     settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": False}
     field = formfield_for(build_registry({}).get("hours"))

@@ -106,8 +106,8 @@ def formfield_for(
         # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
         form_class = forms.NullBooleanField
     field = form_class(**kwargs)
-    if config_type.key == "str":
+    if config_type.key == "str" and form_class is forms.CharField:
         # Only the built-in str follows STRIP_STRINGS; every other type's own form field (a custom form, a duration,
-        # multi-line text) keeps its own strip.
+        # multi-line text, a project's replacement str with its own form) keeps its own strip.
         field.strip = strips_typed_strings(item=item)
     return field
