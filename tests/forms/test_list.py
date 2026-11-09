@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
 
@@ -248,6 +249,18 @@ def test_the_raw_help_describes_typed_items_and_the_item_editor_its_own_input():
     assert boolean.item_field.help_text == "Checked means true."
     # A number is typed the same way in both.
     assert TypedLineListField(TYPES.get("int")).item_field.help_text == TYPES.get("int").help_text
+
+
+def test_a_custom_types_raw_help_text_describes_typed_items():
+    # Its input (an amount box and a currency box, say) isn't typed as one line, so it has help for each.
+    pair = replace(TYPES.get("color"), help_text="An amount and its currency.", raw_help_text="Typed as 9.99 CAD.")
+    field = TypedLineListField(pair)
+    assert field.widget.raw_help == "One item per line. Each item: Typed as 9.99 CAD."
+    assert field.item_field.help_text == "An amount and its currency."
+    # Without it, raw mode uses help_text: typing in a text box and typing a line are the same.
+    assert TypedLineListField(replace(pair, raw_help_text="")).widget.raw_help == (
+        "One item per line. Each item: An amount and its currency."
+    )
 
 
 def test_an_item_type_without_help_has_only_the_line_rule():

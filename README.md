@@ -58,6 +58,10 @@ A custom type can say how its lists sort with `sort_key` (the dotted path of a f
 by) or `sort_compare` (the dotted path of a function comparing two items) in its `TYPES` entry. Without either, a list
 sorts by its values when their class defines an order, and otherwise has no Sort.
 
+A custom type's `help_text` describes its own input, beside the value and the item editor. Raw mode shows it too,
+unless the type's `TYPES` entry has a `raw_help_text`: set one when the input isn't typed as one line (a widget of
+several parts, say), to say how an item is typed on a raw-mode line.
+
 ### Spaces in typed strings
 
 `DYNAMIC_CONFIGS["STRIP_STRINGS"]` decides whether the admin strips spaces from the ends of strings typed in a

@@ -27,7 +27,9 @@ LIST_PREFIX = "list:"
 SET_PREFIX = "set:"
 # No ":" allowed, because it marks list and set variants.
 TYPE_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
-_ENTRY_KEYS = frozenset({"type", "serializer", "form", "label", "help_text", "listable", "sort_key", "sort_compare"})
+_ENTRY_KEYS = frozenset(
+    {"type", "serializer", "form", "label", "help_text", "raw_help_text", "listable", "sort_key", "sort_compare"}
+)
 
 
 class TypeConfigError(ImproperlyConfigured):
@@ -44,7 +46,7 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
 
     :param key: the type key, such as ``"color"``
     :param entry: the entry's dict (``type``, ``serializer`` and optionally ``form``, ``label``, ``help_text``,
-        ``listable``, ``sort_key``, ``sort_compare``)
+        ``raw_help_text``, ``listable``, ``sort_key``, ``sort_compare``)
     :returns: the loaded type
     :rtype: ConfigType
     :raises TypeConfigError: the entry is invalid; ``check_id`` says which system check reports it
@@ -71,10 +73,12 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
     sort_key = _load_sort_key(where, entry)
     label = entry.get("label", key)
     help_text = entry.get("help_text", "")
+    raw_help_text = entry.get("raw_help_text", "")
     listable = entry.get("listable", True)
-    if not isinstance(label, str) or not isinstance(help_text, str) or not isinstance(listable, bool):
+    if not all(isinstance(text, str) for text in (label, help_text, raw_help_text)) or not isinstance(listable, bool):
         raise TypeConfigError(
-            f"{where}: 'label' and 'help_text' must be strings and 'listable' a boolean.", "dynamic_configs.E001"
+            f"{where}: 'label', 'help_text' and 'raw_help_text' must be strings and 'listable' a boolean.",
+            "dynamic_configs.E001",
         )
     return ConfigType(
         key=key,
@@ -82,6 +86,7 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
         python_type=python_type,
         serializer=serializer,
         help_text=help_text,
+        raw_help_text=raw_help_text,
         listable=listable,
         form_class=form_class,
         sort_key=sort_key,

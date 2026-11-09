@@ -22,7 +22,8 @@ MONEY_TYPES = {
         "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
         "form": "dynamic_configs.forms.money.MoneyCurrencyField",
         "label": "Money with currency",
-        "help_text": "An amount with at most 2 decimal places and a 3-letter currency code, e.g. 9.99 CAD",
+        "help_text": "An amount with at most 2 decimal places, and a 3-letter currency code",
+        "raw_help_text": "An amount with at most 2 decimal places and a 3-letter currency code, e.g. 9.99 CAD",
     },
 }
 
@@ -50,6 +51,16 @@ def test_money_with_currency_and_its_set_variant():
     value, _ = dynamic_configs.get_or_create("PRICES", "set:money_currency", prices)
     assert value == frozenset(prices)
     assert Config.objects.get(name="PRICES").value == '["1.00 USD", "2.00 EUR"]'
+
+
+def test_a_list_of_money_with_currency_has_help_for_its_boxes_and_for_typing(admin_client):
+    content = admin_client.get("/admin/dynamic_configs/config/add/?type=list:money_currency").content.decode()
+    # The item editor is an amount box and a currency box; raw mode types both on one line.
+    assert '<p class="help">An amount with at most 2 decimal places, and a 3-letter currency code</p>' in content
+    assert (
+        '<p class="help">One item per line. Each item: An amount with at most 2 decimal places and a 3-letter '
+        "currency code, e.g. 9.99 CAD</p>"
+    ) in content
 
 
 def test_money_in_the_admin(admin_client):

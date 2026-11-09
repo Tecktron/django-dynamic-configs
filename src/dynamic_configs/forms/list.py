@@ -251,7 +251,8 @@ class TypedLineListField(LineListField):
     editor's checks, which the admin's check URL calls.
 
     Each way of entering items has its own help, since they can differ (a boolean is typed as text but edited with a
-    checkbox): ``item_field``'s describes its own input, and the textarea's (``raw_help``) the item type's typed text.
+    checkbox): ``item_field``'s describes its own input, and the textarea's (``raw_help``) the item type's typed text,
+    its ``raw_help_text`` or else its ``help_text``.
     """
 
     def __init__(self, item_type: ConfigType, *, unique: bool = False, **kwargs: Any) -> None:
@@ -265,7 +266,8 @@ class TypedLineListField(LineListField):
         self.item_field = formfield_for(
             item_type, item=True, required=False, label="Item", help_text=item_type.help_text
         )
-        raw_help = f"{RAW_HELP} Each item: {item_type.help_text}" if item_type.help_text else RAW_HELP
+        typed_help = item_type.raw_help_text or item_type.help_text
+        raw_help = f"{RAW_HELP} Each item: {typed_help}" if typed_help else RAW_HELP
         kwargs.setdefault("widget", ListWidget(raw_help=raw_help))
         super().__init__(**kwargs)
 

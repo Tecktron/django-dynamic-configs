@@ -20,6 +20,7 @@ COLOR = {
     "form": "tests.custom_types.ColorField",
     "label": "Color",
     "help_text": "A hex color, e.g. #1a2b3c.",
+    "raw_help_text": "A hex color typed with its #, e.g. #1a2b3c.",
 }
 PLAIN = {"type": "tests.custom_types.Color", "serializer": "tests.custom_types.ColorSerializer"}
 
@@ -30,11 +31,13 @@ def test_custom_types_are_loaded_from_dotted_paths():
     assert isinstance(color.serializer, ColorSerializer)
     assert color.form_class is ColorField
     assert (color.label, color.help_text, color.listable) == ("Color", "A hex color, e.g. #1a2b3c.", True)
+    assert color.raw_help_text == "A hex color typed with its #, e.g. #1a2b3c."
 
 
 def test_label_help_text_form_and_listable_are_optional():
     plain = load_custom_type("plain", PLAIN)
     assert (plain.label, plain.help_text, plain.form_class, plain.listable) == ("plain", "", None, True)
+    assert plain.raw_help_text == ""
 
 
 @pytest.mark.parametrize(
@@ -64,6 +67,7 @@ def test_label_help_text_form_and_listable_are_optional():
         ("color", {**COLOR, "form": "tests.custom_types.Color"}, "E004", "django.forms.Field subclass"),
         ("color", {**COLOR, "label": 5}, "E001", "must be strings"),
         ("color", {**COLOR, "help_text": None}, "E001", "must be strings"),
+        ("color", {**COLOR, "raw_help_text": 5}, "E001", "'raw_help_text' must be strings"),
         ("color", {**COLOR, "listable": "yes"}, "E001", "a boolean"),
         (
             "color",

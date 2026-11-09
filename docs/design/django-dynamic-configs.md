@@ -105,14 +105,19 @@ Durations are per-unit types, which are clearer for admins than a free-form dura
 for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are written without a trailing `.0` (`"2"`, not
 `"2.0"`).
 
-Every type, built-in or custom, has a short `help_text` describing its text format (for example "YYYY-MM-DD" for
-`date`, "one number of hours, e.g. 1.5" for `hours`). The admin shows help that describes the input on screen, so the
-type's help appears wherever its text is typed: as the value's help on the add and change pages, and with a list's raw
-textarea ("One item per line. Each item: …"). An input that isn't typed text has its own help instead: the built-in
-`bool`'s checkbox ("Checked means true.") and yes/no/unknown select ("Unknown leaves the setting empty, which needs
-Allow null checked."), and the datetime picker (see below); a custom type's `form` keeps the help its author wrote. A
-list editor's item editor shows its own input's help, and under the field goes only what holds both ways: "No
-repeats." for a set.
+Every type, built-in or custom, has a short `help_text` (for example "YYYY-MM-DD" for `date`, "one number of hours,
+e.g. 1.5" for `hours`). The admin shows help that describes the input on screen:
+
+- `help_text` is the help for the type's own input: the value's help on the add and change pages, and the list
+  editor's item editor's.
+- A list's raw textarea says what to type on each line: "One item per line. Each item: …" with the type's
+  `raw_help_text`, or its `help_text` when it has none. For an input that's a text box, typing in it and typing a line
+  are the same, so only a type whose input isn't typed as one line (a custom type's widget of several parts, say)
+  needs `raw_help_text`.
+- The built-in `bool` and `datetime` replace their help beside their widgets: the checkbox ("Checked means true."),
+  the yes/no/unknown select ("Unknown leaves the setting empty, which needs Allow null checked.") and the datetime
+  picker (see below). Their `help_text` describes typed text, which raw mode shows.
+- Under a list or set field goes only what holds both ways: "No repeats." for a set.
 
 `JSONTextField` is a textarea (`JSONTextarea`, marked for the admin's JSON editor, with spell-checking off) showing
 the value pretty-printed (`indent=2`), validated on the server. In the admin it gets the JSON editor (see Admin).
@@ -189,7 +194,8 @@ with a line break; the list editor can, so `list:text` and `set:text` exist.)
 
 ### Custom types
 
-Declared in Django settings; every value is a dotted path except `label`, `help_text` and `listable`:
+Declared in Django settings; every value is a dotted path except `label`, `help_text`, `raw_help_text` and
+`listable`:
 
 ```python
 DYNAMIC_CONFIGS = {
@@ -199,7 +205,8 @@ DYNAMIC_CONFIGS = {
             "serializer": "myapp.colors.ColorSerializer",  # required
             "form": "myapp.forms.ColorField",              # optional: a django.forms.Field subclass
             "label": "Color",                              # optional, defaults to the key
-            "help_text": "A hex color, e.g. #1a2b3c",      # optional, defaults to ""
+            "help_text": "Pick a color",                   # optional, defaults to "": help for the form's input
+            "raw_help_text": "A hex color, e.g. #1a2b3c",  # optional, defaults to help_text: a list's raw mode
             "listable": True,                              # optional, defaults to True: list and set variants
             "sort_key": "myapp.colors.hue",                # optional: item -> what list items sort by
             # or "sort_compare": "myapp.colors.compare",   # optional: (a, b) -> negative, zero or positive
@@ -245,7 +252,8 @@ DYNAMIC_CONFIGS = {
             "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
             "form": "dynamic_configs.forms.money.MoneyCurrencyField",
             "label": "Money with currency",
-            "help_text": "An amount with at most 2 decimal places and a 3-letter currency code, e.g. 9.99 CAD",
+            "help_text": "An amount with at most 2 decimal places, and a 3-letter currency code",
+            "raw_help_text": "An amount with at most 2 decimal places and a 3-letter currency code, e.g. 9.99 CAD",
             "sort_key": "dynamic_configs.types.money.by_currency_then_amount",
         },
     },

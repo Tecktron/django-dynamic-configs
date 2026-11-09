@@ -38,6 +38,9 @@ class ConfigType:
     serializer: Serializer
     help_text: str = ""
     listable: bool = True
+    # Help for typing one item as text (a list's raw mode), when the type's input isn't typed as one line; "" uses
+    # help_text.
+    raw_help_text: str = ""
     # A form field class, or a callable that returns a field (a functools.partial setting a widget, say).
     form_class: Callable[..., Any] | None = None
     item_type: ConfigType | None = None
