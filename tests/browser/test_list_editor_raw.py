@@ -80,6 +80,7 @@ def test_blank_lines_are_empty_items_and_a_note_names_them(admin_page):
         "Lines 2, 3 and 5 were blank, so they were added as blank items."
     )
     save(admin_page)
+    expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
     assert stored("TAGS") == ["a", "", "   ", "b", ""]
 
 
@@ -109,6 +110,41 @@ def test_raw_mode_refuses_a_list_of_one_empty_item(admin_page):
         "The list is one empty item, which raw mode would show as no items. Edit it in the item editor."
     )
     expect(options(admin_page)).to_have_count(1)
+
+
+def test_raw_text_is_editable_once_the_line_break_item_is_removed(admin_page):
+    open_config(admin_page, "SIGNATURES", "list:text", ["Thanks", "Regards,\nThe team"])
+    options(admin_page).nth(1).click()
+    expect(button(admin_page, "Update")).to_be_visible()
+    button(admin_page, "Remove").click()
+    expect(options(admin_page)).to_have_count(1)
+    raw_mode(admin_page)
+    expect(raw_text(admin_page)).to_be_editable()
+    expect(raw_text(admin_page)).to_have_value("Thanks")
+
+
+def test_raw_mode_will_not_open_over_an_unfinished_item(admin_page):
+    admin_page.goto("/admin/dynamic_configs/config/add/?type=list:str")
+    admin_page.locator("[name=value__item]").fill("x")
+    raw_mode(admin_page)
+    expect(admin_page.locator(".dynamic-configs-list-message")).to_have_text(
+        "You have an unsaved change to an item: click Update or Clear."
+    )
+    expect(raw_text(admin_page)).to_be_hidden()
+    expect(admin_page.locator("[name=value__item]")).to_have_value("x")
+
+
+def test_an_old_note_is_gone_after_raw_mode_is_opened_and_cancelled(admin_page):
+    open_config(admin_page, "TAGS", "list:str", ["a"])
+    raw_mode(admin_page)
+    raw_text(admin_page).fill("a\n")
+    button(admin_page, "Apply").click()
+    expect(admin_page.locator(".dynamic-configs-list-message")).to_have_text(
+        "Line 2 was blank, so it was added as a blank item."
+    )
+    raw_mode(admin_page)
+    button(admin_page, "Cancel").click()
+    expect(admin_page.locator(".dynamic-configs-list-message")).to_have_text("")
 
 
 def test_saving_with_raw_mode_open_saves_the_raw_text(admin_page):

@@ -92,6 +92,7 @@
             inputs().forEach((input, index) => write(input, empty[index]));
             baseline = state();
         };
+        const unfinished = () => state() !== baseline;
         const editorFields = () => {
             const fields = {};
             for (const input of inputs()) {
@@ -152,6 +153,8 @@
         raw.hidden = true;
         // The note is for the page without this script, which can't edit such a list.
         container.querySelector(`.${PREFIX}-locked`)?.setAttribute("hidden", "");
+        // Likewise for the textarea's read-only state: once the item editor has fixed the list, raw mode can edit it.
+        textarea.readOnly = false;
         modeInput.value = "list";
 
         function render() {
@@ -290,7 +293,7 @@
         });
 
         form.addEventListener("submit", (event) => {
-            if (modeInput.value === "list" && state() !== baseline) {
+            if (modeInput.value === "list" && unfinished()) {
                 event.preventDefault();
                 message.textContent = UNFINISHED;
                 inputs()[0]?.focus();
@@ -302,6 +305,7 @@
             raw.hidden = false;
             rawErrors.replaceChildren();
             rawMessage.textContent = "";
+            message.textContent = "";
             // Saving now saves the text, which the server reads as it does without this script.
             modeInput.value = "raw";
             textarea.focus();
@@ -318,6 +322,11 @@
         }
 
         rawLink.addEventListener("click", () => {
+            // Cancel would throw away an item typed but not added, so the same guard as Save applies.
+            if (unfinished()) {
+                message.textContent = UNFINISHED;
+                return;
+            }
             const broken = items.findIndex((text) => /[\r\n]/.test(text));
             if (broken >= 0) {
                 message.textContent =
@@ -354,7 +363,8 @@
 
         applyButton.addEventListener("click", async () => {
             rawErrors.replaceChildren();
-            const answer = await request("lines", { lines: JSON.stringify(textarea.value.split("\n")) }, rawMessage);
+            const text = textarea.value;
+            const answer = await request("lines", { lines: JSON.stringify(text.split("\n")) }, rawMessage);
             if (!answer) {
                 return;
             }
@@ -362,7 +372,7 @@
                 rawErrors.replaceChildren(...answer.errors.map((error) => make("li", "", error)));
                 return;
             }
-            const note = blankNote(textarea.value);
+            const note = blankNote(text);
             items = answer.texts;
             closeRaw();
             message.textContent = note;
