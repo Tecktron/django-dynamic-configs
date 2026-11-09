@@ -193,14 +193,20 @@ def test_markup_in_a_value_stays_text(admin_page):
     expect(copy.locator("img")).to_have_count(0)
 
 
-def lines_up(page):
-    """Return whether the coloured copy wraps and scrolls exactly as the textarea does."""
-    return page.evaluate(
+def wait_until_lined_up(page):
+    """Wait until the coloured copy wraps and scrolls as the textarea does, within the script's own 1px.
+
+    The script lays the copy out again after scrolling and resizing, which happen asynchronously, so this waits rather
+    than checking once. A copy 1px shorter, which the script accepts, also scrolls 1px less at the bottom.
+    """
+    page.wait_for_function(
         """() => {
             const field = document.querySelector("textarea[name=value]");
             const copy = document.querySelector(".dynamic-configs-json-highlight");
-            return copy.scrollHeight === field.scrollHeight && copy.scrollTop === field.scrollTop;
-        }"""
+            return Math.abs(copy.scrollHeight - field.scrollHeight) <= 1
+                && Math.abs(copy.scrollTop - field.scrollTop) <= 1;
+        }""",
+        timeout=5000,
     )
 
 
@@ -208,17 +214,19 @@ def test_the_colours_line_up_with_the_text_and_scroll_with_it(editor):
     # Long enough to scroll, with a line long enough to wrap.
     lines = [f'  "key{n}": "{"word " * (40 if n == 3 else 1)}",' for n in range(60)]
     textarea(editor).fill("{\n" + "\n".join(lines) + '\n  "end": 1\n}\n')
-    assert lines_up(editor)
+    wait_until_lined_up(editor)
     textarea(editor).evaluate("t => { t.scrollTop = t.scrollHeight; }")
     editor.wait_for_function("() => document.querySelector('.dynamic-configs-json-highlight').scrollTop > 0")
-    assert lines_up(editor)
+    wait_until_lined_up(editor)
     # Resizing the textarea resizes the copy.
     textarea(editor).evaluate("t => { t.style.width = '300px'; }")
     editor.wait_for_function(
         """() => document.querySelector('.dynamic-configs-json-highlight').clientWidth
             === document.querySelector('textarea[name=value]').clientWidth"""
     )
-    assert lines_up(editor)
+    wait_until_lined_up(editor)
+    # Still coloured: had the copy stopped lining up, the script would have hidden it.
+    expect(colours(editor)).to_be_visible()
 
 
 def test_the_colours_turn_off_when_the_copy_cant_line_up(editor):
