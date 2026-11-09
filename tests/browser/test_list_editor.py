@@ -225,6 +225,15 @@ def test_item_text_is_shown_as_text(admin_page):
     expect(admin_page.locator(".dynamic-configs-list img")).to_have_count(0)
 
 
+def test_the_list_shows_several_items_at_once(admin_page):
+    # The admin's stylesheet gives every select one row's height (only multi-selects get theirs back); the list
+    # keeps the rows its size asks for.
+    open_config(admin_page, "PORTS", "list:int", ["80", "443", "8080"])
+    expect(options(admin_page)).to_have_count(3)
+    row = options(admin_page).first.bounding_box()
+    assert items(admin_page).bounding_box()["height"] >= 4 * row["height"]
+
+
 def test_an_unreadable_item_can_be_selected_and_removed(admin_page):
     # Review focus: a hand-edited row.
     open_config(admin_page, "PORTS", "list:int", ["1", "x"])

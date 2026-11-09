@@ -116,6 +116,8 @@
 .dynamic-configs-list-items {
     min-width: 20em;
     max-width: 100%;
+    /* The admin gives every select one row's height (only select[multiple] gets "auto" back); let size decide. */
+    height: auto;
 }
 
 .dynamic-configs-list-message {
