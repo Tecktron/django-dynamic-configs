@@ -45,6 +45,7 @@ _FIELDS = ("name", "type", "value", "allow_null", "description")
 _LIST_ITEM_URL = "dynamic_configs_config_list_item"
 _LIST_EDITOR_SCRIPT = "dynamic_configs/list_editor.js"
 _STYLESHEET = "dynamic_configs/admin.css"
+_UNREADABLE = "The request couldn't be read. Reload the page and try again."
 
 
 class AdminZonedDateTimeWidget(ZonedDateTimeWidget):
@@ -146,8 +147,21 @@ def _texts(raw: str | None) -> list[str]:
         # RecursionError: JSON nested too deeply, which Python's reader raises rather than a ValueError.
         texts = None
     if not isinstance(texts, list) or not all(isinstance(text, str) for text in texts):
-        raise ValidationError("The request couldn't be read. Reload the page and try again.")
+        raise ValidationError(_UNREADABLE)
     return texts
+
+
+def _position(raw: str | None) -> int | None:
+    """Return the item's index the list editor sent, or None for a new item (empty or missing).
+
+    Only 1 to 9 ASCII digits are an index: ``int()`` refuses some digits (``"²"``) and very long strings.
+    Raise ValidationError for anything else.
+    """
+    if not raw:
+        return None
+    if not (raw.isascii() and raw.isdigit() and len(raw) <= 9):
+        raise ValidationError(_UNREADABLE)
+    return int(raw)
 
 
 class ConfigAdminMixin:
@@ -268,14 +282,13 @@ class ConfigAdminMixin:
         try:
             match post.get("action"):
                 case "check":
-                    position = post.get("position", "")
                     reply: dict[str, Any] = {
                         "text": field.item_text(
                             post,
                             request.FILES,
                             name,
                             others=_texts(post.get("items")),
-                            position=int(position) if position.isdigit() else None,
+                            position=_position(post.get("position")),
                         )
                     }
                 case "load":

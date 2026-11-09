@@ -119,6 +119,13 @@ def test_a_request_that_cant_be_read_is_an_error(admin_client, items):
     }
 
 
+@pytest.mark.parametrize("position", ["²", "9" * 5000, "-1", "x", "1" * 10])
+def test_a_position_that_cant_be_read_is_an_error(admin_client, position):
+    assert answer(admin_client, "list:int", "check", value__item="7", items="[]", position=position) == {
+        "errors": ["The request couldn't be read. Reload the page and try again."]
+    }
+
+
 def test_an_unknown_action_is_a_bad_request(admin_client):
     assert ask(admin_client, "list:int", "save").status_code == 400
 
