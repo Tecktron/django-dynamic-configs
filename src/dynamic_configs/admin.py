@@ -35,7 +35,7 @@ from dynamic_configs.forms.config import ADMIN_SCRIPT, ConfigTypeForm, add_form_
 from dynamic_configs.forms.datetime import ZonedDateTimeWidget
 from dynamic_configs.forms.fields import formfield_for
 from dynamic_configs.forms.json import JSONTextarea
-from dynamic_configs.forms.list import ITEM_SUFFIX, ListWidget, TypedLineListField
+from dynamic_configs.forms.list import ITEM_SUFFIX, ListWidget, TypedLineListField, stored_texts
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.registry import LIST_PREFIX, SET_PREFIX, get_registry
@@ -323,11 +323,10 @@ class ConfigAdminMixin:
         text = obj.value
         config_type = get_registry().get(obj.type)
         if config_type is not None and config_type.container is not None:
-            try:
-                text = ", ".join(json.loads(obj.value))
-            except (ValueError, TypeError):
-                # Not a JSON array of strings (a hand-edited row, say): show the stored text as it is.
-                text = obj.value
+            texts = stored_texts(obj.value)
+            # Not a JSON array of strings (a hand-edited row, say): show the stored text as it is.
+            if texts is not None:
+                text = ", ".join(texts)
         return Truncator(text).chars(_PREVIEW_LENGTH)
 
 

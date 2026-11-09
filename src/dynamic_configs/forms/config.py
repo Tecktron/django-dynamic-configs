@@ -9,7 +9,6 @@ an admin save passes the same type check and serializer as the API, and apply th
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from django import forms
@@ -17,7 +16,7 @@ from django.core.exceptions import ValidationError
 
 from dynamic_configs.exceptions import ConfigError
 from dynamic_configs.forms.fields import formfield_for
-from dynamic_configs.forms.list import StoredTexts
+from dynamic_configs.forms.list import stored_texts
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.registry import get_registry
@@ -153,20 +152,8 @@ class ConfigChangeForm(_TypedConfigForm):
             # Whatever reading it raises (a RecursionError on JSON nested too deeply, a custom serializer's KeyError),
             # as from_text treats it for get(): the stored text is unreadable, and the admin needs the page to fix it.
             if config_type.container is not None:
-                return _stored_texts(text)
+                return stored_texts(text)
             return None
-
-
-def _stored_texts(text: str) -> StoredTexts | None:
-    """Return the items of a stored list as their texts, or None when ``text`` isn't a JSON array of strings."""
-    try:
-        items = json.loads(text)
-    except Exception:
-        # Including a RecursionError on JSON nested too deeply: the page opens either way.
-        return None
-    if isinstance(items, list) and all(isinstance(item, str) for item in items):
-        return StoredTexts(items)
-    return None
 
 
 def _value_field(config_type: ConfigType, *, allow_null: bool) -> forms.Field:

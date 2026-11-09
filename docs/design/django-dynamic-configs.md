@@ -452,8 +452,9 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   registered automatically by `dynamic_configs.admin.register_admin()` unless `REGISTER_ADMIN` is `False`; calling it
   again does nothing, so integrations can rely on it. Skins with their own base class (unfold) unregister it and
   register `ConfigAdminMixin` + their `ModelAdmin`.
-- **List page:** name, type label, a value preview (list and set items joined with `, `, long values truncated), description
-  and modified time. Search on name and description; filter by type.
+- **List page:** name, type label, a value preview (list and set items joined with `, `, long values truncated),
+  description and modified time. A list or set whose stored text isn't a JSON array of strings (a hand-edited row)
+  previews as that text. Search on name and description; filter by type.
 - **Add page:** two steps, so the value can use its type's own field. The first step asks only for the type (a
   select of registered types, including list and set variants); Save moves to the second step at
   `add/?type=<key>`, which shows the name, the type (read-only), the value in its type's form field, `allow_null` and

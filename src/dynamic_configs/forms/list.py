@@ -42,6 +42,21 @@ class StoredTexts(list):  # type: ignore[type-arg]
     """Items as their stored texts, as the list editor submits them, rather than values still to be serialized."""
 
 
+def stored_texts(text: str) -> StoredTexts | None:
+    """Return the items of a stored list as their texts, or None when ``text`` isn't a JSON array of strings.
+
+    For a stored list that can't be read as its type (a hand-edited row): whatever ``text`` holds, reading it never
+    raises, including a RecursionError on JSON nested too deeply.
+    """
+    try:
+        items = json.loads(text)
+    except Exception:
+        return None
+    if isinstance(items, list) and all(isinstance(item, str) for item in items):
+        return StoredTexts(items)
+    return None
+
+
 class UnreadableItems(str):
     """List-mode data that isn't a JSON array of strings (a tampered or truncated request); cleaning it is an error."""
 

@@ -52,6 +52,22 @@ def test_the_list_shows_type_labels_and_value_previews(admin_client):
     assert "x" * 79 + "…" in content
 
 
+@pytest.mark.parametrize(
+    "stored",
+    [
+        '"abc"',  # a JSON string, which joining would split into letters
+        "[1, 2]",  # not strings
+        "[" * 100_000 + "]" * 100_000,  # nested too deeply for Python's reader
+    ],
+)
+def test_a_list_that_isnt_an_array_of_strings_previews_as_stored(admin_client, stored):
+    # Only a hand-edited row can hold these.
+    make("ODD", "list:str", stored)
+    response = admin_client.get(URL)
+    assert response.status_code == 200
+    assert html.escape(stored[:79]) in response.content.decode()
+
+
 def test_the_add_page_starts_with_the_type(admin_client):
     content = admin_client.get(f"{URL}add/").content.decode()
     assert "List of Integer" in content
