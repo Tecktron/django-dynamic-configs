@@ -208,8 +208,11 @@ def test_the_buttons_wait_for_the_servers_answer(admin_page):
     item_input(admin_page).fill("7")
     button(admin_page, "Add").click()
     expect(button(admin_page, "Add")).to_be_disabled()
-    while not held:
+    for _ in range(250):
+        if held:
+            break
         admin_page.wait_for_timeout(20)
+    assert held, "the Add request never reached the check URL"
     held[0].continue_()
     expect(options(admin_page)).to_have_text(["7"])
     expect(button(admin_page, "Add")).to_be_enabled()
