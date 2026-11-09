@@ -15,6 +15,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin import widgets as admin_widgets
 from django.contrib.admin.utils import unquote
+from django.core import checks
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.http import (
     Http404,
@@ -46,6 +47,8 @@ _LIST_ITEM_URL = "dynamic_configs_config_list_item"
 _LIST_EDITOR_SCRIPT = "dynamic_configs/list_editor.js"
 _STYLESHEET = "dynamic_configs/admin.css"
 _UNREADABLE = "The request couldn't be read. Reload the page and try again."
+# ModelAdmin options ConfigAdminMixin's methods replace (see its docstring).
+_IGNORED_OPTIONS = ("fields", "fieldsets", "readonly_fields")
 
 
 class AdminZonedDateTimeWidget(ZonedDateTimeWidget):
@@ -169,12 +172,34 @@ def _position(raw: str | None) -> int | None:
 
 
 class ConfigAdminMixin:
-    """The config admin's behaviour; combine it with ``admin.ModelAdmin`` or a skin's ``ModelAdmin``."""
+    """The config admin's behaviour; combine it with ``admin.ModelAdmin`` or a skin's ``ModelAdmin``.
+
+    The mixin sets the fields and their layout itself (``get_fieldsets``: the type alone on the add page's first step,
+    then every field) and which of them are read-only (``get_readonly_fields``: the type once chosen, the name once
+    created). So the ``fields``, ``fieldsets`` and ``readonly_fields`` options are ignored, and the system check
+    ``dynamic_configs.W001`` warns when one is set. To change them, override those methods and call ``super()``.
+    """
 
     list_display = ("name", "type_label", "value_preview", "description", "modified_on")
     list_filter = ("type",)
     search_fields = ("name", "description")
     ordering = ("name",)
+
+    def check(self, **kwargs: Any) -> list[checks.CheckMessage]:
+        """Run the admin's checks, and warn about each option the mixin ignores because it sets it itself."""
+        found = list(super().check(**kwargs))  # type: ignore[misc]
+        for option in _IGNORED_OPTIONS:
+            # Django's defaults for these are empty (None or ()).
+            if getattr(self, option):
+                found.append(
+                    checks.Warning(
+                        f"{type(self).__name__} sets {option}, which ConfigAdminMixin ignores: it sets them itself.",
+                        hint="Override get_fieldsets() or get_readonly_fields() and call super().",
+                        obj=type(self),
+                        id="dynamic_configs.W001",
+                    )
+                )
+        return found
 
     def get_fieldsets(self, request: HttpRequest, obj: Config | None = None) -> list[tuple[Any, dict[str, Any]]]:
         """Show the type alone on the add page's first step, and the same fields on every other page."""

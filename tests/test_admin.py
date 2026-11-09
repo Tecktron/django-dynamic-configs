@@ -5,8 +5,9 @@ import pytest
 from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.contrib.staticfiles import finders
+from django.core import checks
 
-from dynamic_configs.admin import ConfigAdmin, register_admin
+from dynamic_configs.admin import ConfigAdmin, ConfigAdminMixin, register_admin
 from dynamic_configs.models import Config
 
 pytestmark = pytest.mark.django_db
@@ -35,6 +36,26 @@ def test_register_admin_respects_the_setting_and_is_idempotent(settings):
     register_admin(site)
     register_admin(site)
     assert isinstance(site.get_model_admin(Config), ConfigAdmin)
+
+
+def test_the_default_admin_passes_its_checks():
+    assert ConfigAdmin(Config, AdminSite()).check() == []
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("fields", ("name", "value")),
+        ("fieldsets", [(None, {"fields": ("name", "value")})]),
+        ("readonly_fields", ("description",)),
+    ],
+)
+def test_the_mixin_warns_about_an_option_it_sets_itself(option, value):
+    skinned = type("SkinnedConfigAdmin", (ConfigAdminMixin, admin.ModelAdmin), {option: value})
+    [warning] = skinned(Config, AdminSite()).check()
+    assert (warning.id, warning.level, warning.obj) == ("dynamic_configs.W001", checks.WARNING, skinned)
+    assert warning.msg == f"SkinnedConfigAdmin sets {option}, which ConfigAdminMixin ignores: it sets them itself."
+    assert warning.hint == "Override get_fieldsets() or get_readonly_fields() and call super()."
 
 
 def test_the_list_shows_type_labels_and_value_previews(admin_client):

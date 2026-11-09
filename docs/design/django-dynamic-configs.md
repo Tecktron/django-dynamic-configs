@@ -300,6 +300,7 @@ Django system checks validate the configuration at startup (`manage.py check`, a
 | `dynamic_configs.E003`  | a serializer lacks a callable `serialize` or `deserialize`               |
 | `dynamic_configs.E004`  | `form` is not a `django.forms.Field` subclass                            |
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
+| `dynamic_configs.W001`  | (warning) an admin using `ConfigAdminMixin` sets `fields`, `fieldsets` or `readonly_fields`, which the mixin ignores (see Admin) |
 
 ## Public API
 
@@ -452,6 +453,10 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   registered automatically by `dynamic_configs.admin.register_admin()` unless `REGISTER_ADMIN` is `False`; calling it
   again does nothing, so integrations can rely on it. Skins with their own base class (unfold) unregister it and
   register `ConfigAdminMixin` + their `ModelAdmin`.
+- The mixin sets the fields, their layout and which are read-only itself (`get_fieldsets`, `get_readonly_fields`),
+  since the add page's two steps and the locked name and type depend on them. So the `fields`, `fieldsets` and
+  `readonly_fields` options are ignored, and `dynamic_configs.W001` warns when one is set; a subclass changes them by
+  overriding those methods and calling `super()`.
 - **List page:** name, type label, a value preview (list and set items joined with `, `, long values truncated),
   description and modified time. A list or set whose stored text isn't a JSON array of strings (a hand-edited row)
   previews as that text. Search on name and description; filter by type.
