@@ -524,7 +524,8 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
     fail. Every item is checked again on save; the page's checks are a convenience. Save is stopped, with a warning,
     while the item editor holds an unfinished change, a selected item edited but not updated or a new value typed
     but not added: "You have an unsaved change to an item: click Update or Clear." (Applying it silently could save
-    an item halfway through being changed; dropping it would lose work.)
+    an item halfway through being changed; dropping it would lose work.) Raw mode won't open then either, for the same
+    reason, and shows the same warning.
   - **The check URL** is `<admin>/dynamic_configs/config/list-item/<type key>/`, a view on `ConfigAdminMixin`. It's
     keyed by the list or set type, not the config, so the add page can use it before the config exists. It sits
     behind the admin's login and CSRF check, needs add or change permission on configs, takes only POSTs, answers
