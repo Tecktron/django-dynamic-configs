@@ -7,6 +7,7 @@ the editor's raw mode, the admin without JavaScript, and the field anywhere else
 
 from __future__ import annotations
 
+import itertools
 import json
 from collections.abc import Sequence
 from typing import Any
@@ -303,8 +304,9 @@ class TypedLineListField(LineListField):
     def editor_values(self, text: str, name: str) -> dict[str, Any]:
         """Return what each of the item editor's inputs (named after ``name``) shows for the item stored as ``text``.
 
-        Each input's text, or for a checkbox whether it's checked. The page fills the inputs in, rather than replacing
-        their HTML, so Django's widget scripts (the date picker, say) stay attached.
+        Each input's text, for a checkbox whether it's checked, and for an input that takes several values (checkboxes
+        sharing a name, a ``<select multiple>``) the list of chosen values. The page fills the inputs in, rather than
+        replacing their HTML, so Django's widget scripts (the date picker, say) stay attached.
 
         :raises ValidationError: the stored text can't be read as the item type
         """
@@ -312,13 +314,22 @@ class TypedLineListField(LineListField):
             value = self.item_type.from_text(text)
         except ConfigValueError as error:
             raise ValidationError(str(error)) from error
-        widget = self.item_field.widget.get_context(name, self.item_field.prepare_value(value), {})["widget"]
+        item_widget = self.item_field.widget
+        widget = item_widget.get_context(name, self.item_field.prepare_value(value), {})["widget"]
+        # A MultiWidget's parts are its widgets; any other widget's parts (a SelectDateWidget's selects) are its own.
+        if isinstance(item_widget, forms.MultiWidget):
+            parts = zip(widget["subwidgets"], item_widget.widgets, strict=True)
+        else:
+            parts = zip(widget.get("subwidgets") or [widget], itertools.repeat(item_widget))
         values: dict[str, Any] = {}
-        for part in widget.get("subwidgets") or [widget]:
-            if part.get("type") == "checkbox":
+        for part, part_widget in parts:
+            if getattr(part_widget, "allow_multiple_selected", False):
+                # Checkboxes sharing a name, or a <select multiple>: every chosen value.
+                values[part["name"]] = list(part["value"])
+            elif part.get("type") == "checkbox":
                 values[part["name"]] = bool(part["attrs"].get("checked"))
             elif isinstance(part["value"], list):
-                # A select: its one chosen value.
+                # A select or radio buttons: the one chosen value.
                 values[part["name"]] = next(iter(part["value"]), "")
             else:
                 values[part["name"]] = "" if part["value"] is None else str(part["value"])

@@ -25,14 +25,15 @@
         return node;
     }
 
-    // Ask the check URL to do `action`; return its answer, or null after saying in `target` that there's none.
+    // Ask the check URL to do `action` with `fields`, [name, value] pairs as a form sends them (a name repeats for each
+    // of several values); return its answer, or null after saying in `target` that there's none.
     async function ask(container, action, fields, target) {
         const form = container.closest("form");
         const body = new FormData();
         body.append("action", action);
         body.append("name", `${container.dataset.name}__item`);
         body.append("csrfmiddlewaretoken", form.querySelector("[name=csrfmiddlewaretoken]").value);
-        for (const [key, value] of Object.entries(fields)) {
+        for (const [key, value] of fields) {
             body.append(key, value);
         }
         try {
@@ -73,11 +74,35 @@
 
         const inputs = () =>
             [...editor.querySelectorAll("input, select, textarea")].filter((input) => input.name.startsWith(itemName));
-        const read = (input) => (input.type === "checkbox" ? input.checked : input.value);
+        const checkable = (input) => input.type === "checkbox" || input.type === "radio";
+        const multiple = (input) => input instanceof HTMLSelectElement && input.multiple;
+        // What an input holds: whether a checkbox or radio button is checked, a <select multiple>'s chosen values, or
+        // its value.
+        const read = (input) => {
+            if (checkable(input)) {
+                return input.checked;
+            }
+            if (multiple(input)) {
+                return [...input.selectedOptions].map((option) => option.value);
+            }
+            return input.value;
+        };
         const state = () => JSON.stringify(inputs().map(read));
+        // Fill an input with what `read` gave, or with what the check URL loaded: whether a checkbox is checked, the
+        // chosen value of radio buttons, or every chosen value of checkboxes sharing a name or a <select multiple>.
         const write = (input, value) => {
-            if (input.type === "checkbox") {
-                input.checked = Boolean(value);
+            if (checkable(input)) {
+                if (Array.isArray(value)) {
+                    input.checked = value.includes(input.value);
+                } else if (typeof value === "boolean") {
+                    input.checked = value;
+                } else {
+                    input.checked = input.value === value;
+                }
+            } else if (multiple(input)) {
+                for (const option of input.options) {
+                    option.selected = value.includes(option.value);
+                }
             } else {
                 input.value = value;
             }
@@ -93,15 +118,18 @@
             baseline = state();
         };
         const unfinished = () => state() !== baseline;
-        const editorFields = () => {
-            const fields = {};
-            for (const input of inputs()) {
-                if (input.type !== "checkbox" || input.checked) {
-                    fields[input.name] = input.value;
+        // The editor's inputs as a form sends them: [name, value] pairs, a name repeated for each of several values, and
+        // nothing for an unchecked checkbox or radio button.
+        const editorFields = () =>
+            inputs().flatMap((input) => {
+                if (checkable(input)) {
+                    return input.checked ? [[input.name, input.value]] : [];
                 }
-            }
-            return fields;
-        };
+                if (multiple(input)) {
+                    return [...input.selectedOptions].map((option) => [input.name, option.value]);
+                }
+                return [[input.name, input.value]];
+            });
 
         // ---- The page's parts ----
 
@@ -198,11 +226,11 @@
 
         saveButton.addEventListener("click", async () => {
             const position = selected;
-            const answer = await request("check", {
+            const answer = await request("check", [
                 ...editorFields(),
-                items: JSON.stringify(items),
-                position: position === null ? "" : String(position),
-            });
+                ["items", JSON.stringify(items)],
+                ["position", position === null ? "" : String(position)],
+            ]);
             if (!answer) {
                 return;
             }
@@ -222,7 +250,7 @@
 
         select.addEventListener("change", async () => {
             const index = select.selectedIndex;
-            const answer = await request("load", { text: items[index] });
+            const answer = await request("load", [["text", items[index]]]);
             if (!answer) {
                 return;
             }
@@ -266,10 +294,10 @@
         downButton.addEventListener("click", () => move(1));
 
         sortButton.addEventListener("click", async () => {
-            const answer = await request("sort", {
-                items: JSON.stringify(items),
-                direction: descending ? "descending" : "ascending",
-            });
+            const answer = await request("sort", [
+                ["items", JSON.stringify(items)],
+                ["direction", descending ? "descending" : "ascending"],
+            ]);
             if (!answer) {
                 return;
             }
@@ -364,7 +392,7 @@
         applyButton.addEventListener("click", async () => {
             rawErrors.replaceChildren();
             const text = textarea.value;
-            const answer = await request("lines", { lines: JSON.stringify(text.split("\n")) }, rawMessage);
+            const answer = await request("lines", [["lines", JSON.stringify(text.split("\n"))]], rawMessage);
             if (!answer) {
                 return;
             }

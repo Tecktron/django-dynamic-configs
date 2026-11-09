@@ -23,6 +23,27 @@ TYPES = build_registry(
 )
 
 
+LETTER_TYPES = build_registry(
+    {
+        "letter": {
+            "type": "builtins.str",
+            "serializer": "dynamic_configs.types.serializers.StrSerializer",
+            "form": "tests.custom_types.LetterField",
+        },
+        "letters": {
+            "type": "builtins.list",
+            "serializer": "tests.custom_types.LettersSerializer",
+            "form": "tests.custom_types.LettersField",
+        },
+        "letters_select": {
+            "type": "builtins.list",
+            "serializer": "tests.custom_types.LettersSerializer",
+            "form": "tests.custom_types.LettersSelectField",
+        },
+    }
+)
+
+
 def typed(key, **kwargs):
     return TypedLineListField(TYPES.get(key), required=False, **kwargs)
 
@@ -304,6 +325,21 @@ def test_an_item_loads_into_each_of_the_editors_inputs():
         "value__item_1": "17:00:00",
         "value__item_2": "America/New_York",
     }
+
+
+def test_radio_buttons_load_as_their_chosen_value():
+    letter = TypedLineListField(LETTER_TYPES.get("letter"), required=False)
+    assert letter.editor_values("b", "value__item") == {"value__item": "b"}
+    assert letter.item_text(query(value__item="b"), {}, "value__item") == "b"
+
+
+@pytest.mark.parametrize("key", ["letters", "letters_select"])
+def test_a_multi_value_input_loads_as_every_chosen_value(key):
+    # Checkboxes or a <select multiple> sharing one name: a list of values, which the page checks or selects.
+    letters = TypedLineListField(LETTER_TYPES.get(key), required=False)
+    assert letters.editor_values("a,c", "value__item") == {"value__item": ["a", "c"]}
+    assert letters.editor_values("", "value__item") == {"value__item": []}
+    assert letters.item_text(QueryDict("value__item=a&value__item=c"), {}, "value__item") == "a,c"
 
 
 def test_an_unreadable_item_cant_be_loaded():

@@ -85,6 +85,43 @@ class UnstrippedColorField(forms.CharField):
         super().__init__(**kwargs)
 
 
+LETTERS = [("a", "A"), ("b", "B"), ("c", "C")]
+
+
+class LetterField(forms.ChoiceField):
+    """One letter chosen with radio buttons: an item editor whose inputs share a name."""
+
+    widget = forms.RadioSelect
+
+    def __init__(self, **kwargs):
+        super().__init__(choices=LETTERS, **kwargs)
+
+
+class LettersSerializer:
+    """A list of letters, stored as comma-joined text."""
+
+    def serialize(self, value):
+        return ",".join(value)
+
+    def deserialize(self, text):
+        return text.split(",") if text else []
+
+
+class LettersField(forms.MultipleChoiceField):
+    """Several letters chosen with checkboxes: a multi-value item editor."""
+
+    widget = forms.CheckboxSelectMultiple
+
+    def __init__(self, **kwargs):
+        super().__init__(choices=LETTERS, **kwargs)
+
+
+class LettersSelectField(LettersField):
+    """Several letters chosen in a ``<select multiple>``."""
+
+    widget = forms.SelectMultiple
+
+
 def color_hex(color):
     """A sort key for Color, which defines no order."""
     return color.hex

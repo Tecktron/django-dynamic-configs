@@ -12,6 +12,16 @@ from dynamic_configs.types.registry import get_registry
 ADD = "/admin/dynamic_configs/config/add/?type={}"
 CHANGE = "/admin/dynamic_configs/config/{}/change/"
 COLOR = {"type": "tests.custom_types.Color", "serializer": "tests.custom_types.ColorSerializer"}
+LETTER = {
+    "type": "builtins.str",
+    "serializer": "dynamic_configs.types.serializers.StrSerializer",
+    "form": "tests.custom_types.LetterField",
+}
+LETTER_LIST = {
+    "type": "builtins.list",
+    "serializer": "tests.custom_types.LettersSerializer",
+    "form": "tests.custom_types.LettersField",
+}
 
 
 def open_config(page, name, type_key, texts):
@@ -241,3 +251,68 @@ def test_an_unreadable_item_can_be_selected_and_removed(admin_page):
     expect(message(admin_page)).to_have_text("Enter a whole number, such as 42.")
     button(admin_page, "Remove").click()
     expect(options(admin_page)).to_have_text(["1"])
+
+
+def letter(page, value):
+    return page.locator(f"input[name=value__item][value={value}]")
+
+
+def expect_letters_checked(page, chosen):
+    for value in "abc":
+        if value in chosen:
+            expect(letter(page, value)).to_be_checked()
+        else:
+            expect(letter(page, value)).not_to_be_checked()
+
+
+def test_radio_buttons_add_and_load_the_chosen_value(admin_page, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": {"letter": LETTER}}
+    open_config(admin_page, "GRADES", "list:letter", ["a"])
+    letter(admin_page, "b").check()
+    button(admin_page, "Add").click()
+    expect(options(admin_page)).to_have_text(["a", "b"])
+    expect_letters_checked(admin_page, "")
+    items(admin_page).select_option(index=1)
+    expect_letters_checked(admin_page, "b")
+    items(admin_page).select_option(index=0)
+    expect_letters_checked(admin_page, "a")
+    # Loading checked a button; it didn't rewrite the buttons' own values.
+    expect(item_input(admin_page)).to_have_count(3)
+    # The loaded item is no unfinished change.
+    save(admin_page)
+    expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
+    assert stored("GRADES") == ["a", "b"]
+
+
+def test_checkboxes_sharing_a_name_add_and_load_every_chosen_value(admin_page, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": {"letters": LETTER_LIST}}
+    open_config(admin_page, "PAIRS", "list:letters", ["b"])
+    letter(admin_page, "a").check()
+    letter(admin_page, "c").check()
+    button(admin_page, "Add").click()
+    expect(options(admin_page)).to_have_text(["b", "a,c"])
+    expect_letters_checked(admin_page, "")
+    items(admin_page).select_option(index=1)
+    expect_letters_checked(admin_page, "ac")
+    items(admin_page).select_option(index=0)
+    expect_letters_checked(admin_page, "b")
+    save(admin_page)
+    expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
+    assert stored("PAIRS") == ["b", "a,c"]
+
+
+def test_a_multiple_select_adds_and_loads_every_chosen_value(admin_page, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": {"letters": {**LETTER_LIST, "form": "tests.custom_types.LettersSelectField"}}}
+    open_config(admin_page, "PAIRS", "list:letters", ["b"])
+    picker = admin_page.locator("select[name=value__item]")
+    picker.select_option(["a", "c"])
+    button(admin_page, "Add").click()
+    expect(options(admin_page)).to_have_text(["b", "a,c"])
+    expect(picker).to_have_values([])
+    items(admin_page).select_option(index=1)
+    expect(picker).to_have_values(["a", "c"])
+    items(admin_page).select_option(index=0)
+    expect(picker).to_have_values(["b"])
+    save(admin_page)
+    expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
+    assert stored("PAIRS") == ["b", "a,c"]
