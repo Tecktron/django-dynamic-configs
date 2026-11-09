@@ -246,7 +246,12 @@ class ConfigAdminMixin:
     def change_view(
         self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: dict[str, Any] | None = None
     ) -> HttpResponse:
-        """Warn when the config's type isn't registered, so its value can't be edited."""
+        """Warn when the config's type isn't registered, so its value can't be edited.
+
+        Only on GET: a save's warning would show again on the page it leads to, beside that page's own.
+        """
+        if request.method != "GET":
+            return super().change_view(request, object_id, form_url, extra_context)  # type: ignore[misc]
         config = self.get_object(request, unquote(object_id))  # type: ignore[attr-defined]
         if config is not None and get_registry().get(config.type) is None:
             self.message_user(  # type: ignore[attr-defined]

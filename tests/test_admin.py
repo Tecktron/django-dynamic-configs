@@ -280,6 +280,17 @@ def test_an_unregistered_type_is_read_only_with_a_warning(admin_client):
     assert "dark" in content
 
 
+def test_saving_an_unregistered_type_warns_once(admin_client):
+    make("THEME", "gone", "dark")
+    response = admin_client.post(
+        change_url("THEME"), {"allow_null": "", "description": "Old theme", "_continue": "1"}, follow=True
+    )
+    content = response.content.decode()
+    assert "was changed successfully" in content
+    assert content.count("isn&#x27;t registered") == 1
+    assert Config.objects.get(name="THEME").description == "Old theme"
+
+
 def test_a_missing_config_redirects(admin_client):
     assert admin_client.get(change_url("MISSING")).status_code == 302
 
