@@ -433,3 +433,59 @@ def test_only_the_last_item_chosen_while_one_loads_is_loaded(admin_page):
     expect(item_input(admin_page)).to_have_value("4")
     expect(button(admin_page, "Update")).to_be_enabled()
     expect(items(admin_page)).to_be_focused()
+
+
+def test_typing_while_an_update_is_pending_is_an_unfinished_change(admin_page):
+    held = []
+    open_config(admin_page, "NAMES", "list:str", ["a", "b"])
+    items(admin_page).select_option(index=0)
+    expect(item_input(admin_page)).to_have_value("a")
+    admin_page.route("**/list-item/**", lambda route: held.append(route))
+    item_input(admin_page).fill("first")
+    button(admin_page, "Update").click()
+    expect(button(admin_page, "Update")).to_be_disabled()
+    item_input(admin_page).fill("second")
+    wait_until_held(admin_page, held)
+    held[0].continue_()
+    expect(options(admin_page)).to_have_text(["first", "b"])
+    expect(item_input(admin_page)).to_have_value("second")
+    save(admin_page)
+    expect(message(admin_page)).to_have_text("You have an unsaved change to an item: click Update or Clear.")
+    assert stored("NAMES") == ["a", "b"]
+
+
+def test_a_refused_item_keeps_its_error_over_an_item_chosen_meanwhile(admin_page):
+    open_config(admin_page, "NAMES", "set:str", ["a", "b", "c"])
+    items(admin_page).select_option(index=0)
+    expect(item_input(admin_page)).to_have_value("a")
+    admin_page.evaluate(HOLD_CHECKS)
+    item_input(admin_page).fill("b")
+    button(admin_page, "Update").click()
+    expect(admin_page.locator("body")).to_have_attribute("data-sent", "1")
+    items(admin_page).select_option(index=2)
+    admin_page.evaluate("() => window.releaseCheck()")
+    expect(message(admin_page)).to_have_text("That's already in the set.")
+    expect(items(admin_page)).to_have_js_property("selectedIndex", 0)
+    expect(item_input(admin_page)).to_have_value("b")
+    expect(admin_page.locator("body")).to_have_attribute("data-sent", "1")
+
+
+def test_remove_pressed_from_the_keyboard_leaves_the_focus_on_the_list(admin_page):
+    open_config(admin_page, "PORTS", "list:int", ["1", "2", "3"])
+    items(admin_page).select_option(index=0)
+    expect(item_input(admin_page)).to_have_value("1")
+    button(admin_page, "Remove").focus()
+    admin_page.keyboard.press("Enter")
+    expect(options(admin_page)).to_have_text(["2", "3"])
+    expect(items(admin_page)).to_be_focused()
+
+
+def test_down_onto_the_end_leaves_the_focus_on_the_list(admin_page):
+    open_config(admin_page, "PORTS", "list:int", ["1", "2", "3"])
+    items(admin_page).select_option(index=1)
+    expect(item_input(admin_page)).to_have_value("2")
+    button(admin_page, "Down").focus()
+    admin_page.keyboard.press("Enter")
+    expect(options(admin_page)).to_have_text(["1", "3", "2"])
+    expect(button(admin_page, "Down")).to_be_disabled()
+    expect(items(admin_page)).to_be_focused()

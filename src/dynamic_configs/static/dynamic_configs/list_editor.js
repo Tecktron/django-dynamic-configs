@@ -257,6 +257,8 @@
                 (answer) => {
                     if (answer.errors) {
                         message.textContent = answer.errors.join(" ");
+                        // Refused: an item chosen meanwhile isn't loaded, so the error stays to be read.
+                        chosen = null;
                         return;
                     }
                     if (position === null) {
@@ -266,7 +268,8 @@
                         }
                     } else {
                         items[position] = answer.text;
-                        baseline = state();
+                        // The item as sent is the one stored: anything typed meanwhile is an unfinished change.
+                        baseline = sent;
                     }
                 },
             );
@@ -316,12 +319,24 @@
             render();
         });
 
-        removeButton.addEventListener("click", () => {
-            items.splice(selected, 1);
-            selected = null;
-            clearEditor();
-            render();
-        });
+        // Remove, and Up or Down onto an end, disable the button just pressed, and the browser drops the focus to the
+        // page: put it on the list, so the keyboard can carry on.
+        const keepFocus = (button, action) => {
+            const focused = document.activeElement;
+            action();
+            if ((focused === button && button.disabled) || !focused?.isConnected) {
+                select.focus();
+            }
+        };
+
+        removeButton.addEventListener("click", () =>
+            keepFocus(removeButton, () => {
+                items.splice(selected, 1);
+                selected = null;
+                clearEditor();
+                render();
+            }),
+        );
 
         const move = (step) => {
             const to = selected + step;
@@ -329,8 +344,8 @@
             selected = to;
             render();
         };
-        upButton.addEventListener("click", () => move(-1));
-        downButton.addEventListener("click", () => move(1));
+        upButton.addEventListener("click", () => keepFocus(upButton, () => move(-1)));
+        downButton.addEventListener("click", () => keepFocus(downButton, () => move(1)));
 
         sortButton.addEventListener("click", () => {
             request(
@@ -342,6 +357,8 @@
                 (answer) => {
                     if (answer.errors) {
                         message.textContent = answer.errors.join(" ");
+                        // Refused: an item chosen meanwhile isn't loaded, so the error stays to be read.
+                        chosen = null;
                         return;
                     }
                     items = answer.texts;
