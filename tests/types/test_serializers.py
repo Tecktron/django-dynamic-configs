@@ -60,6 +60,13 @@ def test_int_parsing_is_strict(text):
         IntSerializer().deserialize(text)
 
 
+def test_int_too_long_for_python_says_so_in_plain_words():
+    # Python refuses to read more than 4300 digits by default; its own message names Python internals.
+    with pytest.raises(ValueError) as error:
+        IntSerializer().deserialize("9" * 5000)
+    assert str(error.value) == "That whole number has too many digits."
+
+
 def test_float_round_trips():
     assert FloatSerializer().serialize(0.1) == "0.1"
     assert FloatSerializer().deserialize("0.1") == 0.1

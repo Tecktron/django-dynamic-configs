@@ -81,7 +81,12 @@ class IntSerializer:
         stripped = text.strip()
         if not _INT_RE.fullmatch(stripped):
             raise ValueError("Enter a whole number, such as 42.")
-        return int(stripped)
+        try:
+            return int(stripped)
+        except ValueError:
+            # Python refuses more digits than sys.get_int_max_str_digits() (4300 by default); its message names
+            # Python internals.
+            raise ValueError("That whole number has too many digits.") from None
 
 
 class FloatSerializer:
