@@ -128,3 +128,21 @@
 .dynamic-configs-list-message:empty {
     display: none;
 }
+
+.dynamic-configs-list-raw-message {
+    color: var(--error-fg, #ba2121);
+    margin: 4px 0;
+}
+
+.dynamic-configs-list-raw-message:empty {
+    display: none;
+}
+
+.dynamic-configs-list-raw-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--link-fg, #447e9b);
+    cursor: pointer;
+    text-decoration: underline;
+}

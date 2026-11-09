@@ -61,10 +61,10 @@
         const modeInput = container.querySelector(`input[name="${name}__mode"]`);
         const editor = container.querySelector(`.${PREFIX}-item`);
         let items = JSON.parse(itemsInput.value);
-        if (items === null) {
-            // The page shows text that isn't a list yet (input re-displayed after an error): leave it as text.
-            return;
-        }
+        // null: the page shows text that isn't a list yet (input re-displayed after an error), so the editor opens in
+        // raw mode, with no list to cancel back to.
+        const startRaw = items === null;
+        items ??= [];
         let selected = null;
         let descending = false;
         let busy = false;
@@ -134,6 +134,19 @@
         listRow.append(select, listButtons);
         const listPart = make("div", `${PREFIX}-editor`);
         listPart.append(editorRow, message, listRow);
+        // Raw mode: the whole list as text, one item per line, for pasting and bulk edits.
+        const rawLink = makeButton("Raw mode");
+        rawLink.className = `${PREFIX}-raw-link`;
+        listPart.append(rawLink);
+        const applyButton = makeButton("Apply");
+        const cancelButton = makeButton("Cancel");
+        // Its own class: tests and styles find the list's message by `${PREFIX}-message` alone.
+        const rawMessage = make("p", `${PREFIX}-raw-message`);
+        rawMessage.setAttribute("aria-live", "polite");
+        const rawErrors = make("ul", `errorlist ${PREFIX}-raw-errors`);
+        const rawButtons = make("div", `${PREFIX}-row`);
+        rawButtons.append(applyButton, cancelButton);
+        raw.append(rawButtons, rawMessage, rawErrors);
         raw.before(listPart);
         editor.hidden = false;
         raw.hidden = true;
@@ -158,6 +171,8 @@
             upButton.disabled = busy || selected === null || selected === 0;
             downButton.disabled = busy || selected === null || selected === items.length - 1;
             sortButton.disabled = busy;
+            applyButton.disabled = busy;
+            cancelButton.disabled = busy;
             sortButton.textContent = descending ? "Sort ↓" : "Sort ↑";
             sortButton.title = descending ? "Sort largest first" : "Sort smallest first";
             itemsInput.value = JSON.stringify(items);
@@ -282,7 +297,84 @@
             }
         });
 
+        function openRaw() {
+            listPart.hidden = true;
+            raw.hidden = false;
+            rawErrors.replaceChildren();
+            rawMessage.textContent = "";
+            // Saving now saves the text, which the server reads as it does without this script.
+            modeInput.value = "raw";
+            textarea.focus();
+        }
+
+        function closeRaw() {
+            raw.hidden = true;
+            listPart.hidden = false;
+            cancelButton.hidden = false;
+            modeInput.value = "list";
+            selected = null;
+            clearEditor();
+            render();
+        }
+
+        rawLink.addEventListener("click", () => {
+            const broken = items.findIndex((text) => /[\r\n]/.test(text));
+            if (broken >= 0) {
+                message.textContent =
+                    `Item ${broken + 1} contains a line break, so the list can't be shown one item per line. ` +
+                    "Edit it in the item editor.";
+                return;
+            }
+            // One empty item would show as an empty textarea, which reads back as no items.
+            if (items.length === 1 && items[0] === "") {
+                message.textContent =
+                    "The list is one empty item, which raw mode would show as no items. Edit it in the item editor.";
+                return;
+            }
+            textarea.value = items.join("\n");
+            openRaw();
+        });
+
+        // Every line is an item, blank ones included; name the blank lines (empty or only spaces), so a stray one is
+        // easy to spot. An empty textarea is no items, and no note.
+        function blankNote(text) {
+            if (text === "") {
+                return "";
+            }
+            const blank = text.split("\n").flatMap((line, index) => (line.trim() === "" ? [index + 1] : []));
+            if (blank.length === 0) {
+                return "";
+            }
+            if (blank.length === 1) {
+                return `Line ${blank[0]} was blank, so it was added as a blank item.`;
+            }
+            const named = `${blank.slice(0, -1).join(", ")} and ${blank[blank.length - 1]}`;
+            return `Lines ${named} were blank, so they were added as blank items.`;
+        }
+
+        applyButton.addEventListener("click", async () => {
+            rawErrors.replaceChildren();
+            const answer = await request("lines", { lines: JSON.stringify(textarea.value.split("\n")) }, rawMessage);
+            if (!answer) {
+                return;
+            }
+            if (answer.errors) {
+                rawErrors.replaceChildren(...answer.errors.map((error) => make("li", "", error)));
+                return;
+            }
+            const note = blankNote(textarea.value);
+            items = answer.texts;
+            closeRaw();
+            message.textContent = note;
+        });
+
+        cancelButton.addEventListener("click", closeRaw);
+
         render();
+        if (startRaw) {
+            cancelButton.hidden = true;
+            openRaw();
+        }
     }
 
     document.addEventListener("DOMContentLoaded", () => {
