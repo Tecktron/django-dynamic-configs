@@ -163,12 +163,14 @@ with a line break; the list editor can, so `list:text` and `set:text` exist.)
     `deserialize` exactly as stored, so spaces, empty items and line breaks survive a save. An error names the item
     ("Item 3: …").
   - **Text, one item per line**: the list editor's raw mode, the admin without JavaScript, and the field's own
-    textarea outside the admin. Blank lines are skipped and an error names the line ("Line 3: …"). Lines of `str`
-    items, and of custom types without a `form`, are stripped only as `STRIP_STRINGS` says (see Configuration);
-    `text` lines are kept exactly; other item types' lines are stripped before parsing, since spaces around a number
-    or a date are never part of it. A value with an item containing a line break can't be shown one item per line,
-    so in this form the field shows it read-only, with a note that editing it needs JavaScript; saving can't split
-    the item.
+    textarea outside the admin. Every line is an item, blank ones included: an empty line is an empty item, or an
+    error for item types that reject an empty input. An empty textarea is an empty list. An error names the line
+    ("Line 3: …"). Lines of `str` items, and of custom types without a `form`, are stripped only as `STRIP_STRINGS`
+    says (see Configuration); `text` lines are kept exactly; other item types' lines are stripped before parsing,
+    since spaces around a number or a date are never part of it. Two values can't be shown exactly one item per line:
+    one with an item containing a line break, and a list of one empty item (which reads back as an empty list). In
+    this form the field shows either read-only, with a note that editing it needs JavaScript, and saving keeps the
+    items exactly.
 
   Set types use `unique=True`: duplicates (compared after `deserialize`, so `1` and `01` match for `set:int`) are
   rejected with an error naming both ("Lines 2 and 5 are the same", or "Items 2 and 5 are the same"), not dropped
@@ -508,10 +510,13 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   - **Raw mode** (a link) swaps the editor and list for one textarea holding the whole list, one item per line, for
     pasting and bulk edits: pasted lines go wherever the cursor is. **Apply** has the server check every line; if all
     pass they become the list, otherwise raw mode stays open with each failing line's error. **Cancel** returns to
-    the list unchanged. Blank lines are skipped, since in bulk text they're almost always accidents; an empty item
-    can still be added with the item editor. Raw mode refuses to open while an item contains a line break ("Item 3
-    contains a line break, so the list can't be shown one item per line. Edit it in the item editor."), since that
-    item would come back as two.
+    the list unchanged. Every line is an item, blank ones included: what's pasted is what's saved, and checking it
+    is the admin's job. So a stray blank line is easy to spot and remove, Apply then notes which lines were blank
+    ("Lines 2 and 3 were blank, so they were added as blank items."). An empty textarea is an empty list. Raw mode
+    refuses to open while an item contains a line break ("Item 3 contains a line break, so the list can't be shown
+    one item per line. Edit it in the item editor."), since that item would come back as two, and while the list is
+    one empty item ("The list is one empty item, which raw mode would show as no items. Edit it in the item
+    editor.").
   - **Saving** submits the list exactly: a hidden input holds the items' stored texts as a JSON array, and a mode
     flag tells the server whether to read that or the raw textarea. The page as served says raw, so without
     JavaScript the field is the raw textarea (raw mode is the fallback); the script sets list mode when it takes
