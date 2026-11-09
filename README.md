@@ -40,14 +40,18 @@ List and set settings are edited one item at a time. Each item gets its type's o
 a datetime's date, time and zone), and the server checks it when you click Add or Update, so the rules are the same as
 when saving. Select an item to load it back into the input. Remove, Up and Down act on the selected item, and Sort
 orders the list by value, flipping direction on each click; sets have no Up, Down or Sort. Raw mode edits the whole list
-as text, one item per line, for pasting. Every line is an item, blank ones included, and Apply says which lines were
-blank. Without JavaScript, the field is that text.
+as text, one item per line, for pasting. Every line is an item, blank ones included (for a type that rejects an empty
+value, such as a number, a blank line is an error), and Apply says which lines were blank. Without JavaScript, the
+field is that text.
 
-Saving keeps each item exactly: spaces at the ends, empty items and line breaks within an item all survive.
+Saving from the list keeps each item exactly: spaces at the ends, empty items and line breaks within an item all
+survive. Raw mode and the field without JavaScript strip each line as the item's own input would (the table below says
+how for strings). A list with an item containing a line break, or a list of one empty item, can't be shown one item per
+line, so raw mode won't open for it, and without JavaScript the field is read-only and saving keeps the list as it is.
 
-A custom type can say how its lists sort with `sort_key` (a function from an item to what to sort by) or
-`sort_compare` (a function comparing two items) in its `TYPES` entry. Without either, a list sorts by its values when
-their class defines an order, and otherwise has no Sort.
+A custom type can say how its lists sort with `sort_key` (the dotted path of a function from an item to what to sort
+by) or `sort_compare` (the dotted path of a function comparing two items) in its `TYPES` entry. Without either, a list
+sorts by its values when their class defines an order, and otherwise has no Sort.
 
 ### Spaces in typed strings
 
