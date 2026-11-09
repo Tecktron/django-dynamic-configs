@@ -210,6 +210,9 @@ DYNAMIC_CONFIGS = {
 - A `form` field is instantiated with `required=False`, `label` and `help_text`. The admin form applies the
   empty-value rules itself (see Admin), so they hold even when `allow_null` changes in the same save; the cleaned
   value must pass the type check.
+- The serializer is the one check every path runs. A list item's `form` runs only when the item is added or updated
+  in the list editor; raw mode, the field without JavaScript, saving and code check items with the serializer alone.
+  So a rule a value must always follow belongs in `deserialize`, and `form` shapes how the value is entered.
 - `sort_key` or `sort_compare`, not both, sets how the admin's list editor sorts a list of the type. A compare
   function is turned into a key with `functools.cmp_to_key` when the registry loads, so `ConfigType` holds one
   optional `sort_key`. With neither, a list sorts by the values themselves if the class defines an order (its own

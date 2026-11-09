@@ -49,6 +49,10 @@ survive. Raw mode and the field without JavaScript strip each line as the item's
 how for strings). A list with an item containing a line break, or a list of one empty item, can't be shown one item per
 line, so raw mode won't open for it, and without JavaScript the field is read-only and saving keeps the list as it is.
 
+A custom type's `form` checks each item added or updated in the list. Raw mode, the field without JavaScript and saving
+check items with the type's serializer only. So put any rule a value must always follow in the serializer's
+`deserialize`, and use `form` for how the value is entered.
+
 A custom type can say how its lists sort with `sort_key` (the dotted path of a function from an item to what to sort
 by) or `sort_compare` (the dotted path of a function comparing two items) in its `TYPES` entry. Without either, a list
 sorts by its values when their class defines an order, and otherwise has no Sort.
