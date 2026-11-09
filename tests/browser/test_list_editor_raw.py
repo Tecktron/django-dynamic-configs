@@ -52,6 +52,17 @@ def test_raw_mode_shows_the_list_one_item_per_line_and_apply_checks_every_line(a
     expect(options(admin_page)).to_have_text(["80", "8443", "8080"])
 
 
+def test_each_mode_shows_only_its_own_help(admin_page):
+    open_config(admin_page, "FLAGS", "list:bool", ["true"])
+    item_help = admin_page.get_by_text("Checked means true.")
+    raw_help = admin_page.get_by_text("One item per line. Each item: true or false")
+    expect(item_help).to_be_visible()
+    expect(raw_help).to_be_hidden()
+    raw_mode(admin_page)
+    expect(item_help).to_be_hidden()
+    expect(raw_help).to_be_visible()
+
+
 def test_cancel_leaves_the_list_as_it_was(admin_page):
     open_config(admin_page, "PORTS", "list:int", ["80"])
     raw_mode(admin_page)

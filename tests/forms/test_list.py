@@ -239,6 +239,23 @@ def test_the_widget_shows_items_one_per_line_and_says_raw():
     assert "One item per line." in html
 
 
+def test_the_raw_help_describes_typed_items_and_the_item_editor_its_own_input():
+    # A boolean item is typed as text in raw mode, but the item editor is a checkbox.
+    boolean = TypedLineListField(TYPES.get("bool"))
+    typed = "One item per line. Each item: true or false (yes/no, on/off and 1/0 also work)."
+    assert boolean.widget.raw_help == typed
+    assert f'<p class="help">{typed}</p>' in boolean.widget.render("value", StoredTexts([]))
+    assert boolean.item_field.help_text == "Checked means true."
+    # A number is typed the same way in both.
+    assert TypedLineListField(TYPES.get("int")).item_field.help_text == TYPES.get("int").help_text
+
+
+def test_an_item_type_without_help_has_only_the_line_rule():
+    color = TypedLineListField(TYPES.get("color"))
+    assert color.widget.raw_help == "One item per line."
+    assert color.item_field.help_text == ""
+
+
 def test_text_that_isnt_a_list_yet_has_no_items():
     # Input re-displayed after an error: the editor script starts in raw mode.
     html = ListWidget().render("value", "1\nx")

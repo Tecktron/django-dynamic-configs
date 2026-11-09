@@ -41,7 +41,9 @@ a datetime's date, time and zone), and the server checks it when you click Add o
 into the input. Remove, Up and Down act on the selected item, and Sort orders the list by value, flipping direction on
 each click; sets have no Up, Down or Sort. Raw mode edits the whole list as text, one item per line, for pasting. Every
 line is an item, blank ones included (for a type that rejects an empty value, such as a number, a blank line is an
-error), and Apply says which lines were blank. Without JavaScript, the field is that text.
+error), and Apply says which lines were blank. Without JavaScript, the field is that text. Each way of entering items
+has its own help: the item editor describes its input (a boolean's checkbox: "Checked means true."), and raw mode what
+to type on each line.
 
 Saving from the list keeps each item exactly: spaces at the ends, empty items and line breaks within an item all
 survive. Raw mode and the field without JavaScript strip each line as the item's own input would (the table below says

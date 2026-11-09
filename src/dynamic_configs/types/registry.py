@@ -15,6 +15,7 @@ from django.dispatch import receiver
 from django.utils.module_loading import import_string
 
 from dynamic_configs.conf import get_settings
+from dynamic_configs.forms.list import SET_HELP
 from dynamic_configs.log import log
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.builtin import BUILTIN_TYPES
@@ -174,7 +175,7 @@ def set_variant(item: ConfigType) -> ConfigType:
         label=f"Set of {item.label}",
         python_type=frozenset,
         serializer=SetSerializer(item.serializer),
-        help_text=_variant_help("No repeats.", item),
+        help_text=_variant_help(SET_HELP, item),
         listable=False,
         item_type=item,
         container="set",

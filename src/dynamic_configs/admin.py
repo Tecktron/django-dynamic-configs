@@ -74,20 +74,22 @@ class AdminListEditorWidget(ListWidget):
     """The list editor: the raw textarea, plus the item editor (the item type's own input) for the editor script.
 
     The item editor is rendered hidden with the page, so Django's widget scripts (the date picker, the admin script's
-    zone links) attach to it as to any field; the script shows it and fills its inputs in.
+    zone links) attach to it as to any field; the script shows it and fills its inputs in. Its field's help goes with
+    it, as ``raw_help`` goes with the textarea, so each shows only while its input does.
     """
 
     def __init__(
         self,
         attrs: dict[str, Any] | None = None,
         *,
+        raw_help: str,
         item_field: forms.Field,
         check_url: str,
         sortable: bool,
         unique: bool,
     ) -> None:
         """Keep the item editor's field, the check URL, and whether the list sorts and is a set."""
-        super().__init__(attrs={"class": "vLargeTextField", **(attrs or {})})
+        super().__init__(attrs={"class": "vLargeTextField", **(attrs or {})}, raw_help=raw_help)
         self.item_field = item_field
         self.check_url = check_url
         self.sortable = sortable
@@ -103,15 +105,17 @@ class AdminListEditorWidget(ListWidget):
         editor = self.item_field.widget.render(
             f"{name}{ITEM_SUFFIX}", None, {"id": f"id_{name}{ITEM_SUFFIX}"}, renderer
         )
+        help_text = self.item_field.help_text
         return format_html(
             '<div class="dynamic-configs-list" data-dynamic-configs-list data-name="{}" data-check-url="{}" '
-            'data-set="{}" data-sortable="{}">{}<div class="dynamic-configs-list-item" hidden>{}</div></div>',
+            'data-set="{}" data-sortable="{}">{}<div class="dynamic-configs-list-item" hidden>{}{}</div></div>',
             name,
             self.check_url,
             "true" if self.unique else "false",
             "true" if self.sortable else "false",
             super().render(name, value, attrs, renderer),
             editor,
+            format_html('<p class="help">{}</p>', help_text) if help_text else "",
         )
 
 
@@ -207,6 +211,7 @@ class ConfigAdminMixin:
         _use_admin_widget(field.item_field)
         field.widget = AdminListEditorWidget(
             attrs=field.widget.attrs,
+            raw_help=cast(ListWidget, field.widget).raw_help,
             item_field=field.item_field,
             check_url=reverse(f"{self.admin_site.name}:{_LIST_ITEM_URL}", args=[key]),  # type: ignore[attr-defined]
             # Sets are unordered, so they have no Sort (nor Up and Down).

@@ -106,7 +106,13 @@ for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are writte
 `"2.0"`).
 
 Every type, built-in or custom, has a short `help_text` describing its text format (for example "YYYY-MM-DD" for
-`date`, "one number of hours, e.g. 1.5" for `hours`), shown as the value's help on the admin's add and change pages.
+`date`, "one number of hours, e.g. 1.5" for `hours`). The admin shows help that describes the input on screen, so the
+type's help appears wherever its text is typed: as the value's help on the add and change pages, and with a list's raw
+textarea ("One item per line. Each item: …"). An input that isn't typed text has its own help instead: the built-in
+`bool`'s checkbox ("Checked means true.") and yes/no/unknown select ("Unknown leaves the setting empty, which needs
+Allow null checked."), and the datetime picker (see below); a custom type's `form` keeps the help its author wrote. A
+list editor's item editor shows its own input's help, and under the field goes only what holds both ways: "No
+repeats." for a set.
 
 `JSONTextField` is a textarea (`JSONTextarea`, marked for the admin's JSON editor, with spell-checking off) showing
 the value pretty-printed (`indent=2`), validated on the server. In the admin it gets the JSON editor (see Admin).

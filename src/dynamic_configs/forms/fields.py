@@ -8,7 +8,7 @@ from django import forms
 from django.core.exceptions import ValidationError
 
 from dynamic_configs.conf import get_settings
-from dynamic_configs.forms.list import TypedLineListField
+from dynamic_configs.forms.list import SET_HELP, TypedLineListField
 from dynamic_configs.types.base import ConfigType, Serializer
 from dynamic_configs.types.serializers import (
     DaysSerializer,
@@ -25,6 +25,8 @@ _DURATION_SERIALIZERS = {
     "days": DaysSerializer,
     "weeks": WeeksSerializer,
 }
+_BOOLEAN_HELP = "Checked means true."
+_NULL_BOOLEAN_HELP = "Unknown leaves the setting empty, which needs Allow null checked."
 
 
 class SerializerField(forms.CharField):
@@ -95,13 +97,21 @@ def formfield_for(
     :rtype: forms.Field
     """
     if config_type.container is not None:
-        return TypedLineListField(config_type.item_type, unique=config_type.container == "set", **kwargs)
+        unique = config_type.container == "set"
+        # The item editor and the raw textarea each show their own help (see TypedLineListField); under the field goes
+        # only what's true of both.
+        kwargs["help_text"] = SET_HELP if unique else ""
+        return TypedLineListField(config_type.item_type, unique=unique, **kwargs)
     form_class = config_type.form_class
     if form_class is None:
         field: forms.Field = SerializerField(config_type.serializer, **kwargs)
         # A custom type without a form gets a plain text input, which follows STRIP_STRINGS.
         field.strip = strips_typed_strings(item=item)
         return field
+    if config_type.key == "bool" and form_class is forms.BooleanField:
+        # The built-in type's help describes typed text ("true or false (yes/no, …)"), which list items take but a
+        # checkbox or select doesn't; a custom type's own help is its author's.
+        kwargs["help_text"] = _NULL_BOOLEAN_HELP if allow_null else _BOOLEAN_HELP
     if allow_null and form_class is forms.BooleanField:
         # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
         form_class = forms.NullBooleanField

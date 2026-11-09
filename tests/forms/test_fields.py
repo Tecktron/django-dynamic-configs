@@ -88,6 +88,32 @@ def test_booleans_that_allow_null_get_a_three_way_field():
 
 
 @pytest.mark.parametrize(
+    ("allow_null", "help_text"),
+    [
+        (False, "Checked means true."),
+        (True, "Unknown leaves the setting empty, which needs Allow null checked."),
+    ],
+)
+def test_the_boolean_describes_its_checkbox_or_select_not_typed_text(allow_null, help_text):
+    # The type's help ("true or false (yes/no, …)") describes typing, which a checkbox or select doesn't take.
+    boolean = build_registry({}).get("bool")
+    field = formfield_for(boolean, allow_null=allow_null, help_text=boolean.help_text)
+    assert field.help_text == help_text
+
+
+@pytest.mark.parametrize(("key", "help_text"), [("list:bool", ""), ("set:int", "No repeats.")])
+def test_a_lists_field_help_is_only_what_holds_in_both_modes(key, help_text):
+    # The item editor and the raw textarea each carry their own help (see the list field).
+    config_type = build_registry({}).get(key)
+    assert formfield_for(config_type, help_text=config_type.help_text).help_text == help_text
+
+
+def test_a_custom_boolean_keeps_its_own_help():
+    flag = ConfigType("flag", "Flag", bool, BoolSerializer(), form_class=forms.BooleanField)
+    assert formfield_for(flag, help_text="Turns the beta on.").help_text == "Turns the beta on."
+
+
+@pytest.mark.parametrize(
     ("setting", "single", "item"), [(None, True, False), (True, True, True), (False, False, False)]
 )
 def test_strip_strings_decides_how_typed_strings_are_stripped(settings, setting, single, item):

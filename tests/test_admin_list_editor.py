@@ -60,6 +60,17 @@ def test_the_item_editor_brings_its_widgets_scripts(admin_client):
     assert "admin/js/admin/DateTimeShortcuts.js" in content
 
 
+def test_the_item_editor_and_the_raw_textarea_each_have_their_own_help(admin_client):
+    content = admin_client.get(f"{URL}add/?type=list:bool").content.decode()
+    item = re.search(r'<div class="dynamic-configs-list-item" hidden>(.*?)</div></div>', content, re.S).group(1)
+    raw = re.search(r'<div class="dynamic-configs-list-raw">(.*?)</div>', content, re.S).group(1)
+    assert '<p class="help">Checked means true.</p>' in item
+    assert "Each item: true or false" in raw
+    # Nothing under the field says the same again, true in only one mode.
+    assert content.count("Checked means true.") == 1
+    assert content.count("Each item:") == 1
+
+
 # ---- The check URL ----
 
 

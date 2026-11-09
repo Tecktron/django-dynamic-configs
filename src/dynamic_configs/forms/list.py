@@ -33,6 +33,9 @@ EMPTY_ITEM_NOTE = (
     "This list is one empty item, which one item per line would show as no items, so editing it needs JavaScript."
 )
 UNREADABLE = "The list couldn't be read. Reload the page and try again."
+RAW_HELP = "One item per line."
+# A set's help, true whichever way its items are entered.
+SET_HELP = "No repeats."
 
 
 class StoredTexts(list):  # type: ignore[type-arg]
@@ -76,7 +79,14 @@ class ListWidget(forms.Textarea):
     The mode says raw (read the textarea) unless one item per line can't show the items exactly — an item contains a
     line break, or the list is one empty item. Then the textarea is read-only, the mode says list, and saving keeps
     the items exactly.
+
+    ``raw_help`` is shown with the textarea, and hidden with it: what to type on each line.
     """
+
+    def __init__(self, attrs: dict[str, Any] | None = None, *, raw_help: str = RAW_HELP) -> None:
+        """Show ``raw_help`` with the textarea."""
+        super().__init__(attrs)
+        self.raw_help = raw_help
 
     def format_value(self, value: Any) -> str | None:
         """Show stored texts one per line; leave text (input re-displayed after an error) as it is."""
@@ -93,8 +103,9 @@ class ListWidget(forms.Textarea):
             attrs = {**(attrs or {}), "readonly": True}
         hidden = forms.HiddenInput()
         return format_html(
-            '<div class="dynamic-configs-list-raw">{}<p class="help">One item per line.</p></div>{}{}{}',
+            '<div class="dynamic-configs-list-raw">{}<p class="help">{}</p></div>{}{}{}',
             super().render(name, value, attrs, renderer),
+            self.raw_help,
             # null when the page shows text that isn't a list yet: the editor script then starts in raw mode.
             hidden.render(f"{name}{ITEMS_SUFFIX}", json.dumps(texts), renderer=renderer),
             hidden.render(f"{name}{MODE_SUFFIX}", "list" if locked else "raw", renderer=renderer),
@@ -223,6 +234,9 @@ class TypedLineListField(LineListField):
 
     ``item_field`` is the field for one item, as the admin's item editor shows it; the item helpers below are the list
     editor's checks, which the admin's check URL calls.
+
+    Each way of entering items has its own help, since they can differ (a boolean is typed as text but edited with a
+    checkbox): ``item_field``'s describes its own input, and the textarea's (``raw_help``) the item type's typed text.
     """
 
     def __init__(self, item_type: ConfigType, *, unique: bool = False, **kwargs: Any) -> None:
@@ -232,7 +246,12 @@ class TypedLineListField(LineListField):
 
         self.item_type = item_type
         self.unique = unique
-        self.item_field = formfield_for(item_type, item=True, required=False, label="Item")
+        # A field whose input differs from typed text (a checkbox, the date picker) replaces this help with its own.
+        self.item_field = formfield_for(
+            item_type, item=True, required=False, label="Item", help_text=item_type.help_text
+        )
+        raw_help = f"{RAW_HELP} Each item: {item_type.help_text}" if item_type.help_text else RAW_HELP
+        kwargs.setdefault("widget", ListWidget(raw_help=raw_help))
         super().__init__(**kwargs)
 
     def item_to_text(self, item: Any) -> str:
