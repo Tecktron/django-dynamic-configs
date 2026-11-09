@@ -1,33 +1,50 @@
 """Django admin for configs.
 
-The admin ships no templates of its own, only Django's admin widgets, an optional script, and the JSON editor's
-optional script and stylesheet (which styles only the editor's own elements), so admin skins apply. All of the
-behaviour is in ``ConfigAdminMixin``: skins with their own ``ModelAdmin`` base unregister ``ConfigAdmin`` and register
-``ConfigAdminMixin`` combined with their base.
+The admin ships no templates of its own, only Django's admin widgets, an optional script, the JSON and list editors'
+optional scripts and their stylesheet (which styles only the editors' own elements), so admin skins apply. All of the
+behaviour is in ``ConfigAdminMixin``, including the list editor's check URL: skins with their own ``ModelAdmin`` base
+unregister ``ConfigAdmin`` and register ``ConfigAdminMixin`` combined with their base.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin import widgets as admin_widgets
 from django.contrib.admin.utils import unquote
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.http import (
+    Http404,
+    HttpRequest,
+    HttpResponse,
+    HttpResponseBadRequest,
+    HttpResponseNotAllowed,
+    HttpResponseRedirect,
+    JsonResponse,
+)
+from django.urls import path, reverse
+from django.utils.html import format_html
+from django.utils.safestring import SafeString
 from django.utils.text import Truncator
 
 from dynamic_configs.conf import get_settings
 from dynamic_configs.forms.config import ADMIN_SCRIPT, ConfigTypeForm, add_form_for, change_form_for
 from dynamic_configs.forms.datetime import ZonedDateTimeWidget
+from dynamic_configs.forms.fields import formfield_for
 from dynamic_configs.forms.json import JSONTextarea
+from dynamic_configs.forms.list import ITEM_SUFFIX, ListWidget, TypedLineListField
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
-from dynamic_configs.types.registry import get_registry
+from dynamic_configs.types.registry import LIST_PREFIX, SET_PREFIX, get_registry
 
 _PREVIEW_LENGTH = 80
 _FIELDS = ("name", "type", "value", "allow_null", "description")
+_LIST_ITEM_URL = "dynamic_configs_config_list_item"
+_LIST_EDITOR_SCRIPT = "dynamic_configs/list_editor.js"
+_STYLESHEET = "dynamic_configs/admin.css"
 
 
 class AdminZonedDateTimeWidget(ZonedDateTimeWidget):
@@ -49,7 +66,52 @@ class AdminJSONTextarea(admin_widgets.AdminTextareaWidget):
         """The editor's script, and the stylesheet with its colours."""
 
         js = ("dynamic_configs/json_editor.js",)
-        css = {"all": ("dynamic_configs/admin.css",)}
+        css = {"all": (_STYLESHEET,)}
+
+
+class AdminListEditorWidget(ListWidget):
+    """The list editor: the raw textarea, plus the item editor (the item type's own input) for the editor script.
+
+    The item editor is rendered hidden with the page, so Django's widget scripts (the date picker, the admin script's
+    zone links) attach to it as to any field; the script shows it and fills its inputs in.
+    """
+
+    def __init__(
+        self,
+        attrs: dict[str, Any] | None = None,
+        *,
+        item_field: forms.Field,
+        check_url: str,
+        sortable: bool,
+        unique: bool,
+    ) -> None:
+        """Keep the item editor's field, the check URL, and whether the list sorts and is a set."""
+        super().__init__(attrs={"class": "vLargeTextField", **(attrs or {})})
+        self.item_field = item_field
+        self.check_url = check_url
+        self.sortable = sortable
+        self.unique = unique
+
+    @property
+    def media(self) -> forms.Media:
+        """The item editor's own scripts first (the date picker, say), then the list editor's script and stylesheet."""
+        return self.item_field.widget.media + forms.Media(js=[_LIST_EDITOR_SCRIPT], css={"all": [_STYLESHEET]})
+
+    def render(self, name: str, value: Any, attrs: dict[str, Any] | None = None, renderer: Any = None) -> SafeString:
+        """Render the raw textarea and hidden inputs, and the item editor, marked for the editor script."""
+        editor = self.item_field.widget.render(
+            f"{name}{ITEM_SUFFIX}", None, {"id": f"id_{name}{ITEM_SUFFIX}"}, renderer
+        )
+        return format_html(
+            '<div class="dynamic-configs-list" data-dynamic-configs-list data-name="{}" data-check-url="{}" '
+            'data-set="{}" data-sortable="{}">{}<div class="dynamic-configs-list-item" hidden>{}</div></div>',
+            name,
+            self.check_url,
+            "true" if self.unique else "false",
+            "true" if self.sortable else "false",
+            super().render(name, value, attrs, renderer),
+            editor,
+        )
 
 
 # Django's plain widgets (and the zoned datetime widget) mapped to the admin's versions (date picker, split
@@ -74,6 +136,18 @@ def _use_admin_widget(field: forms.Field) -> None:
 def _chosen_type(request: HttpRequest) -> ConfigType | None:
     """Return the type chosen in the add page's first step (``?type=`` in the address), or None."""
     return get_registry().get(request.GET.get("type", ""))
+
+
+def _texts(raw: str | None) -> list[str]:
+    """Return the JSON array of strings the list editor sent; raise ValidationError when it isn't one."""
+    try:
+        texts = json.loads(raw or "")
+    except (ValueError, RecursionError):
+        # RecursionError: JSON nested too deeply, which Python's reader raises rather than a ValueError.
+        texts = None
+    if not isinstance(texts, list) or not all(isinstance(text, str) for text in texts):
+        raise ValidationError("The request couldn't be read. Reload the page and try again.")
+    return texts
 
 
 class ConfigAdminMixin:
@@ -107,8 +181,24 @@ class ConfigAdminMixin:
             kwargs["form"] = ConfigTypeForm if config_type is None else add_form_for(config_type)
         form = super().get_form(request, obj, change, **kwargs)  # type: ignore[misc]
         if "value" in form.base_fields:
-            _use_admin_widget(form.base_fields["value"])
+            field = form.base_fields["value"]
+            _use_admin_widget(field)
+            if isinstance(field, TypedLineListField):
+                self._use_list_editor(field)
         return form
+
+    def _use_list_editor(self, field: TypedLineListField) -> None:
+        """Give a list or set value the list editor, pointed at this admin's check URL."""
+        key = f"{SET_PREFIX if field.unique else LIST_PREFIX}{field.item_type.key}"
+        _use_admin_widget(field.item_field)
+        field.widget = AdminListEditorWidget(
+            attrs=field.widget.attrs,
+            item_field=field.item_field,
+            check_url=reverse(f"{self.admin_site.name}:{_LIST_ITEM_URL}", args=[key]),  # type: ignore[attr-defined]
+            # Sets are unordered, so they have no Sort (nor Up and Down).
+            sortable=not field.unique and field.item_type.sortable,
+            unique=field.unique,
+        )
 
     def add_view(
         self, request: HttpRequest, form_url: str = "", extra_context: dict[str, Any] | None = None
@@ -147,6 +237,59 @@ class ConfigAdminMixin:
                 messages.WARNING,
             )
         return super().change_view(request, object_id, form_url, extra_context)  # type: ignore[misc]
+
+    def get_urls(self) -> list[Any]:
+        """Add the list editor's check URL, before the admin's own (whose ``<path:object_id>/`` would take it).
+
+        Config names are UPPER_SNAKE_CASE, so ``list-item`` can't be a config's address.
+        """
+        view = self.admin_site.admin_view(self.list_item_view)  # type: ignore[attr-defined]
+        return [path("list-item/<str:type_key>/", view, name=_LIST_ITEM_URL), *super().get_urls()]  # type: ignore[misc]
+
+    def list_item_view(self, request: HttpRequest, type_key: str) -> HttpResponse:
+        """Answer the list editor: check an item, load one into the editor, check raw lines, or sort. Never saves.
+
+        Behind the admin's login and CSRF check (``admin_view``), and needs add or change permission on configs, so only
+        someone who can edit configs can ask. Every rule is the Python one: the script never checks items itself.
+        """
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        if not (
+            self.has_add_permission(request) or self.has_change_permission(request)  # type: ignore[attr-defined]
+        ):
+            raise PermissionDenied
+        config_type = get_registry().get(type_key)
+        if config_type is None or config_type.container is None:
+            raise Http404("No list or set type has that key.")
+        field = cast(TypedLineListField, formfield_for(config_type))
+        _use_admin_widget(field.item_field)
+        post = request.POST
+        name = post.get("name", "")
+        try:
+            match post.get("action"):
+                case "check":
+                    position = post.get("position", "")
+                    reply: dict[str, Any] = {
+                        "text": field.item_text(
+                            post,
+                            request.FILES,
+                            name,
+                            others=_texts(post.get("items")),
+                            position=int(position) if position.isdigit() else None,
+                        )
+                    }
+                case "load":
+                    reply = {"values": field.editor_values(post.get("text", ""), name)}
+                case "lines":
+                    reply = {"texts": field.texts_from_lines(_texts(post.get("lines")))}
+                case "sort":
+                    descending = post.get("direction") == "descending"
+                    reply = {"texts": field.sorted_texts(_texts(post.get("items")), descending=descending)}
+                case _:
+                    return HttpResponseBadRequest("Unknown action.")
+        except ValidationError as error:
+            return JsonResponse({"errors": error.messages})
+        return JsonResponse(reply)
 
     @admin.display(description="type", ordering="type")
     def type_label(self, obj: Config) -> str:

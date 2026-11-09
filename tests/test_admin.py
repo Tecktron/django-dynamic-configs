@@ -133,8 +133,10 @@ def test_the_admin_script_is_shipped():
     assert finders.find("dynamic_configs/admin.js") is not None
 
 
-@pytest.mark.parametrize("path", ["dynamic_configs/json_editor.js", "dynamic_configs/admin.css"])
-def test_the_json_editors_files_are_shipped(path):
+@pytest.mark.parametrize(
+    "path", ["dynamic_configs/json_editor.js", "dynamic_configs/list_editor.js", "dynamic_configs/admin.css"]
+)
+def test_the_editors_files_are_shipped(path):
     # The stylesheet needs its own package-data pattern, which this catches under tox.
     assert finders.find(path) is not None
 
