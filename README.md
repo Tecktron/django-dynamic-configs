@@ -37,12 +37,11 @@ There's a dark set too. It follows the browser's light or dark preference, and t
 ## The admin's list editor
 
 List and set settings are edited one item at a time. Each item gets its type's own input (a number box, the date picker,
-a datetime's date, time and zone), and the server checks it when you click Add or Update, so the rules are the same as
-when saving. Select an item to load it back into the input. Remove, Up and Down act on the selected item, and Sort
-orders the list by value, flipping direction on each click; sets have no Up, Down or Sort. Raw mode edits the whole list
-as text, one item per line, for pasting. Every line is an item, blank ones included (for a type that rejects an empty
-value, such as a number, a blank line is an error), and Apply says which lines were blank. Without JavaScript, the
-field is that text.
+a datetime's date, time and zone), and the server checks it when you click Add or Update. Select an item to load it back
+into the input. Remove, Up and Down act on the selected item, and Sort orders the list by value, flipping direction on
+each click; sets have no Up, Down or Sort. Raw mode edits the whole list as text, one item per line, for pasting. Every
+line is an item, blank ones included (for a type that rejects an empty value, such as a number, a blank line is an
+error), and Apply says which lines were blank. Without JavaScript, the field is that text.
 
 Saving from the list keeps each item exactly: spaces at the ends, empty items and line breaks within an item all
 survive. Raw mode and the field without JavaScript strip each line as the item's own input would (the table below says
