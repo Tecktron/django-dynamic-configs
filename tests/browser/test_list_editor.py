@@ -206,8 +206,21 @@ def test_an_unreachable_check_url_changes_nothing(admin_page, console_errors):
     button(admin_page, "Add").click()
     expect(message(admin_page)).to_have_text("Couldn't check the item; try again.")
     expect(options(admin_page)).to_have_count(0)
+    expect(button(admin_page, "Add")).to_be_enabled()
     # The browser logs the failed request; that error is expected.
     console_errors.clear()
+
+
+def test_an_expired_session_changes_nothing(admin_page):
+    # The check URL sends the browser to the login page, which answers 200 with HTML rather than JSON.
+    admin_page.goto(ADD.format("list:int"))
+    admin_page.context.clear_cookies(name="sessionid")
+    item_input(admin_page).fill("7")
+    button(admin_page, "Add").click()
+    expect(message(admin_page)).to_have_text("Couldn't check the item; try again.")
+    expect(options(admin_page)).to_have_count(0)
+    expect(item_input(admin_page)).to_have_value("7")
+    expect(button(admin_page, "Add")).to_be_enabled()
 
 
 def test_the_buttons_wait_for_the_servers_answer(admin_page):
@@ -316,3 +329,107 @@ def test_a_multiple_select_adds_and_loads_every_chosen_value(admin_page, setting
     save(admin_page)
     expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
     assert stored("PAIRS") == ["b", "a,c"]
+
+
+def wait_until_held(page, held):
+    # Bounded: the request reaches the route within five seconds, or the test fails.
+    for _ in range(250):
+        if held:
+            break
+        page.wait_for_timeout(20)
+    assert held, "the request never reached the check URL"
+
+
+def test_typing_while_an_add_is_pending_is_kept(admin_page):
+    held = []
+    admin_page.goto(ADD.format("list:str"))
+    admin_page.route("**/list-item/**", lambda route: held.append(route))
+    item_input(admin_page).fill("first")
+    button(admin_page, "Add").click()
+    expect(button(admin_page, "Add")).to_be_disabled()
+    item_input(admin_page).fill("second")
+    wait_until_held(admin_page, held)
+    held[0].continue_()
+    expect(options(admin_page)).to_have_text(["first"])
+    expect(item_input(admin_page)).to_have_value("second")
+    # Still an item typed but not added.
+    save(admin_page)
+    expect(message(admin_page)).to_have_text("You have an unsaved change to an item: click Update or Clear.")
+
+
+def test_the_arrow_keys_move_through_the_list(admin_page):
+    open_config(admin_page, "PORTS", "list:int", ["1", "2", "3", "4"])
+    items(admin_page).select_option(index=0)
+    expect(item_input(admin_page)).to_have_value("1")
+    items(admin_page).focus()
+    for _ in range(3):
+        admin_page.keyboard.press("ArrowDown")
+    expect(items(admin_page)).to_have_js_property("selectedIndex", 3)
+    expect(item_input(admin_page)).to_have_value("4")
+    expect(items(admin_page)).to_be_focused()
+    expect(button(admin_page, "Remove")).to_be_enabled()
+
+
+def test_down_pressed_from_the_keyboard_keeps_its_focus(admin_page):
+    open_config(admin_page, "PORTS", "list:int", ["1", "2", "3", "4"])
+    items(admin_page).select_option(index=0)
+    expect(item_input(admin_page)).to_have_value("1")
+    button(admin_page, "Down").focus()
+    admin_page.keyboard.press("Enter")
+    admin_page.keyboard.press("Space")
+    expect(options(admin_page)).to_have_text(["2", "3", "1", "4"])
+    expect(button(admin_page, "Down")).to_be_focused()
+
+
+def test_add_pressed_from_the_keyboard_keeps_its_focus(admin_page):
+    # Add is disabled while the server checks the item, which drops focus; it gets it back with the answer.
+    admin_page.goto(ADD.format("list:int"))
+    item_input(admin_page).fill("7")
+    button(admin_page, "Add").focus()
+    admin_page.keyboard.press("Enter")
+    expect(options(admin_page)).to_have_text(["7"])
+    expect(button(admin_page, "Add")).to_be_focused()
+    item_input(admin_page).fill("8")
+    button(admin_page, "Add").focus()
+    admin_page.keyboard.press("Space")
+    expect(options(admin_page)).to_have_text(["7", "8"])
+    expect(button(admin_page, "Add")).to_be_focused()
+
+
+# Hold each request to the check URL until the test releases it, counting those sent on the page, so the test can wait
+# for them with expect.
+HOLD_CHECKS = """() => {
+    const send = window.fetch;
+    const held = [];
+    let sent = 0;
+    window.fetch = (...args) =>
+        new Promise((resolve, reject) => {
+            held.push(() => send(...args).then(resolve, reject));
+            document.body.dataset.sent = String(++sent);
+        });
+    window.releaseCheck = () => held.shift()();
+}"""
+
+
+def test_only_the_last_item_chosen_while_one_loads_is_loaded(admin_page):
+    open_config(admin_page, "PORTS", "list:int", ["1", "2", "3", "4"])
+    items(admin_page).select_option(index=0)
+    expect(item_input(admin_page)).to_have_value("1")
+    admin_page.evaluate(HOLD_CHECKS)
+    body = admin_page.locator("body")
+    items(admin_page).focus()
+    for _ in range(3):
+        admin_page.keyboard.press("ArrowDown")
+    # One load, for item 2; the later choices wait for its answer, and the list shows the last one.
+    expect(body).to_have_attribute("data-sent", "1")
+    expect(items(admin_page)).to_have_js_property("selectedIndex", 3)
+    expect(items(admin_page)).to_be_enabled()
+    admin_page.evaluate("() => window.releaseCheck()")
+    # Item 2's answer is out of date, so it isn't applied; item 4 loads instead.
+    expect(body).to_have_attribute("data-sent", "2")
+    expect(item_input(admin_page)).to_have_value("1")
+    expect(items(admin_page)).to_have_js_property("selectedIndex", 3)
+    admin_page.evaluate("() => window.releaseCheck()")
+    expect(item_input(admin_page)).to_have_value("4")
+    expect(button(admin_page, "Update")).to_be_enabled()
+    expect(items(admin_page)).to_be_focused()
