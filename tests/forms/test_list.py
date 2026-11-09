@@ -6,6 +6,7 @@ from django.core.exceptions import ValidationError
 from django.http import QueryDict
 
 from dynamic_configs.forms.list import (
+    EMPTY_ITEM_NOTE,
     ITEMS_SUFFIX,
     MODE_SUFFIX,
     LineListField,
@@ -36,17 +37,21 @@ def query(**data):
 # ---- Raw text, one item per line ----
 
 
-def test_lines_become_stripped_items_and_blank_lines_are_dropped():
-    assert LineListField(required=False).clean("  a \n\n b\n   \n") == ["a", "b"]
+def test_every_line_is_a_stripped_item_blank_ones_included():
+    assert LineListField(required=False).clean("  a \n\n b\n   \n") == ["a", "", "b", "", ""]
 
 
 def test_an_empty_textarea_is_an_empty_list():
     assert LineListField(required=False).clean("") == []
 
 
-def test_a_required_field_rejects_a_blank_textarea():
+def test_a_required_field_rejects_an_empty_textarea():
     with pytest.raises(ValidationError, match="required"):
-        LineListField().clean("\n \n")
+        LineListField().clean("")
+
+
+def test_a_required_field_takes_blank_lines_as_items():
+    assert LineListField().clean("\n") == ["", ""]
 
 
 def test_validators_run_on_each_item():
@@ -62,15 +67,15 @@ def test_the_textarea_gets_no_length_limits():
 
 
 def test_typed_items_are_parsed_by_the_item_type():
-    assert typed("int").clean("1\n 2 \n") == [1, 2]
+    assert typed("int").clean("1\n 2 ") == [1, 2]
 
 
 def test_typed_errors_name_every_bad_line():
     with pytest.raises(ValidationError) as error:
-        typed("int").clean("1\n\nx\ny")
+        typed("int").clean("1\nx\ny")
     assert error.value.messages == [
+        "Line 2: Enter a whole number, such as 42.",
         "Line 3: Enter a whole number, such as 42.",
-        "Line 4: Enter a whole number, such as 42.",
     ]
 
 
@@ -91,16 +96,28 @@ def test_lists_that_allow_repeats_keep_them():
 @pytest.mark.parametrize(("setting", "expected"), [(None, [" a "]), (False, [" a "]), (True, ["a"])])
 def test_raw_string_lines_are_stripped_only_as_strip_strings_says(settings, setting, expected):
     settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": setting}
-    assert typed("str").clean(" a \n") == expected
+    assert typed("str").clean(" a ") == expected
 
 
 def test_raw_text_lines_are_kept_exactly(settings):
     settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": True}
-    assert typed("text").clean("  indented\n") == ["  indented"]
+    assert typed("text").clean("  indented") == ["  indented"]
 
 
-def test_lines_of_spaces_are_blank_lines():
-    assert typed("str").clean("a\n   \nb") == ["a", "b"]
+@pytest.mark.parametrize(("setting", "expected"), [(None, ["a", "   ", "b"]), (True, ["a", "", "b"])])
+def test_a_line_of_spaces_is_an_item_stripped_only_as_strip_strings_says(settings, setting, expected):
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": setting}
+    assert typed("str").clean("a\n   \nb") == expected
+
+
+def test_a_blank_line_is_a_line_error_for_a_type_that_rejects_empty_input():
+    with pytest.raises(ValidationError) as error:
+        typed("int").clean("1\n\n2")
+    assert error.value.messages == ["Line 2: Enter a whole number, such as 42."]
+
+
+def test_a_trailing_line_break_is_an_empty_last_item():
+    assert typed("str").clean("a\n") == ["a", ""]
 
 
 def test_lines_split_only_at_line_breaks():
@@ -191,6 +208,25 @@ def test_a_list_with_a_line_break_item_is_read_only_and_saved_as_a_list():
     assert "editing it needs JavaScript" in html
 
 
+def test_a_list_of_one_empty_item_is_read_only_and_saved_as_a_list():
+    html = ListWidget().render("value", StoredTexts([""]))
+    assert "readonly" in html
+    assert 'name="value__mode" value="list"' in html
+    assert EMPTY_ITEM_NOTE in html
+    assert "line break" not in html
+
+
+def test_a_list_of_two_empty_items_can_be_edited_as_text():
+    html = ListWidget().render("value", StoredTexts(["", ""]))
+    assert "readonly" not in html
+    assert 'name="value__mode" value="raw"' in html
+
+
+def test_raw_lines_keep_blank_lines_and_no_lines_are_no_items():
+    assert typed("str").texts_from_lines(["a", "", "b"]) == ["a", "", "b"]
+    assert typed("str").texts_from_lines([""]) == []
+
+
 # ---- The item editor's helpers ----
 
 
@@ -264,7 +300,7 @@ def test_items_that_cant_be_compared_cant_be_sorted():
 
 
 def test_raw_lines_become_stored_texts_or_line_errors():
-    assert typed("int").texts_from_lines(["1", " 02 ", ""]) == ["1", "2"]
+    assert typed("int").texts_from_lines(["1", " 02 "]) == ["1", "2"]
     with pytest.raises(ValidationError) as error:
         typed("int").texts_from_lines(["1", "x"])
     assert error.value.messages == ["Line 2: Enter a whole number, such as 42."]

@@ -58,7 +58,7 @@ def test_adding_stores_the_value_as_text():
 
 
 def test_adding_a_list_takes_one_item_per_line():
-    form = add_form("list:str", name="HOSTS", value="a.example\n\nb.example\n")
+    form = add_form("list:str", name="HOSTS", value="a.example\nb.example")
     assert form.is_valid(), form.errors
     assert form.save().value == '["a.example", "b.example"]'
 

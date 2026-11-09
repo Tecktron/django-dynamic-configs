@@ -28,6 +28,9 @@ ITEM_SUFFIX = "__item"
 LOCKED_NOTE = (
     "This list has an item with a line break, which one item per line can't show, so editing it needs JavaScript."
 )
+EMPTY_ITEM_NOTE = (
+    "This list is one empty item, which one item per line would show as no items, so editing it needs JavaScript."
+)
 UNREADABLE = "The list couldn't be read. Reload the page and try again."
 
 
@@ -46,6 +49,18 @@ def has_line_break(text: str) -> bool:
     return "\n" in text or "\r" in text
 
 
+def locked_note(texts: Sequence[str] | None) -> str | None:
+    """Return why one item per line can't show ``texts`` exactly, or None when it can (or there are no texts)."""
+    if texts is None:
+        return None
+    if any(has_line_break(text) for text in texts):
+        return LOCKED_NOTE
+    if list(texts) == [""]:
+        # An empty textarea reads back as no items.
+        return EMPTY_ITEM_NOTE
+    return None
+
+
 def split_lines(text: str) -> list[str]:
     r"""Split ``text`` at its line breaks (``\r\n``, ``\r`` or ``\n``), as a textarea and the editor script do.
 
@@ -57,8 +72,9 @@ def split_lines(text: str) -> list[str]:
 class ListWidget(forms.Textarea):
     """A textarea of items, one per line, with hidden inputs holding the items' stored texts and the mode.
 
-    The mode says raw (read the textarea) unless an item contains a line break: one item per line can't show it, so
-    the textarea is read-only, the mode says list, and saving keeps the items exactly.
+    The mode says raw (read the textarea) unless one item per line can't show the items exactly — an item contains a
+    line break, or the list is one empty item. Then the textarea is read-only, the mode says list, and saving keeps
+    the items exactly.
     """
 
     def format_value(self, value: Any) -> str | None:
@@ -70,7 +86,8 @@ class ListWidget(forms.Textarea):
     def render(self, name: str, value: Any, attrs: dict[str, Any] | None = None, renderer: Any = None) -> SafeString:
         """Render the textarea and its help, the hidden inputs, and a note when the list can't be edited as text."""
         texts = value if isinstance(value, StoredTexts) else None
-        locked = texts is not None and any(has_line_break(text) for text in texts)
+        note = locked_note(texts)
+        locked = note is not None
         if locked:
             attrs = {**(attrs or {}), "readonly": True}
         hidden = forms.HiddenInput()
@@ -80,7 +97,7 @@ class ListWidget(forms.Textarea):
             # null when the page shows text that isn't a list yet: the editor script then starts in raw mode.
             hidden.render(f"{name}{ITEMS_SUFFIX}", json.dumps(texts), renderer=renderer),
             hidden.render(f"{name}{MODE_SUFFIX}", "list" if locked else "raw", renderer=renderer),
-            format_html('<p class="help dynamic-configs-list-locked">{}</p>', LOCKED_NOTE) if locked else "",
+            format_html('<p class="help dynamic-configs-list-locked">{}</p>', note) if locked else "",
         )
 
     def value_from_datadict(self, data: Any, files: Any, name: str) -> Any:
@@ -98,7 +115,7 @@ class ListWidget(forms.Textarea):
 
 
 class LineListField(forms.CharField):
-    """A list of strings; each line of raw text is stripped and blank lines are dropped.
+    """A list of strings, one per line of raw text, each stripped; blank lines are items too.
 
     Validators (such as ``max_length``) run on each item, not on the list.
     """
@@ -138,7 +155,8 @@ class LineListField(forms.CharField):
     def numbered_items(self, value: Any) -> list[tuple[str, int, Any]]:
         """Return ``(noun, number, item)`` for each item, collecting every item's error.
 
-        Stored texts are numbered as items ("Item 3"); raw text by line ("Line 3"), skipping blank lines.
+        Stored texts are numbered as items ("Item 3"); raw text by line ("Line 3"), every line an item, and an empty
+        text none.
 
         :raises ValidationError: the data can't be read, or items are invalid (one message each)
         """
@@ -148,11 +166,9 @@ class LineListField(forms.CharField):
             numbered = [("Item", number, text) for number, text in enumerate(value, start=1)]
         else:
             text = super().to_python(value)
-            numbered = [
-                ("Line", number, self.line_text(line))
-                for number, line in enumerate(split_lines(text), start=1)
-                if line.strip()
-            ]
+            # Every line is an item, blank ones included; only an empty text is no items.
+            lines = split_lines(text) if text else []
+            numbered = [("Line", number, self.line_text(line)) for number, line in enumerate(lines, start=1)]
         items: list[tuple[str, int, Any]] = []
         errors: list[str] = []
         for noun, number, item_text in numbered:
