@@ -756,7 +756,8 @@ postgres`), and always in CI.
 
 Configured in `pyproject.toml`:
 
-- `branch = true`, `parallel = true`, measuring only the `dynamic_configs` package; `migrations/` is omitted.
+- `branch = true`, measuring only the `dynamic_configs` package; `migrations/` is omitted. Each tox environment writes
+  its own data file (`COVERAGE_FILE`), which the `coverage` environment combines.
 - Tests run under `coverage run -m pytest`, not pytest-cov: pytest imports this package's pytest plugin at startup,
   before pytest-cov would start measuring, so the plugin's module-level code would show as uncovered.
 - `[tool.coverage.paths]` maps the installed `site-packages/dynamic_configs` back to `src/dynamic_configs`, so data

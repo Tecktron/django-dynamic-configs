@@ -50,3 +50,7 @@ if os.environ.get("DYNAMIC_CONFIGS_TEST_EXTRAS") == "1":
     # The django-simple-history integration, and the middleware that records who made a change.
     INSTALLED_APPS += ["simple_history", "dynamic_configs.contrib.simple_history"]
     MIDDLEWARE += ["simple_history.middleware.HistoryRequestMiddleware"]
+
+if os.environ.get("DYNAMIC_CONFIGS_TEST_POSTGRES") == "1":
+    # NAME only: the host, port, user and password come from libpq's PG* environment variables.
+    DATABASES = {"default": {"ENGINE": "django.db.backends.postgresql", "NAME": "dynamic_configs"}}
