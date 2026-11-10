@@ -54,3 +54,9 @@ def test_register_history_admin_respects_the_setting_and_is_idempotent(settings)
     register_history_admin(site)
     register_history_admin(site)
     assert type(site.get_model_admin(Config)) is ConfigHistoryAdmin
+
+
+def test_register_history_admin_registers_on_a_site_with_nothing_registered():
+    site = AdminSite()
+    register_history_admin(site)
+    assert type(site.get_model_admin(Config)) is ConfigHistoryAdmin
