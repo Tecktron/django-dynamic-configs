@@ -622,7 +622,15 @@ Hosted on Read the Docs, built with **Sphinx**:
 - `tox -e docs` builds it locally with warnings as errors (`sphinx-build -W`), and CI runs it, so broken references
   or docstrings fail the build.
 - Versioned docs: Read the Docs builds `latest` from `main` and a version per release tag.
-- The README stays short: what it is, installation, a quick start and a link to the docs.
+- `conf.py` excludes `design/plans/` (implementation plans, kept locally and ignored by git) and the build directory,
+  so they're never published.
+- The Changelog page includes `CHANGELOG.md`, which follows [Keep a Changelog](https://keepachangelog.com/): an
+  Unreleased section, then one section per version with Added, Changed, Deprecated, Removed, Fixed and Security
+  headings as needed. 0.1.0 is the first release.
+- The README stays short: what it is, installation, a quick start and a link to the docs. The reference material the
+  README held while there was no docs site (the JSON editor's colours, the list editor, `STRIP_STRINGS`, a custom
+  `form` and `raw_help_text` in the list editor, known limitations) moves to Admin and skins, and its Development
+  section (virtual environment, browser, tests, tox and the umask note) to Development.
 
 ## Package layout
 
@@ -729,11 +737,19 @@ Plus:
   Django's async check (`DJANGO_ALLOW_ASYNC_UNSAFE`) is relaxed only from the first browser test on.
 - `extras`: newest Django and Python, with django-simple-history installed and its app enabled in the test settings
   (`tests/settings.py` reads an environment variable).
-- `postgres`: newest Django and Python against PostgreSQL (CI service container); every other environment uses SQLite.
+- `postgres`: newest Django and Python against PostgreSQL, with `psycopg[binary]`; `tests/settings.py` switches to
+  PostgreSQL when an environment variable says so, and the connection comes from libpq's standard `PG*` variables,
+  which tox passes through. Every other environment, and every local run, uses SQLite: the package's ORM use is
+  plain, so this checks that it installs, migrates and runs on the database most projects use (and runs `update`'s
+  row lock for real, which SQLite ignores).
 - `djangomain`: Django's main branch on the newest Python; non-blocking in CI.
 - `lint`: ruff check and format check.
 - `docs`: builds the documentation site with warnings as errors.
 - `coverage`: combines every environment's data and enforces the threshold.
+
+Plain `tox` runs the matrix, the browser environments, `extras`, `lint`, `docs` and `coverage`. `postgres` (it needs a
+PostgreSQL server) and `djangomain` (it installs Django from GitHub each time) run only when named (`tox -e
+postgres`), and always in CI.
 
 ### Coverage
 
@@ -746,6 +762,9 @@ Configured in `pyproject.toml`:
   from every tox environment combines.
 - **100% branch coverage is enforced on the combined data** (`fail_under = 100`), not per environment, because
   some lines only run with or without the extras. `show_missing = true`.
+- Locally, `tox` does the same: the `coverage` environment combines what the other environments recorded and enforces
+  100%. A single `coverage run -m pytest` in the development virtual environment is a quick check, and its report can
+  be under 100% (the lines that need the extras, or their absence).
 - `# pragma: no cover` is not used. `if TYPE_CHECKING:` blocks are excluded in config (`exclude_also`).
 - Our code includes the pytest plugin (tested with pytest's `pytester`), the test helpers and `contrib/`.
 
@@ -758,8 +777,9 @@ Configured in `pyproject.toml`:
     runner's `sudo`), then runs the environment.
   - `test` job: a matrix over the tox environments; each saves its coverage data as an artifact. The `postgres`
     environment runs with a PostgreSQL service container. `djangomain` uses `continue-on-error`.
-  - `coverage` job: after `test`; combines the artifacts, fails under 100%, writes `coverage.xml` and uploads it to
-    Codecov using GitHub's OIDC identity (`use_oidc: true`, `id-token: write`), so no token is stored.
+  - `coverage` job: after `test`; combines the artifacts, prints the report (with any missing lines), fails under
+    100%, and saves the HTML report as an artifact to download. No coverage service: the 100% rule already blocks any
+    drop, and the job's log names the missing lines.
 - **`release.yml`**, on pushing a `v*` tag: checks the tag matches the package version, builds the sdist and wheel,
   and publishes to PyPI through trusted publishing (environment `pypi`, `id-token: write`), so no token is stored.
 
@@ -767,13 +787,11 @@ Configured in `pyproject.toml`:
 
 Short: what the package is, installation, a quick start, and a link to the documentation site.
 
-Badges: CI status, Codecov coverage, documentation build (Read the Docs), PyPI version, supported Python versions,
-supported Django versions, license.
+Badges: CI status, coverage (a static "coverage 100%" badge, which stays true because CI fails below 100%),
+documentation build (Read the Docs), PyPI version, supported Python versions, supported Django versions, license.
 
 ### One-time setup outside the repo (maintainer)
 
-- **Codecov:** sign in at codecov.io with GitHub and give the Codecov app access to
-  `Tecktron/django-dynamic-configs`. No token is needed.
 - **PyPI:** before the first release, on pypi.org, *Your account → Publishing → Add a pending publisher*: project
   `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`, workflow `release.yml`, environment
   `pypi`. The PyPI badges show "not found" until the first release.
