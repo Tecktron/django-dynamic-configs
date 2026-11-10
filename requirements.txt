@@ -1,4 +1,4 @@
-# Development requirements: an editable install of this package plus the tools to test and lint it.
+# Development requirements: an editable install of this package plus the tools to test, lint and document it.
 # The package's runtime dependencies are declared in pyproject.toml.
 -e .
 coverage
@@ -9,3 +9,5 @@ pytest-mock
 pytest-playwright
 ruff
 tox
+# The documentation tools (Read the Docs installs the same file).
+-r docs/requirements.txt

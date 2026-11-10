@@ -1,0 +1,8 @@
+# Tools to build the documentation site; Read the Docs installs these after the package itself.
+sphinx
+myst-parser
+furo
+sphinx-autodoc-typehints
+# The API reference documents dynamic_configs.test.pytest_plugin, which imports pytest; autodoc imports every module
+# it documents.
+pytest
