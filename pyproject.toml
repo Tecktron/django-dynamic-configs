@@ -34,7 +34,6 @@ classifiers = [
 
 [project.optional-dependencies]
 simple-history = ["django-simple-history>=3.8"]
-prettyjson = ["django-prettyjson>=0.4.1"]
 
 [project.urls]
 Homepage = "https://github.com/Tecktron/django-dynamic-configs"
@@ -48,10 +47,14 @@ dynamic_configs = "dynamic_configs.test.pytest_plugin"
 where = ["src"]
 
 [tool.setuptools.package-data]
-dynamic_configs = ["py.typed"]
+dynamic_configs = ["py.typed", "static/dynamic_configs/*.js", "static/dynamic_configs/*.css"]
 
 [tool.pytest.ini_options]
 addopts = ["--ds=tests.settings", "--strict-markers", "-p", "pytester"]
+filterwarnings = [
+    # From pytest-base-url, which pytest-playwright installs, not from this project.
+    "ignore:Session-scoped fixtures defined as instance methods are deprecated",
+]
 testpaths = ["tests"]
 pythonpath = ["."]
 

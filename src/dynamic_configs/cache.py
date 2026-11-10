@@ -52,7 +52,11 @@ def cache_key(name: str) -> str:
 
 
 def get_cache() -> BaseCache | None:
-    """Return the configured cache, or None when caching is off (``CACHE`` is None or the backend is DummyCache)."""
+    """Return the configured cache, or None when caching is off.
+
+    Caching is off when ``CACHE`` is None or isn't a configured alias (logged as a warning), or the backend is
+    DummyCache.
+    """
     alias = get_settings()["CACHE"]
     if alias is None:
         return None
@@ -84,9 +88,11 @@ def read(name: str) -> Entry | _Sentinel:
     if raw == _ABSENT_MARKER:
         log(logger, logging.DEBUG, "Cache hit for config %r: it doesn't exist", name, config_name=name)
         return ABSENT
-    if isinstance(raw, tuple) and len(raw) == 2:
+    # A list too: caches that serialize to JSON or msgpack (django-redis's JSON serializer, say) give tuples back as
+    # lists, and treating those as misses would send every read to the database.
+    if isinstance(raw, (tuple, list)) and len(raw) == 2:
         log(logger, logging.DEBUG, "Cache hit for config %r", name, config_name=name)
-        return raw
+        return (raw[0], raw[1])
     log(logger, logging.DEBUG, "Cache miss for config %r", name, config_name=name)
     return NOT_CACHED
 

@@ -21,6 +21,7 @@ def test_the_fixture_clears_overrides_after_each_test(pytester):
             assert _overrides.lookup("SITE_NAME") == (False, None)
         """
     )
-    # The inner run has no Django settings, and the fixture doesn't need them.
-    result = pytester.runpytest("-p", "no:django")
+    # The inner run has no Django settings, and the fixture doesn't need them. It runs in this process, where
+    # pytest-playwright (when installed, for the browser tests) already holds its one assertion scope open.
+    result = pytester.runpytest("-p", "no:django", "-p", "no:playwright")
     result.assert_outcomes(passed=2)

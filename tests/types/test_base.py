@@ -5,6 +5,7 @@ import pytest
 
 from dynamic_configs.exceptions import ConfigTypeError, ConfigValueError
 from dynamic_configs.types.base import ConfigType
+from dynamic_configs.types.builtin import BUILTIN_TYPES
 from dynamic_configs.types.serializers import (
     DateSerializer,
     DecimalSerializer,
@@ -15,6 +16,7 @@ from dynamic_configs.types.serializers import (
     SetSerializer,
     StrSerializer,
 )
+from tests.custom_types import Color, ColorSerializer, color_hex
 
 INT = ConfigType("int", "Integer", int, IntSerializer())
 FLOAT = ConfigType("float", "Float", float, FloatSerializer())
@@ -137,3 +139,26 @@ def test_any_error_while_reading_stored_text_is_a_config_value_error():
     crashing = ConfigType("crashing", "Crashing", str, CrashingSerializer())
     with pytest.raises(ConfigValueError, match="KeyError"):
         crashing.from_text("anything")
+
+
+def test_types_whose_values_define_an_order_are_sortable():
+    by_key = {config_type.key: config_type for config_type in BUILTIN_TYPES}
+    assert all(by_key[key].sortable for key in ("str", "int", "float", "decimal", "bool", "date", "datetime", "hours"))
+
+
+def test_a_class_without_an_order_is_sortable_only_with_a_key():
+    assert not ConfigType("color", "Color", Color, ColorSerializer()).sortable
+    assert ConfigType("color", "Color", Color, ColorSerializer(), sort_key=color_hex).sortable
+
+
+def test_sort_uses_the_key_or_the_values_and_can_go_backwards():
+    plain = ConfigType("int", "Integer", int, IntSerializer())
+    assert plain.sort([10, 9, 100]) == [9, 10, 100]
+    assert plain.sort([10, 9, 100], descending=True) == [100, 10, 9]
+    color = ConfigType("color", "Color", Color, ColorSerializer(), sort_key=color_hex)
+    assert color.sort([Color("#bbbbbb"), Color("#aaaaaa")]) == [Color("#aaaaaa"), Color("#bbbbbb")]
+
+
+def test_sorting_values_without_an_order_raises():
+    with pytest.raises(TypeError):
+        ConfigType("color", "Color", Color, ColorSerializer()).sort([Color("#bbbbbb"), Color("#aaaaaa")])

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -37,14 +38,39 @@ class ConfigType:
     serializer: Serializer
     help_text: str = ""
     listable: bool = True
-    form_class: type | None = None
+    # Help for typing one item as text (a list's raw mode), when the type's input isn't typed as one line; "" uses
+    # help_text.
+    raw_help_text: str = ""
+    # A form field class, or a callable that returns a field (a functools.partial setting a widget, say).
+    form_class: Callable[..., Any] | None = None
     item_type: ConfigType | None = None
     container: Literal["list", "set"] | None = None
+    # How lists of this type sort in the admin's list editor; None sorts by the values, if their class has an order.
+    sort_key: Callable[[Any], Any] | None = None
 
     @property
     def hashable(self) -> bool:
         """Return whether values of this type can go in a set, so the type can have a set variant."""
         return isinstance(self.python_type, type) and self.python_type.__hash__ is not None
+
+    @property
+    def sortable(self) -> bool:
+        """Return whether a list of this type can be sorted: it has a ``sort_key``, or its values define an order."""
+        if self.sort_key is not None:
+            return True
+        # A class that defines no order inherits object's __lt__, which compares nothing.
+        return isinstance(self.python_type, type) and self.python_type.__lt__ is not object.__lt__
+
+    def sort(self, values: list[Any], *, descending: bool = False) -> list[Any]:
+        """Return ``values`` in order: by ``sort_key`` when the type has one, otherwise by the values themselves.
+
+        :param values: values of this type
+        :param descending: largest first
+        :returns: a new, sorted list
+        :raises Exception: whatever comparing raises (a TypeError for values that define no order, or anything a
+            project's key raises)
+        """
+        return sorted(values, key=self.sort_key, reverse=descending)
 
     def coerce(self, value: Any) -> Any:
         """Check ``value`` against this type and return it as code reading the config would get it.

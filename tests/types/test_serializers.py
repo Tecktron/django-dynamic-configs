@@ -60,6 +60,13 @@ def test_int_parsing_is_strict(text):
         IntSerializer().deserialize(text)
 
 
+def test_int_too_long_for_python_says_so_in_plain_words():
+    # Python refuses to read more than 4300 digits by default; its own message names Python internals.
+    with pytest.raises(ValueError) as error:
+        IntSerializer().deserialize("9" * 5000)
+    assert str(error.value) == "That whole number has too many digits."
+
+
 def test_float_round_trips():
     assert FloatSerializer().serialize(0.1) == "0.1"
     assert FloatSerializer().deserialize("0.1") == 0.1
@@ -219,6 +226,31 @@ def test_json_round_trips_objects_and_arrays():
 @pytest.mark.parametrize("value", [{"when": date(2026, 11, 2)}, {"ratio": float("nan")}])
 def test_json_rejects_values_json_cannot_hold(value):
     with pytest.raises(ValueError, match="stored as JSON"):
+        JSONSerializer().serialize(value)
+
+
+@pytest.mark.parametrize("number", [float("nan"), float("inf"), float("-inf")])
+def test_json_rejects_nan_and_infinity_without_echoing_them(number):
+    # Docstring audit: json's own message ended with the number it rejected, and messages never include the value.
+    with pytest.raises(ValueError) as error:
+        JSONSerializer().serialize({"ratio": number})
+    assert str(error.value) == "The value can't be stored as JSON: it contains NaN or infinity, or contains itself."
+
+
+DEPTH = 100_000
+
+
+def test_json_nested_too_deeply_to_read_is_rejected_not_crashed():
+    # Review: Python's JSON reader raises RecursionError, which the admin turned into a server error.
+    with pytest.raises(ValueError, match="nested too deeply"):
+        JSONSerializer().deserialize("[" * DEPTH + "]" * DEPTH)
+
+
+def test_json_nested_too_deeply_to_write_is_rejected_not_crashed():
+    value = []
+    for _ in range(DEPTH):
+        value = [value]
+    with pytest.raises(ValueError, match="nested too deeply"):
         JSONSerializer().serialize(value)
 
 

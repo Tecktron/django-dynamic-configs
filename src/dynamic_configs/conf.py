@@ -16,6 +16,9 @@ DEFAULTS: dict[str, Any] = {
     "TIMEOUT": 300,
     "TYPES": {},
     "REGISTER_ADMIN": True,
+    # Spaces at the ends of strings typed in the admin: None strips single values only, True strips list and set
+    # items too, False strips nothing (see the design document's Configuration section).
+    "STRIP_STRINGS": None,
 }
 
 

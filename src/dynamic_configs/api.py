@@ -140,9 +140,10 @@ def get_or_create(
     :returns: ``(value, created)``; the stored value when it already existed, else the created value as ``get`` will
         return it (for example a naive datetime comes back in UTC)
     :rtype: tuple[Any, bool]
-    :raises ConfigTypeError: the type isn't registered, the value has the wrong type, None isn't allowed, or the
-        config exists with another type
-    :raises ConfigValueError: the name is invalid or the serializer rejects the value
+    :raises ConfigTypeError: the type isn't registered (when creating), the value has the wrong type, None isn't
+        allowed, or the config exists with another type
+    :raises ConfigValueError: the name is invalid, the serializer rejects the value, or the existing config's stored
+        value can't be read (or its type isn't registered)
     """
     found, override = _overrides.lookup(name)
     if found:

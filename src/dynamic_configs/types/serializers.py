@@ -81,7 +81,12 @@ class IntSerializer:
         stripped = text.strip()
         if not _INT_RE.fullmatch(stripped):
             raise ValueError("Enter a whole number, such as 42.")
-        return int(stripped)
+        try:
+            return int(stripped)
+        except ValueError:
+            # Python refuses more digits than sys.get_int_max_str_digits() (4300 by default); its message names
+            # Python internals.
+            raise ValueError("That whole number has too many digits.") from None
 
 
 class FloatSerializer:
@@ -267,8 +272,16 @@ class JSONSerializer:
         """Return ``value`` as JSON text."""
         try:
             return json.dumps(value, ensure_ascii=False, allow_nan=False)
-        except (TypeError, ValueError) as error:
+        except TypeError as error:
+            # json's message names only the type ("Object of type date is not JSON serializable").
             raise ValueError(f"The value can't be stored as JSON: {error}") from error
+        except RecursionError as error:
+            raise ValueError("The value can't be stored as JSON: it's nested too deeply.") from error
+        except ValueError as error:
+            # json's message here ends with the number it rejected, and messages never include the value.
+            raise ValueError(
+                "The value can't be stored as JSON: it contains NaN or infinity, or contains itself."
+            ) from error
 
     def deserialize(self, text: str) -> dict[str, Any] | list[Any]:
         """Return the object or array written in ``text``."""
@@ -276,6 +289,9 @@ class JSONSerializer:
             value = json.loads(text, parse_constant=_reject_json_constant)
         except ValueError:
             raise ValueError("Enter valid JSON.") from None
+        except RecursionError:
+            # Python's reader recurses: deep enough nesting exhausts the stack (the admin's editor accepts any depth).
+            raise ValueError("The JSON is nested too deeply.") from None
         if not isinstance(value, (dict, list)):
             raise ValueError("Enter a JSON object or array.")
         return value

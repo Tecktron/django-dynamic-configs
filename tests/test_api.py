@@ -1,7 +1,6 @@
 import logging
 from datetime import datetime
 from datetime import timezone as dt_timezone
-from unittest import mock
 
 import pytest
 from django.db import DatabaseError, transaction
@@ -72,17 +71,20 @@ def test_invalid_names_are_missing_without_touching_cache_or_database(settings, 
         assert dynamic_configs.get("site name", default=1) == 1
         with pytest.raises(ConfigDoesNotExist):
             dynamic_configs.get(42)
+        # Review: an unhashable name raised TypeError from the override lookup, despite the default.
+        assert dynamic_configs.get(["SITE_NAME"], default=1) == 1
     assert caplog.records == []
 
 
-def test_a_database_error_without_a_default_propagates():
-    with mock.patch("dynamic_configs.api._load_entry", side_effect=DatabaseError("down")), pytest.raises(DatabaseError):
+def test_a_database_error_without_a_default_propagates(mocker):
+    mocker.patch("dynamic_configs.api._load_entry", side_effect=DatabaseError("down"))
+    with pytest.raises(DatabaseError):
         dynamic_configs.get("SITE_NAME")
 
 
-def test_a_database_error_with_a_default_logs_a_warning(caplog):
-    with mock.patch("dynamic_configs.api._load_entry", side_effect=DatabaseError("down")):
-        assert dynamic_configs.get("SITE_NAME", default="fallback") == "fallback"
+def test_a_database_error_with_a_default_logs_a_warning(caplog, mocker):
+    mocker.patch("dynamic_configs.api._load_entry", side_effect=DatabaseError("down"))
+    assert dynamic_configs.get("SITE_NAME", default="fallback") == "fallback"
     [record] = caplog.records
     assert record.levelno == logging.WARNING
     assert record.getMessage() == "Database read failed for config 'SITE_NAME'; returning the default"
@@ -192,7 +194,9 @@ def test_get_or_create_returns_the_value_as_get_will():
     assert value.tzinfo is dt_timezone.utc
 
 
-@pytest.mark.parametrize(("name", "message"), [("max_retries", "UPPER_SNAKE_CASE"), (5, "must be strings")])
+@pytest.mark.parametrize(
+    ("name", "message"), [("max_retries", "UPPER_SNAKE_CASE"), (5, "must be strings"), (["X"], "must be strings")]
+)
 def test_get_or_create_validates_the_name(name, message):
     with pytest.raises(ConfigValueError, match=message):
         dynamic_configs.get_or_create(name, "int", 3)
@@ -225,11 +229,11 @@ def test_get_or_create_can_create_an_empty_setting():
     assert row.allow_null
 
 
-def test_get_or_create_handles_a_concurrent_create():
+def test_get_or_create_handles_a_concurrent_create(mocker):
     # Another process creates the row between our lookup and our insert.
     make("MAX_RETRIES", "int", "5")
-    with mock.patch.object(Config.objects, "get", side_effect=Config.DoesNotExist):
-        assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 3) == (5, False)
+    mocker.patch.object(Config.objects, "get", side_effect=Config.DoesNotExist)
+    assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 3) == (5, False)
 
 
 def test_get_or_create_returns_an_override_without_the_database(django_assert_num_queries):

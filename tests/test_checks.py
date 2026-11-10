@@ -67,3 +67,18 @@ def test_each_bad_type_is_reported_with_its_own_id(settings):
         }
     }
     assert sorted(ids(check_settings())) == ["dynamic_configs.E002", "dynamic_configs.E004"]
+
+
+@pytest.mark.parametrize("value", [True, False, None])
+def test_strip_strings_accepts_true_false_or_none(settings, value):
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": value}
+    assert check_settings() == []
+
+
+@pytest.mark.parametrize("value", ["yes", 1, 0])
+def test_strip_strings_must_be_true_false_or_none(settings, value):
+    # 1 and 0 compare equal to True and False, so the check must test the type, not membership.
+    settings.DYNAMIC_CONFIGS = {"STRIP_STRINGS": value}
+    [message] = check_settings()
+    assert message.id == "dynamic_configs.E001"
+    assert message.msg == "DYNAMIC_CONFIGS['STRIP_STRINGS'] must be True, False or None."
