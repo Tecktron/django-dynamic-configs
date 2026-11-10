@@ -124,7 +124,7 @@ tag.
 
 ## CI
 
-GitHub Actions runs `ci.yml` on every push and pull request:
+GitHub Actions runs `ci.yml` on pushes to `main` and on pull requests:
 
 - the `lint` and `docs` jobs;
 - the browser tests, one job per browser environment;
@@ -149,7 +149,7 @@ There's no coverage service: the 100% rule already blocks any drop, and the job'
 
 Pushing the tag runs `release.yml`: it checks that the tag matches the package version, builds the sdist and the
 wheel, and publishes them to PyPI through trusted publishing, so no token is stored. Read the Docs builds the tag's
-version of the docs.
+version of the docs, once the automation rule below is in place.
 
 ### One-time setup (maintainer)
 
@@ -161,7 +161,8 @@ Outside the repository, once:
 - **GitHub:** create the `pypi` environment in the repository settings (optionally requiring approval before a
   release runs).
 - **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Builds then
-  run on every push, and the docs badge starts working.
+  run on every push, and the docs badge starts working. Then, in the project's *Admin → Automation Rules*, add a rule
+  that activates new versions for tags matching SemVer (or `v*`); without it, Read the Docs doesn't build release tags.
 
 ## Design
 

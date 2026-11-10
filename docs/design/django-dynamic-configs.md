@@ -800,4 +800,5 @@ documentation build (Read the Docs), PyPI version, supported Python versions, su
 - **GitHub:** create the `pypi` environment in the repository settings (optionally requiring approval before a
   release runs).
 - **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Builds then
-  run on every push, and the docs badge starts working.
+  run on every push, and the docs badge starts working. Then, in the project's *Admin → Automation Rules*, add a rule
+  that activates new versions for tags matching SemVer (or `v*`); without it, Read the Docs doesn't build release tags.

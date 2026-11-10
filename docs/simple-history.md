@@ -64,7 +64,8 @@ editor for a list, say), and saving it restores it.
 
 If you register the admin yourself (`"REGISTER_ADMIN": False`, see
 [Customizing the admin](admin.md#customizing-the-admin)), use `ConfigHistoryAdmin`, or combine `ConfigAdminMixin`
-with `SimpleHistoryAdmin` and your skin's base class:
+with `SimpleHistoryAdmin` and your skin's base class (the order is shown in
+[Admin skins](admin.md#admin-skins)):
 
 ```python
 from django.contrib import admin

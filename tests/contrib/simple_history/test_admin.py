@@ -39,7 +39,9 @@ def test_a_past_version_of_a_list_opens_and_reverts(admin_client):
     dynamic_configs.update("HOSTS", ["b.example"])
     first = Config.history.filter(name="HOSTS").earliest("history_date")
     url = f"{URL}HOSTS/history/{first.history_id}/"
-    assert admin_client.get(url).status_code == 200
+    response = admin_client.get(url)
+    assert response.status_code == 200
+    assert "data-dynamic-configs-list" in response.content.decode()
     admin_client.post(url, {"value": "a.example", "value__mode": "raw", "allow_null": "", "description": ""})
     assert Config.objects.get(name="HOSTS").value == '["a.example"]'
 

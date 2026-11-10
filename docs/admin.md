@@ -230,7 +230,25 @@ class ConfigAdmin(ConfigAdminMixin, ModelAdmin):
     pass
 ```
 
-With the [simple-history](simple-history.md) integration, include its base class too.
+With the [simple-history](simple-history.md) integration, include its base class too: the mixin first, simple_history's
+`SimpleHistoryAdmin` next, and the skin's base class last:
+
+```python
+# myapp/admin.py
+from django.contrib import admin
+from simple_history.admin import SimpleHistoryAdmin
+from unfold.admin import ModelAdmin
+
+from dynamic_configs.admin import ConfigAdminMixin
+from dynamic_configs.models import Config
+
+
+@admin.register(Config)
+class ConfigAdmin(ConfigAdminMixin, SimpleHistoryAdmin, ModelAdmin):
+    pass
+```
+
+This also needs `"REGISTER_ADMIN": False`, as above.
 
 ## Known limitations
 
