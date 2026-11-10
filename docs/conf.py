@@ -40,3 +40,6 @@ html_theme = "furo"
 myst_heading_anchors = 3
 
 autodoc_member_order = "bysource"
+# Show defaults as written in the source: get()'s default is a sentinel, which would otherwise render as
+# <object object>.
+autodoc_preserve_defaults = True

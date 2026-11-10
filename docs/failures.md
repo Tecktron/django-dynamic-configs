@@ -35,6 +35,7 @@ Each module logs to its own logger under `dynamic_configs` (`dynamic_configs.api
 ```python
 LOGGING = {
     "version": 1,
+    "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "loggers": {
         "dynamic_configs": {"handlers": ["console"], "level": "INFO"},
