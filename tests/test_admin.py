@@ -78,7 +78,8 @@ def test_the_list_shows_type_labels_and_value_previews(admin_client):
     [
         '"abc"',  # a JSON string, which joining would split into letters
         "[1, 2]",  # not strings
-        "[" * 100_000 + "]" * 100_000,  # nested too deeply for Python's reader
+        # Deeply nested: Python's reader fails on a small stack and reads nested lists on a large one.
+        "[" * 100_000 + "]" * 100_000,
     ],
 )
 def test_a_list_that_isnt_an_array_of_strings_previews_as_stored(admin_client, stored):
@@ -179,12 +180,12 @@ def test_the_editors_files_are_shipped(path):
 
 
 def test_json_nested_too_deeply_is_a_form_error(admin_client):
-    # Review: the editor accepts any depth, and saving one Python couldn't read was a server error.
-    depth = 100_000
+    # The server checks the limit itself: a post needn't come from the editor.
+    depth = 129
     data = {"name": "DEEP", "value": "[" * depth + "]" * depth, "description": "", "_save": "Save"}
     response = admin_client.post(f"{URL}add/?type=json", data)
     assert response.status_code == 200
-    assert "The JSON is nested too deeply." in response.content.decode()
+    assert "The JSON is nested too deeply: the limit is 128 levels." in response.content.decode()
 
 
 @pytest.mark.parametrize("view", ["change", "add"])

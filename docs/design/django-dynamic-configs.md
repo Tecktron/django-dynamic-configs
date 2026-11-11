@@ -105,6 +105,18 @@ Durations are per-unit types, which are clearer for admins than a free-form dura
 for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are written without a trailing `.0` (`"2"`, not
 `"2.0"`).
 
+A `json` value nests at most 128 levels deep (`JSON_MAX_DEPTH` in `types/serializers.py`; each object or array is a
+level, so `[[1]]` is 2). Saving refuses a deeper value ("The value can't be stored as JSON: it's nested too deeply (the
+limit is 128 levels)."), and reading refuses deeper text ("The JSON is nested too deeply: the limit is 128 levels."),
+so a hand-edited row that deep is unreadable like any other. Both are checked before Python's `json` runs: reading
+counts brackets outside strings, and writing walks the value with a to-do list rather than recursion. A value that
+contains itself still gets its own message. Python's `json` recurses once per level and fails where the thread's stack
+runs out, so without a fixed limit the depth that works depends on where the code runs. Measured on Python 3.14.4: 605
+levels in a thread with a 128 KB stack, 3,336 with 512 KB, 6,977 with 1 MB, 57,949 in an 8 MB main thread, and no
+limit with an unlimited stack. 128 is the limit Rust's serde_json uses (.NET uses 64, Ruby 100), and RFC 8259 §9
+allows parsers to set one. Lists use their own parsing, which already treats anything but a flat array of strings as
+unreadable.
+
 Every type, built-in or custom, has a short `help_text` (for example "YYYY-MM-DD" for `date`, "one number of hours,
 e.g. 1.5" for `hours`). The admin shows help that describes the input on screen:
 
@@ -489,15 +501,17 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   attributes. A type's own widget is never replaced, even one built on `Textarea`. List and set values get the list
   editor's widget (`AdminListEditorWidget`).
 - **JSON editor:** the `json` type's textarea (`AdminJSONTextarea`) gets `json_editor.js` and `admin.css`:
-  - A **Format** link re-indents the value, two spaces per level, and on invalid JSON changes nothing and moves the
-    cursor to the error.
+  - A **Format** link re-indents the value, two spaces per level, and on invalid JSON, or JSON nested too deeply,
+    changes nothing and moves the cursor to the problem.
   - **Enter** keeps the line's indent, adds a level after `{` or `[`, and between a pair of brackets puts the closing
     one on its own line. Tab is left alone, so it still moves to the next field.
   - A **closing bracket** typed on a line of nothing but indent steps back a level (two spaces or a tab), in the same
     undo step. It goes by the character typed (`beforeinput`), not the key, so AltGr layouts get it too.
   - A **note** under the field says "Valid JSON." or where and why it isn't ("Invalid JSON at line 2, column 7:
-    expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". An empty field gets
-    no note.
+    expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". JSON nested past
+    the server's limit gets "The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.", at the
+    bracket that goes over: the widget writes the limit on the textarea (`data-dynamic-configs-json-max-depth`), so
+    the script never has its own copy. An empty field gets no note.
   - **Colours:** a copy of the text, built only with `textContent`, sits behind the textarea, whose own text is made
     transparent. Keys, strings, numbers, `true`/`false`/`null` and punctuation each have a colour, and the token where
     the JSON breaks is underlined. The script copies the textarea's font, padding and size onto the copy and follows

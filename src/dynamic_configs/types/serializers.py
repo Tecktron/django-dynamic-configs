@@ -265,18 +265,74 @@ def _reject_json_constant(name: str) -> Any:
     raise ValueError(f"JSON can't contain {name}.")
 
 
+#: The deepest a ``json`` value may nest: each object or array is one level, so ``[[1]]`` is 2 levels deep.
+#: Python's JSON reader and writer recurse once per level, and how deep they get before failing depends on the stack
+#: of the thread doing it (thousands of levels in a main thread, a few hundred in a thread with a small stack), so
+#: this fixed limit makes the same values work on every Python, machine and thread.
+JSON_MAX_DEPTH = 128
+
+_TOO_DEEP_TO_READ = f"The JSON is nested too deeply: the limit is {JSON_MAX_DEPTH} levels."
+_TOO_DEEP_TO_WRITE = (
+    f"The value can't be stored as JSON: it's nested too deeply (the limit is {JSON_MAX_DEPTH} levels)."
+)
+# A whole string (an unterminated one runs to the end of the text), so brackets inside strings aren't counted; or a
+# bracket.
+_JSON_STRING_OR_BRACKET_RE = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]', re.DOTALL)
+
+
+def _text_nested_too_deeply(text: str) -> bool:
+    """Return whether the JSON written in ``text`` nests deeper than ``JSON_MAX_DEPTH``, without parsing it."""
+    depth = 0
+    for match in _JSON_STRING_OR_BRACKET_RE.finditer(text):
+        first = match.group()[0]
+        if first in "[{":
+            depth += 1
+            if depth > JSON_MAX_DEPTH:
+                return True
+        elif first in "]}":
+            depth = max(depth - 1, 0)
+    return False
+
+
+def _value_nested_too_deeply(value: Any) -> bool:
+    """Return whether ``value`` nests deeper than ``JSON_MAX_DEPTH``.
+
+    A to-do list rather than recursion, so checking can't itself run out of stack. A container met again inside itself
+    is skipped: ``json.dumps`` reports that value as containing itself.
+    """
+    pending: list[tuple[Any, int]] = [(value, 1)]
+    on_path: set[int] = set()
+    while pending:
+        item, depth = pending.pop()
+        if depth == 0:
+            # The marker for leaving a container (item is its id): it's no longer around what follows.
+            on_path.discard(item)
+            continue
+        if not isinstance(item, (dict, list, tuple)) or id(item) in on_path:
+            continue
+        if depth > JSON_MAX_DEPTH:
+            return True
+        on_path.add(id(item))
+        pending.append((id(item), 0))
+        pending.extend((child, depth + 1) for child in (item.values() if isinstance(item, dict) else item))
+    return False
+
+
 class JSONSerializer:
-    """A JSON object or array."""
+    """A JSON object or array, nested at most ``JSON_MAX_DEPTH`` levels deep."""
 
     def serialize(self, value: dict[str, Any] | list[Any]) -> str:
         """Return ``value`` as JSON text."""
+        if _value_nested_too_deeply(value):
+            raise ValueError(_TOO_DEEP_TO_WRITE)
         try:
             return json.dumps(value, ensure_ascii=False, allow_nan=False)
         except TypeError as error:
             # json's message names only the type ("Object of type date is not JSON serializable").
             raise ValueError(f"The value can't be stored as JSON: {error}") from error
         except RecursionError as error:
-            raise ValueError("The value can't be stored as JSON: it's nested too deeply.") from error
+            # Not expected within the limit; kept in case a thread's stack is smaller still.
+            raise ValueError(_TOO_DEEP_TO_WRITE) from error
         except ValueError as error:
             # json's message here ends with the number it rejected, and messages never include the value.
             raise ValueError(
@@ -285,13 +341,15 @@ class JSONSerializer:
 
     def deserialize(self, text: str) -> dict[str, Any] | list[Any]:
         """Return the object or array written in ``text``."""
+        if _text_nested_too_deeply(text):
+            raise ValueError(_TOO_DEEP_TO_READ)
         try:
             value = json.loads(text, parse_constant=_reject_json_constant)
         except ValueError:
             raise ValueError("Enter valid JSON.") from None
         except RecursionError:
-            # Python's reader recurses: deep enough nesting exhausts the stack (the admin's editor accepts any depth).
-            raise ValueError("The JSON is nested too deeply.") from None
+            # Not expected within the limit; kept in case a thread's stack is smaller still.
+            raise ValueError(_TOO_DEEP_TO_READ) from None
         if not isinstance(value, (dict, list)):
             raise ValueError("Enter a JSON object or array.")
         return value

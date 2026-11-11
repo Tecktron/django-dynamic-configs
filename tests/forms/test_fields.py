@@ -55,6 +55,7 @@ def test_json_fields_mark_their_textarea_for_the_admin_editor():
     widget = JSONTextField().widget
     html = widget.render("value", '{"a": 1}')
     assert "data-dynamic-configs-json" in html
+    assert 'data-dynamic-configs-json-max-depth="128"' in html
     assert 'spellcheck="false"' in html
     assert not widget.media._js
 

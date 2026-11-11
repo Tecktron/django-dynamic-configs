@@ -142,10 +142,12 @@ def test_an_unreadable_value_opens_empty():
     assert form.initial["value"] is None
 
 
-def test_an_unreadable_list_opens_empty_whatever_the_error():
+def test_an_unreadable_list_opens_empty_whatever_the_error(mocker):
     # Docstring audit: lists and sets skipped from_text's catch-all, so JSON nested too deeply to parse (a
-    # RecursionError) was a server error rather than an empty value.
-    form = opened(make("PORTS", "list:int", "[" * 100_000 + "]" * 100_000))
+    # RecursionError) was a server error rather than an empty value. Whether deep nesting raises depends on the stack,
+    # so the error is raised directly.
+    mocker.patch("dynamic_configs.forms.config.ListSerializer.deserialize", side_effect=RecursionError)
+    form = opened(make("PORTS", "list:int", "[[1]]"))
     assert form.initial["value"] is None
 
 

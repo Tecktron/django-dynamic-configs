@@ -275,6 +275,9 @@ def test_the_add_page_has_the_editor(admin_page):
     expect(textarea(admin_page)).to_have_value('{\n  "a": 1\n}')
 
 
-def test_deep_nesting_is_checked_without_crashing(editor):
-    textarea(editor).fill("[" * 5000 + "]" * 5000)
+def test_nesting_is_checked_against_the_servers_limit_without_crashing(editor):
+    textarea(editor).fill("[" * 128 + "]" * 128)
     expect(status(editor)).to_have_text("Valid JSON.")
+    # Far past the limit: the check uses a stack, so it can't overflow, and it points at the bracket that goes over.
+    textarea(editor).fill("[" * 5000 + "]" * 5000)
+    expect(status(editor)).to_have_text("The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.")

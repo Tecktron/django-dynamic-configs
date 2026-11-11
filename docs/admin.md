@@ -87,13 +87,15 @@ text as typed and never re-encodes values, so integers too large for JavaScript 
 exactly. (Saving stores numbers as Python's `json` reads them: integers exactly, other numbers as floats, so `1.10` is
 saved as `1.1`.)
 
-- **Format** re-indents the value, two spaces per level. On invalid JSON it changes nothing and moves the cursor to the
-  error.
+- **Format** re-indents the value, two spaces per level. On invalid JSON, or JSON nested too deeply, it changes nothing
+  and moves the cursor to the problem.
 - **Enter** keeps the line's indent, adds a level after `{` or `[`, and between a pair of brackets puts the closing one
   on its own line. Tab is left alone, so it still moves to the next field.
 - A **closing bracket** typed on a line of nothing but indent steps back a level, in the same undo step.
 - A **note** under the field says "Valid JSON." or where and why it isn't ("Invalid JSON at line 2, column 7: expected
-  ":"."). A lone number or string gets the server's own "Enter a JSON object or array.". An empty field gets no note.
+  ":"."). A lone number or string gets the server's own "Enter a JSON object or array.". JSON nested deeper than the
+  [limit of 128 levels](types.md) gets "The JSON is nested too deeply at line 1, column 129: the limit is 128
+  levels.", pointing at the bracket that goes over. An empty field gets no note.
 - Edits go through the browser's undo.
 
 The colours are CSS custom properties. Set any of them in your admin stylesheet to change them:

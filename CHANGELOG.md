@@ -15,7 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `adelete`, and the exceptions `ConfigError`, `ConfigDoesNotExist`, `ConfigTypeError` and `ConfigValueError`. A
   `get` given a default never raises.
 - Built-in types: `str`, `text`, `int`, `float`, `decimal`, `bool`, `date`, `datetime` (following Django's time zone
-  settings), `json`, and the durations `seconds`, `minutes`, `hours`, `days` and `weeks`.
+  settings), `json` (an object or array, nested at most 128 levels deep), and the durations `seconds`, `minutes`,
+  `hours`, `days` and `weeks`.
 - List and set variants of every type except `json` (`list:<key>`, `set:<key>`).
 - Custom types declared in `DYNAMIC_CONFIGS["TYPES"]`: a class, a serializer, and optionally a form field, help text,
   raw-mode help text and a sort key or compare function. Nothing an admin enters is ever imported, evaluated or

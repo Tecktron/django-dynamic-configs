@@ -31,6 +31,17 @@ A `str` must be a single line; use `text` for several lines. A `json` value must
 number or string is rejected ("Enter a JSON object or array."), and so are NaN and infinity. The admin shows a
 `json` value pretty-printed (`indent=2`) in the [JSON editor](admin.md#the-json-editor).
 
+A `json` value may nest at most 128 levels deep (`dynamic_configs.types.serializers.JSON_MAX_DEPTH`). Each object or
+array is one level, so `[[1]]` is 2 levels deep, and brackets inside strings don't count. A deeper value is refused
+when it's saved ("The value can't be stored as JSON: it's nested too deeply (the limit is 128 levels)."), and the admin
+says the same about deeper text ("The JSON is nested too deeply: the limit is 128 levels."). A deeper stored value,
+which only a hand-edited row can hold, can't be read, like any other unreadable value (see
+[Failure handling](failures.md)).
+
+The limit is fixed because Python's own JSON reader and writer fail at a depth that depends on the stack of the thread
+running them: tens of thousands of levels in a main thread, a few hundred in a thread with a small stack. Without the
+limit, the same value could save in one process and fail to read in another.
+
 ## The type check
 
 Every value passed to `get_or_create` or `update`, and every value produced by an admin form, is checked with

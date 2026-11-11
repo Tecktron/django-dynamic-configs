@@ -222,7 +222,8 @@ def test_the_widget_reads_the_textarea_unless_the_mode_says_list():
     assert read == ["a", ""]
 
 
-# Nested too deeply: Python's JSON reader raises RecursionError, not ValueError.
+# Deeply nested: Python's JSON reader raises RecursionError (not ValueError) on a small stack, and reads nested lists,
+# which aren't strings, on a large one.
 @pytest.mark.parametrize("items", ["not json", '{"a": 1}', '["a", 2]', "[" * 100000 + "]" * 100000, None])
 def test_list_mode_data_that_isnt_an_array_of_strings_is_unreadable(items):
     data = query(**{f"value{MODE_SUFFIX}": "list"})

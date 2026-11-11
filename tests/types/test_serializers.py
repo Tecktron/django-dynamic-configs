@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 
+from dynamic_configs.types import serializers
 from dynamic_configs.types.serializers import (
     BoolSerializer,
     DateSerializer,
@@ -237,21 +238,93 @@ def test_json_rejects_nan_and_infinity_without_echoing_them(number):
     assert str(error.value) == "The value can't be stored as JSON: it contains NaN or infinity, or contains itself."
 
 
-DEPTH = 100_000
+TOO_DEEP_TO_READ = "The JSON is nested too deeply: the limit is 128 levels."
+TOO_DEEP_TO_WRITE = "The value can't be stored as JSON: it's nested too deeply (the limit is 128 levels)."
 
 
-def test_json_nested_too_deeply_to_read_is_rejected_not_crashed():
-    # Review: Python's JSON reader raises RecursionError, which the admin turned into a server error.
-    with pytest.raises(ValueError, match="nested too deeply"):
-        JSONSerializer().deserialize("[" * DEPTH + "]" * DEPTH)
-
-
-def test_json_nested_too_deeply_to_write_is_rejected_not_crashed():
+def nested_list(depth):
+    """Return an empty list inside lists, ``depth`` levels deep in all."""
     value = []
-    for _ in range(DEPTH):
+    for _ in range(depth - 1):
         value = [value]
-    with pytest.raises(ValueError, match="nested too deeply"):
+    return value
+
+
+def nested_object(depth):
+    """Return ``{"a": {"a": ... 1}}``, ``depth`` levels deep in all."""
+    value = {"a": 1}
+    for _ in range(depth - 1):
+        value = {"a": value}
+    return value
+
+
+def nested_text(depth):
+    return "[" * depth + "]" * depth
+
+
+def test_json_nested_to_the_limit_reads_and_writes():
+    assert JSONSerializer().deserialize(nested_text(128)) == nested_list(128)
+    assert JSONSerializer().serialize(nested_list(128)) == nested_text(128)
+    text = JSONSerializer().serialize(nested_object(128))
+    assert JSONSerializer().deserialize(text) == nested_object(128)
+
+
+@pytest.mark.parametrize(
+    "text", [nested_text(129), '{"a": ' * 129 + "1" + "}" * 129, nested_text(1_000_000)], ids=["129", "objects", "1M"]
+)
+def test_json_nested_past_the_limit_is_rejected_before_python_reads_it(mocker, text):
+    # Python's reader fails at a depth that depends on the thread's stack (it read 100,000 levels on one CI machine
+    # and not on another), so the limit is checked first.
+    loads = mocker.spy(serializers.json, "loads")
+    with pytest.raises(ValueError) as error:
+        JSONSerializer().deserialize(text)
+    assert str(error.value) == TOO_DEEP_TO_READ
+    loads.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "value", [nested_list(129), nested_object(129), nested_list(100_000)], ids=["129", "objects", "100k"]
+)
+def test_json_nested_past_the_limit_is_rejected_before_python_writes_it(mocker, value):
+    dumps = mocker.spy(serializers.json, "dumps")
+    with pytest.raises(ValueError) as error:
         JSONSerializer().serialize(value)
+    assert str(error.value) == TOO_DEEP_TO_WRITE
+    dumps.assert_not_called()
+
+
+def test_brackets_inside_json_strings_dont_count_towards_the_limit():
+    brackets = "[" * 200
+    text = '["' + brackets + '", "\\"' + brackets + '"]'
+    assert JSONSerializer().deserialize(text) == [brackets, '"' + brackets]
+    assert JSONSerializer().deserialize(JSONSerializer().serialize([brackets])) == [brackets]
+
+
+def test_an_unterminated_string_full_of_brackets_is_invalid_json_not_too_deep():
+    with pytest.raises(ValueError, match="Enter valid JSON."):
+        JSONSerializer().deserialize('["' + "[" * 200)
+
+
+def test_a_value_that_contains_itself_says_so_and_a_repeated_one_is_fine():
+    shared = [1]
+    assert JSONSerializer().serialize([shared, shared]) == "[[1], [1]]"
+    looped = []
+    looped.append(looped)
+    with pytest.raises(ValueError) as error:
+        JSONSerializer().serialize(looped)
+    assert str(error.value) == "The value can't be stored as JSON: it contains NaN or infinity, or contains itself."
+
+
+def test_python_running_out_of_stack_within_the_limit_still_gets_the_message(mocker):
+    # Not expected (a stack too small for 128 levels), but kept so it's never a server error.
+    mocker.patch.object(serializers.json, "loads", side_effect=RecursionError)
+    mocker.patch.object(serializers.json, "dumps", side_effect=RecursionError)
+    with pytest.raises(ValueError) as read_error:
+        JSONSerializer().deserialize("[]")
+    assert str(read_error.value) == TOO_DEEP_TO_READ
+    with pytest.raises(ValueError) as write_error:
+        JSONSerializer().serialize([])
+    assert str(write_error.value) == TOO_DEEP_TO_WRITE
 
 
 @pytest.mark.parametrize(("text", "message"), [("{", "valid JSON"), ("[NaN]", "valid JSON"), ("5", "object or array")])
