@@ -87,16 +87,21 @@
 
     // ---- Checking ----------------------------------------------------------------------------------------------
 
-    // Check that the tokens make one JSON object or array, as the server requires, and mark the strings used as
-    // keys. Returns null when they do, or the problem: ``{message, token}`` (``token`` is null at the end of the
-    // text), or ``{message, plain: true}`` for a message shown without a position. A stack instead of recursion, so
-    // deep nesting can't overflow.
-    function check(tokens) {
+    // Check that the tokens make one JSON object or array, nested at most ``maxDepth`` levels, as the server requires,
+    // and mark the strings used as keys. Returns null when they do, or the problem: ``{message, token}`` (``token`` is
+    // null at the end of the text; ``lead`` replaces "Invalid JSON" when the JSON is valid but refused), or
+    // ``{message, plain: true}`` for a message shown without a position. A stack instead of recursion, so deep nesting
+    // can't overflow.
+    function check(tokens, maxDepth) {
         const stack = [];
         let expecting = "top";
         const opened = (token) => {
             stack.push(token.text);
+            if (stack.length > maxDepth) {
+                return { lead: "The JSON is nested too deeply", message: `the limit is ${maxDepth} levels`, token };
+            }
             expecting = token.text === "{" ? "key or close" : "value or close";
+            return null;
         };
         const valueDone = () => {
             expecting = stack.length ? "comma or close" : "end";
@@ -109,8 +114,7 @@
         const isScalar = (token) => ["string", "number", "literal"].includes(token.kind);
         const value = (token) => {
             if (isOpening(token)) {
-                opened(token);
-                return null;
+                return opened(token);
             }
             if (isScalar(token)) {
                 valueDone();
@@ -138,7 +142,7 @@
             switch (expecting) {
                 case "top":
                     if (isOpening(token)) {
-                        opened(token);
+                        problem = opened(token);
                     } else if (isScalar(token)) {
                         return { message: "Enter a JSON object or array.", plain: true };
                     } else {
@@ -443,12 +447,14 @@
         const describedBy = field.getAttribute("aria-describedby");
         field.setAttribute("aria-describedby", describedBy ? `${describedBy} ${status.id}` : status.id);
 
+        // The server's limit, which the widget writes on the field; without it, only the server checks.
+        const maxDepth = Number.parseInt(field.dataset.dynamicConfigsJsonMaxDepth, 10) || Infinity;
         let tokens = [];
         let problem = null;
         const update = () => {
             const text = field.value;
             tokens = tokenize(text);
-            problem = check(tokens);
+            problem = check(tokens, maxDepth);
             if (!text.trim()) {
                 status.textContent = "";
             } else if (!problem) {
@@ -457,7 +463,8 @@
                 status.textContent = problem.message;
             } else {
                 const at = lineAndColumn(text, problem.token ? problem.token.start : text.length);
-                status.textContent = `Invalid JSON at line ${at.line}, column ${at.column}: ${problem.message}.`;
+                const lead = problem.lead ?? "Invalid JSON";
+                status.textContent = `${lead} at line ${at.line}, column ${at.column}: ${problem.message}.`;
             }
             status.classList.toggle(`${PREFIX}-has-error`, Boolean(problem));
             paint?.(tokens, problem);

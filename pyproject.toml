@@ -63,6 +63,9 @@ branch = true
 source_pkgs = ["dynamic_configs"]
 omit = ["*/migrations/*"]
 
+[tool.coverage.paths]
+source = ["src/dynamic_configs", "*/site-packages/dynamic_configs"]
+
 [tool.coverage.report]
 fail_under = 100
 show_missing = true
@@ -95,7 +98,7 @@ known-first-party = ["dynamic_configs", "tests"]
 [tool.ruff.lint.per-file-ignores]
 # Tests use plain asserts, dummy secrets and pytest.raises without match; they don't need docstrings.
 "tests/**" = ["S101", "S105", "S106", "PT011", "D"]
-"src/dynamic_configs/migrations/**" = ["D"]
+"src/dynamic_configs/**/migrations/**" = ["D"]
 
 [tool.ruff.format]
 quote-style = "double"

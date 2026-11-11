@@ -332,8 +332,8 @@ def test_a_deleted_setting_reads_as_missing_after_commit(django_capture_on_commi
 
 
 def test_a_value_too_deeply_nested_to_read_returns_the_default(caplog):
-    # Review finding: json.loads raised RecursionError, which escaped get's default guarantee.
-    make("DEEP", "json", "[" * 100_000 + "]" * 100_000)
+    # Only a hand-edited row can hold this: saving refuses it.
+    make("DEEP", "json", "[" * 129 + "]" * 129)
     assert dynamic_configs.get("DEEP", default=[]) == []
     assert caplog.records[0].levelno == logging.ERROR
 

@@ -57,11 +57,21 @@ def console_errors():
     return []
 
 
+# Errors that come from Django rather than this package: the admin's RelatedObjectLookups.js listens for "unload" in
+# Django 5.2 and 6.0 (6.1 dropped it), which newer Chromium refuses and reports.
+NOT_OURS = frozenset({"Permissions policy violation: unload is not allowed in this document."})
+
+
 @pytest.fixture
 def admin_page(page, admin_cookie, console_errors):
-    """Return a Playwright page logged in to the admin, failing the test on any console error."""
+    """Return a Playwright page logged in to the admin, failing the test on any console error but ``NOT_OURS``."""
+
+    def collect(text):
+        if text not in NOT_OURS:
+            console_errors.append(text)
+
     page.context.add_cookies([admin_cookie])
-    page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
-    page.on("pageerror", lambda error: console_errors.append(str(error)))
+    page.on("console", lambda message: collect(message.text) if message.type == "error" else None)
+    page.on("pageerror", lambda error: collect(str(error)))
     yield page
     assert console_errors == []

@@ -105,6 +105,18 @@ Durations are per-unit types, which are clearer for admins than a free-form dura
 for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are written without a trailing `.0` (`"2"`, not
 `"2.0"`).
 
+A `json` value nests at most 128 levels deep (`JSON_MAX_DEPTH` in `types/serializers.py`; each object or array is a
+level, so `[[1]]` is 2). Saving refuses a deeper value ("The value can't be stored as JSON: it's nested too deeply (the
+limit is 128 levels)."), and reading refuses deeper text ("The JSON is nested too deeply: the limit is 128 levels."),
+so a hand-edited row that deep is unreadable like any other. Both are checked before Python's `json` runs: reading
+counts brackets outside strings, and writing walks the value with a to-do list rather than recursion. A value that
+contains itself still gets its own message. Python's `json` recurses once per level and fails where the thread's stack
+runs out, so without a fixed limit the depth that works depends on where the code runs. Measured on Python 3.14.4: 605
+levels in a thread with a 128 KB stack, 3,336 with 512 KB, 6,977 with 1 MB, 57,949 in an 8 MB main thread, and no
+limit with an unlimited stack. 128 is the limit Rust's serde_json uses (.NET uses 64, Ruby 100), and RFC 8259 §9
+allows parsers to set one. Lists use their own parsing, which already treats anything but a flat array of strings as
+unreadable.
+
 Every type, built-in or custom, has a short `help_text` (for example "YYYY-MM-DD" for `date`, "one number of hours,
 e.g. 1.5" for `hours`). The admin shows help that describes the input on screen:
 
@@ -309,6 +321,7 @@ Django system checks validate the configuration at startup (`manage.py check`, a
 | `dynamic_configs.E004`  | `form` is not a `django.forms.Field` subclass                            |
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
 | `dynamic_configs.W001`  | (warning) an admin using `ConfigAdminMixin` sets `fields`, `fieldsets` or `readonly_fields`, which the mixin ignores (see Admin) |
+| `dynamic_configs.E101`  | the simple-history sub-app is installed but `simple_history` isn't in `INSTALLED_APPS` |
 
 ## Public API
 
@@ -488,15 +501,17 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   attributes. A type's own widget is never replaced, even one built on `Textarea`. List and set values get the list
   editor's widget (`AdminListEditorWidget`).
 - **JSON editor:** the `json` type's textarea (`AdminJSONTextarea`) gets `json_editor.js` and `admin.css`:
-  - A **Format** link re-indents the value, two spaces per level, and on invalid JSON changes nothing and moves the
-    cursor to the error.
+  - A **Format** link re-indents the value, two spaces per level, and on invalid JSON, or JSON nested too deeply,
+    changes nothing and moves the cursor to the problem.
   - **Enter** keeps the line's indent, adds a level after `{` or `[`, and between a pair of brackets puts the closing
     one on its own line. Tab is left alone, so it still moves to the next field.
   - A **closing bracket** typed on a line of nothing but indent steps back a level (two spaces or a tab), in the same
     undo step. It goes by the character typed (`beforeinput`), not the key, so AltGr layouts get it too.
   - A **note** under the field says "Valid JSON." or where and why it isn't ("Invalid JSON at line 2, column 7:
-    expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". An empty field gets
-    no note.
+    expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". JSON nested past
+    the server's limit gets "The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.", at the
+    bracket that goes over: the widget writes the limit on the textarea (`data-dynamic-configs-json-max-depth`), so
+    the script never has its own copy. An empty field gets no note.
   - **Colours:** a copy of the text, built only with `textContent`, sits behind the textarea, whose own text is made
     transparent. Keys, strings, numbers, `true`/`false`/`null` and punctuation each have a colour, and the token where
     the JSON breaks is underlined. The script copies the textarea's font, padding and size onto the copy and follows
@@ -622,7 +637,15 @@ Hosted on Read the Docs, built with **Sphinx**:
 - `tox -e docs` builds it locally with warnings as errors (`sphinx-build -W`), and CI runs it, so broken references
   or docstrings fail the build.
 - Versioned docs: Read the Docs builds `latest` from `main` and a version per release tag.
-- The README stays short: what it is, installation, a quick start and a link to the docs.
+- `conf.py` excludes `design/plans/` (implementation plans, kept locally and ignored by git) and the build directory,
+  so they're never published.
+- The Changelog page includes `CHANGELOG.md`, which follows [Keep a Changelog](https://keepachangelog.com/): an
+  Unreleased section, then one section per version with Added, Changed, Deprecated, Removed, Fixed and Security
+  headings as needed. 0.1.0 is the first release.
+- The README stays short: what it is, installation, a quick start and a link to the docs. The reference material the
+  README held while there was no docs site (the JSON editor's colours, the list editor, `STRIP_STRINGS`, a custom
+  `form` and `raw_help_text` in the list editor, known limitations) moves to Admin and skins, and its Development
+  section (virtual environment, browser, tests, tox and the umask note) to Development.
 
 ## Package layout
 
@@ -729,23 +752,35 @@ Plus:
   Django's async check (`DJANGO_ALLOW_ASYNC_UNSAFE`) is relaxed only from the first browser test on.
 - `extras`: newest Django and Python, with django-simple-history installed and its app enabled in the test settings
   (`tests/settings.py` reads an environment variable).
-- `postgres`: newest Django and Python against PostgreSQL (CI service container); every other environment uses SQLite.
+- `postgres`: newest Django and Python against PostgreSQL, with `psycopg[binary]`; `tests/settings.py` switches to
+  PostgreSQL when an environment variable says so, and the connection comes from libpq's standard `PG*` variables,
+  which tox passes through. Every other environment, and every local run, uses SQLite: the package's ORM use is
+  plain, so this checks that it installs, migrates and runs on the database most projects use (and runs `update`'s
+  row lock for real, which SQLite ignores).
 - `djangomain`: Django's main branch on the newest Python; non-blocking in CI.
 - `lint`: ruff check and format check.
 - `docs`: builds the documentation site with warnings as errors.
 - `coverage`: combines every environment's data and enforces the threshold.
 
+Plain `tox` runs the matrix, the browser environments, `extras`, `lint`, `docs` and `coverage`. `postgres` (it needs a
+PostgreSQL server) and `djangomain` (it installs Django from GitHub each time) run only when named (`tox -e
+postgres`), and always in CI.
+
 ### Coverage
 
 Configured in `pyproject.toml`:
 
-- `branch = true`, `parallel = true`, measuring only the `dynamic_configs` package; `migrations/` is omitted.
+- `branch = true`, measuring only the `dynamic_configs` package; `migrations/` is omitted. Each tox environment writes
+  its own data file (`COVERAGE_FILE`), which the `coverage` environment combines.
 - Tests run under `coverage run -m pytest`, not pytest-cov: pytest imports this package's pytest plugin at startup,
   before pytest-cov would start measuring, so the plugin's module-level code would show as uncovered.
 - `[tool.coverage.paths]` maps the installed `site-packages/dynamic_configs` back to `src/dynamic_configs`, so data
   from every tox environment combines.
 - **100% branch coverage is enforced on the combined data** (`fail_under = 100`), not per environment, because
   some lines only run with or without the extras. `show_missing = true`.
+- Locally, `tox` does the same: the `coverage` environment combines what the other environments recorded and enforces
+  100%. A single `coverage run -m pytest` in the development virtual environment is a quick check, and its report can
+  be under 100% (the lines that need the extras, or their absence).
 - `# pragma: no cover` is not used. `if TYPE_CHECKING:` blocks are excluded in config (`exclude_also`).
 - Our code includes the pytest plugin (tested with pytest's `pytester`), the test helpers and `contrib/`.
 
@@ -758,8 +793,9 @@ Configured in `pyproject.toml`:
     runner's `sudo`), then runs the environment.
   - `test` job: a matrix over the tox environments; each saves its coverage data as an artifact. The `postgres`
     environment runs with a PostgreSQL service container. `djangomain` uses `continue-on-error`.
-  - `coverage` job: after `test`; combines the artifacts, fails under 100%, writes `coverage.xml` and uploads it to
-    Codecov using GitHub's OIDC identity (`use_oidc: true`, `id-token: write`), so no token is stored.
+  - `coverage` job: after `test`; combines the artifacts, prints the report (with any missing lines), fails under
+    100%, and saves the HTML report as an artifact to download. No coverage service: the 100% rule already blocks any
+    drop, and the job's log names the missing lines.
 - **`release.yml`**, on pushing a `v*` tag: checks the tag matches the package version, builds the sdist and wheel,
   and publishes to PyPI through trusted publishing (environment `pypi`, `id-token: write`), so no token is stored.
 
@@ -767,17 +803,16 @@ Configured in `pyproject.toml`:
 
 Short: what the package is, installation, a quick start, and a link to the documentation site.
 
-Badges: CI status, Codecov coverage, documentation build (Read the Docs), PyPI version, supported Python versions,
-supported Django versions, license.
+Badges: CI status, coverage (a static "coverage 100%" badge, which stays true because CI fails below 100%),
+documentation build (Read the Docs), PyPI version, supported Python versions, supported Django versions, license.
 
 ### One-time setup outside the repo (maintainer)
 
-- **Codecov:** sign in at codecov.io with GitHub and give the Codecov app access to
-  `Tecktron/django-dynamic-configs`. No token is needed.
 - **PyPI:** before the first release, on pypi.org, *Your account → Publishing → Add a pending publisher*: project
   `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`, workflow `release.yml`, environment
   `pypi`. The PyPI badges show "not found" until the first release.
 - **GitHub:** create the `pypi` environment in the repository settings (optionally requiring approval before a
   release runs).
 - **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Builds then
-  run on every push, and the docs badge starts working.
+  run on every push, and the docs badge starts working. Then, in the project's *Admin → Automation Rules*, add a rule
+  that activates new versions for tags matching SemVer (or `v*`); without it, Read the Docs doesn't build release tags.

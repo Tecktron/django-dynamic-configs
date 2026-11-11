@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: python -m pip install tox
+      - run: tox -e lint
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: python -m pip install tox
+      - run: tox -e docs
+
+  browser:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [browser-django52, browser-django61]
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: python -m pip install tox
+      - run: tox -e ${{ matrix.env }} --notest
+      - run: .tox/${{ matrix.env }}/bin/playwright install --with-deps --only-shell chromium
+      - run: tox -e ${{ matrix.env }}
+
+  test:
+    name: test (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {env: py310-django52, python: "3.10"}
+          - {env: py311-django52, python: "3.11"}
+          - {env: py312-django52, python: "3.12"}
+          - {env: py313-django52, python: "3.13"}
+          - {env: py314-django52, python: "3.14"}
+          - {env: py312-django60, python: "3.12"}
+          - {env: py313-django60, python: "3.13"}
+          - {env: py314-django60, python: "3.14"}
+          - {env: py312-django61, python: "3.12"}
+          - {env: py313-django61, python: "3.13"}
+          - {env: py314-django61, python: "3.14"}
+          - {env: py315-django61, python: "3.15", prereleases: true}
+          - {env: extras, python: "3.14"}
+          - {env: postgres, python: "3.14"}
+          - {env: djangomain, python: "3.14", experimental: true}
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    services:
+      postgres:
+        image: ${{ matrix.env == 'postgres' && 'postgres:17' || '' }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+          allow-prereleases: ${{ matrix.prereleases == true }}
+      - run: python -m pip install tox
+      - run: tox -e ${{ matrix.env }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.env }}
+          path: .tox/.coverage.${{ matrix.env }}
+          include-hidden-files: true
+          if-no-files-found: error
+
+  coverage:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: python -m pip install tox
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: coverage-*
+          merge-multiple: true
+          path: .tox/
+      - run: tox -e coverage
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: coverage-html
+          path: htmlcov/
