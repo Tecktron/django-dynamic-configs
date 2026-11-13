@@ -105,6 +105,7 @@ def test_cache_settings_require_an_address(monkeypatch, backend, variable):
 def test_a_server_holding_data_stops_the_run(mocker, monkeypatch, request):
     monkeypatch.setenv("DYNAMIC_CONFIGS_TEST_REDIS_URL", "redis://127.0.0.1:16379/0")
     mocker.patch("tests.real_cache.TEST_CACHE", "redis")
+    mocker.patch("tests.real_cache.lock_server", return_value=True)
     mocker.patch("tests.real_cache.server_holds_data", return_value=True)
     with pytest.raises(pytest.exit.Exception) as exit_info:
         conftest.pytest_sessionstart(request.session)
@@ -118,11 +119,56 @@ def test_a_server_holding_data_stops_the_run(mocker, monkeypatch, request):
 def test_an_unreachable_server_stops_the_run(mocker, monkeypatch, request):
     monkeypatch.setenv("DYNAMIC_CONFIGS_TEST_REDIS_URL", "redis://127.0.0.1:16379/0")
     mocker.patch("tests.real_cache.TEST_CACHE", "redis")
+    mocker.patch("tests.real_cache.lock_server", return_value=True)
     mocker.patch("tests.real_cache.server_holds_data", side_effect=ConnectionError)
     with pytest.raises(pytest.exit.Exception) as exit_info:
         conftest.pytest_sessionstart(request.session)
     assert exit_info.value.msg == "Can't reach the redis server at redis://127.0.0.1:16379/0."
     assert exit_info.value.returncode == 3
+
+
+@pytest.fixture
+def locks(mocker, monkeypatch, tmp_path):
+    """Lock files in a directory of this test's own, so a real run's lock is never touched; closed afterwards."""
+    monkeypatch.setenv("DYNAMIC_CONFIGS_TEST_REDIS_URL", "redis://127.0.0.1:16379/0")
+    mocker.patch("tests.real_cache.TEST_CACHE", "redis")
+    mocker.patch("tests.real_cache.LOCK_DIR", tmp_path)
+    held = mocker.patch("tests.real_cache._held_locks", [])
+    yield held
+    for file in held:
+        file.close()
+
+
+def test_a_second_run_cannot_take_the_server_lock(locks):
+    assert real_cache.lock_server()
+    # A second open of the same file stands in for a second process: flock locks belong to the open file.
+    assert not real_cache.lock_server()
+    assert len(locks) == 1
+
+
+def test_closing_the_lock_file_releases_the_lock(locks):
+    assert real_cache.lock_server()
+    locks.pop().close()
+    assert real_cache.lock_server()
+
+
+def test_each_address_has_its_own_lock(locks, monkeypatch):
+    assert real_cache.lock_server()
+    monkeypatch.setenv("DYNAMIC_CONFIGS_TEST_REDIS_URL", "redis://127.0.0.1:16379/1")
+    assert real_cache.lock_server()
+
+
+def test_a_server_in_use_by_another_run_stops_the_run(locks, mocker, request):
+    holds_data = mocker.patch("tests.real_cache.server_holds_data", return_value=False)
+    assert real_cache.lock_server()
+    with pytest.raises(pytest.exit.Exception) as exit_info:
+        conftest.pytest_sessionstart(request.session)
+    assert exit_info.value.msg == (
+        "Another test run is using the redis server at redis://127.0.0.1:16379/0; the tests empty it, so two runs "
+        "can't share it. Nothing was deleted."
+    )
+    assert exit_info.value.returncode == 3
+    holds_data.assert_not_called()
 
 
 @real_server_only

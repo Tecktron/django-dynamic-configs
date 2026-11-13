@@ -10,9 +10,16 @@ collect_ignore = [] if os.environ.get("DYNAMIC_CONFIGS_TEST_EXTRAS") == "1" else
 
 
 def pytest_sessionstart(session):
-    """Before any test empties the cache, stop the run if a real server already holds data, or can't be reached."""
+    """Before any test empties the cache, stop the run if another run is using the real server, or it already holds
+    data, or can't be reached."""
     if not real_cache.TEST_CACHE:
         return
+    if not real_cache.lock_server():
+        pytest.exit(
+            f"Another test run is using the {real_cache.TEST_CACHE} server at {real_cache.address()}; the tests empty "
+            "it, so two runs can't share it. Nothing was deleted.",
+            returncode=3,
+        )
     try:
         holds_data = real_cache.server_holds_data()
     except ConnectionError:

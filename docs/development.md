@@ -87,9 +87,11 @@ Five more run only when named, and always in CI:
 
   **The tests empty the server.** The suite clears the cache around every test: `FLUSHDB` on the Redis database, and
   the whole Memcached server. Never point them at a server holding anything you want to keep. As a guard, a run stops
-  before the first test, deleting nothing, if the server already holds data or can't be reached. Give each environment
-  its own server, or its own Redis database: two runs sharing one would empty each other's cache. For example, with
-  throwaway servers in Docker, on uncommon ports bound to `127.0.0.1`:
+  before the first test, deleting nothing, if another run is using the same address (a lock file in the system's
+  temporary directory), or the server already holds data or can't be reached. Give each environment its own server, or
+  its own Redis database: two runs sharing one would empty each other's cache. On Windows there's no lock, so runs
+  there aren't protected against each other. For example, with throwaway servers in Docker, on uncommon ports bound to
+  `127.0.0.1`:
 
   ```
   docker run --rm -d --name dc-test-redis -p 127.0.0.1:16379:6379 redis:8

@@ -772,8 +772,11 @@ Plus:
   `DYNAMIC_CONFIGS_TEST_REDIS_URL` or `DYNAMIC_CONFIGS_TEST_MEMCACHED`, passed through by tox, with no default: the
   suite empties the cache around every test (`FLUSHDB`, or a full Memcached flush), and a default of the standard local
   address could erase another project's data. An unknown value, or a missing address, is an error when the settings
-  load. Before the first test, `pytest_sessionstart` in `tests/conftest.py` stops the run, deleting nothing, if the
-  server already holds data (Redis's `DBSIZE` for the URL's database, Memcached's `curr_items`) or can't be reached.
+  load. Before the first test, `pytest_sessionstart` in `tests/conftest.py` stops the run, deleting nothing, if
+  another run holds the address's lock (a file in the temporary directory named from a hash of the address, locked
+  with `flock` until the process exits; not on Windows, which has no `fcntl`), or the server already holds data
+  (Redis's `DBSIZE` for the URL's database, Memcached's `curr_items`), or can't be reached. A running suite keeps the
+  server empty between tests, so the emptiness check alone can't see a second run; the lock can.
   The test database is a file-backed SQLite one, so a second process can share it. `tests/test_real_cache.py` checks
   that each environment really uses its server (the backend's class, an entry read back with the server's own client,
   the JSON serializer's lists) and that a 255-character name is cached there.

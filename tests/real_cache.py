@@ -1,14 +1,26 @@
 """Run the suite against a real cache server, chosen by ``DYNAMIC_CONFIGS_TEST_CACHE``.
 
 The suite empties the default cache around every test (``FLUSHDB`` on Redis, the whole server on Memcached), so the
-server's address has no default, and a run stops before the first test if the server already holds anything.
+server's address has no default, and a run stops before the first test if another run is using the server, or it
+already holds anything.
 """
 
+import hashlib
 import os
+import tempfile
+from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 
+try:
+    import fcntl
+except ImportError:  # Windows: no flock, so runs there aren't protected against each other.
+    fcntl = None
+
 TEST_CACHE = os.environ.get("DYNAMIC_CONFIGS_TEST_CACHE") or None
+LOCK_DIR = Path(tempfile.gettempdir())
+# The lock files this process holds: open, so locked, until it exits.
+_held_locks = []
 
 # For each value of DYNAMIC_CONFIGS_TEST_CACHE: the backend, the variable holding the address, and any OPTIONS.
 _CACHES = {
@@ -52,6 +64,27 @@ def cache_settings() -> dict:
 def address() -> str:
     """Return the address of the server in use, for messages."""
     return _selected(TEST_CACHE)[1]
+
+
+def lock_server() -> bool:
+    """Take the advisory lock on the server in use, held until the process exits.
+
+    The lock is a file in ``LOCK_DIR`` named from a hash of the address, locked with ``flock``. A second run against
+    the same address finds it held: the two runs' flushes would empty each other's cache.
+
+    :returns: False if another run holds the lock; True once taken, or where ``fcntl`` doesn't exist (Windows)
+    """
+    if fcntl is None:
+        return True
+    digest = hashlib.sha256(address().encode()).hexdigest()[:16]
+    file = (LOCK_DIR / f"dynamic-configs-tests-{digest}.lock").open("a")
+    try:
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        file.close()
+        return False
+    _held_locks.append(file)
+    return True
 
 
 def raw_client():
