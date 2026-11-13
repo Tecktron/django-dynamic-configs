@@ -135,8 +135,13 @@ def test_a_tab_indent_steps_back_one_tab(editor):
     expect(field).to_have_value("[\n\t[\n\t]")
 
 
-def test_the_closing_bracket_steps_back_whichever_key_types_it(editor):
+def test_the_closing_bracket_steps_back_whichever_key_types_it(editor, browser_name):
     # Text arriving without key presses, as from a keyboard layout that types "}" with AltGr.
+    if browser_name == "firefox":
+        pytest.skip(
+            "Playwright's Firefox keyboard.insert_text is an IME composition commit (Juggler's commitCompositionWith), "
+            "which a script can't cancel; Firefox's key-press path is covered by the press_sequentially bracket tests."
+        )
     field = textarea(editor)
     field.fill("{\n  ")
     field.press("End")

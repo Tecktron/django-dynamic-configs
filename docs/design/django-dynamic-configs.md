@@ -508,7 +508,9 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   - **Enter** keeps the line's indent, adds a level after `{` or `[`, and between a pair of brackets puts the closing
     one on its own line. Tab is left alone, so it still moves to the next field.
   - A **closing bracket** typed on a line of nothing but indent steps back a level (two spaces or a tab), in the same
-    undo step. It goes by the character typed (`beforeinput`), not the key, so AltGr layouts get it too.
+    undo step. It goes by the character typed (`beforeinput`), not the key, so AltGr layouts get it too. A bracket
+    committed through an input method (IME), as some phone keyboards do, arrives as `insertCompositionText`, which
+    can't be cancelled, so it doesn't adjust the indent.
   - A **note** under the field says "Valid JSON." or where and why it isn't ("Invalid JSON at line 2, column 7:
     expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". JSON nested past
     the server's limit gets "The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.", at the
