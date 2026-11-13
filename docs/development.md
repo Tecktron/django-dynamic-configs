@@ -13,12 +13,18 @@ python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 ```
 
-The browser tests (`tests/browser`, the admin's scripts in Chromium) need a browser. This installs one inside the
-virtual environment, about 280 MB:
+The browser tests (`tests/browser`, the admin's scripts in Chromium, Firefox and WebKit) need a browser. They use
+Chromium unless told otherwise; this installs it inside the virtual environment, about 280 MB:
 
 ```
 PLAYWRIGHT_BROWSERS_PATH=0 venv/bin/playwright install --only-shell chromium
 ```
+
+To run them in Firefox or WebKit as well, install those the same way (`install firefox`, `install webkit`) and pass
+`--browser firefox` or `--browser webkit` to pytest. Either may need system libraries the machine lacks: Playwright
+names them when it can't start the browser (`playwright install-deps` installs them, with `sudo`). Playwright's Docker
+image of the same version (`mcr.microsoft.com/playwright/python`) has them, so the tox environment can run there
+instead.
 
 ## Running the tests
 
@@ -60,9 +66,9 @@ Plain `tox` runs these environments:
 
 - **The matrix** (`py310-django52` to `py315-django61`): the suite under coverage, without the browser tests, since
   the scripts don't change with Python or Django.
-- **`browser-django52` and `browser-django61`**: the browser tests in headless Chromium, on the oldest and newest
-  Django (their admin markup differs), each installing its own Chromium. Without coverage, since the matrix holds the
-  Python code to 100%.
+- **`browser-chromium-django52` to `browser-webkit-django61`**: the browser tests in each headless browser (Chromium,
+  Firefox, WebKit) on the oldest and newest Django (their admin markup differs), one engine per environment, each
+  installing only its own browser. Without coverage, since the matrix holds the Python code to 100%.
 - **`extras`**: the suite with django-simple-history installed and its app enabled in the test settings
   (`DYNAMIC_CONFIGS_TEST_EXTRAS=1`).
 - **`lint`**: ruff's check and format check.

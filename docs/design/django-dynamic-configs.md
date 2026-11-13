@@ -703,8 +703,8 @@ src/dynamic_configs/
     py.typed
 tests/
     settings.py   conftest.py   then a mirror of src/dynamic_configs/
-    browser/      the admin's scripts in Chromium (Playwright), with a small test app (models with zoned
-                  datetimes and an inline)
+    browser/      the admin's scripts in Chromium, Firefox and WebKit (Playwright), with a small test app
+                  (models with zoned datetimes and an inline)
 ```
 
 ## Packaging and tooling
@@ -725,8 +725,9 @@ tests/
 - Development dependencies in `requirements.txt`: an editable install of the package plus coverage, pytest,
   pytest-django, pytest-mock (tests patch with its `mocker` fixture, not `unittest.mock`), pytest-playwright (the
   browser tests), ruff and tox, installed into a `venv/` in the repository (ignored by git). The browser tests need
-  Chromium, installed into the virtualenv's Playwright package with
-  `PLAYWRIGHT_BROWSERS_PATH=0 venv/bin/playwright install --only-shell chromium`. The documentation tools
+  a browser, installed into the virtualenv's Playwright package: Chromium, which they use by default, with
+  `PLAYWRIGHT_BROWSERS_PATH=0 venv/bin/playwright install --only-shell chromium`, and Firefox or WebKit
+  (`install firefox`, `install webkit`) to run them there with `--browser`. The documentation tools
   (sphinx, myst-parser, sphinx-rtd-theme, sphinx-autodoc-typehints) go in `docs/requirements.txt`, which `requirements.txt`
   includes and Read the Docs installs.
 - `pytest11` entry point: `dynamic_configs = "dynamic_configs.test.pytest_plugin"`.
@@ -752,10 +753,13 @@ Pairs follow Django's support table:
 The matrix environments skip `tests/browser` (`--ignore`), since the scripts don't change with Python or Django.
 
 Plus:
-- `browser-django52` and `browser-django61`: the oldest and newest Django (their admin markup differs: 5.2's time
-  zone note doesn't name the zone and sits beside each input), on the newest Python; each runs `tests/browser` in
-  headless Chromium with pytest-playwright, against pytest-django's live server, installing the browser into the
-  environment's Playwright package (`PLAYWRIGHT_BROWSERS_PATH=0`). Without coverage, since the matrix holds the Python code to 100%. The browser tests
+- `browser-{chromium,firefox,webkit}-django{52,61}`: six environments, one per browser engine on the oldest and
+  newest Django (their admin markup differs: 5.2's time zone note doesn't name the zone and sits beside each input),
+  on the newest Python; each runs `tests/browser` in its headless browser (`--browser <engine>`) with
+  pytest-playwright, against pytest-django's live server, installing only that browser into the environment's
+  Playwright package (`PLAYWRIGHT_BROWSERS_PATH=0`; Chromium as the headless shell, `--only-shell`). One engine per
+  environment, so a failure names its browser and CI runs them in parallel. Without coverage, since the matrix holds
+  the Python code to 100%. The browser tests
   run after all other tests in any run: Playwright keeps an event loop on the test thread until the session ends, so
   Django's async check (`DJANGO_ALLOW_ASYNC_UNSAFE`) is relaxed only from the first browser test on.
 - `extras`: newest Django and Python, with django-simple-history installed and its app enabled in the test settings
@@ -813,9 +817,10 @@ Configured in `pyproject.toml`:
   - `lint` and `docs` jobs.
   - `package` job: builds the sdist and wheel and runs `twine check --strict`, the same as `release.yml`'s build, so
     a packaging problem shows up on the pull request rather than after a tag is pushed.
-  - `browser` job, a matrix over the two browser environments: installs Chromium with
-    `playwright install --with-deps --only-shell chromium` (`--with-deps` adds the system libraries through the
-    runner's `sudo`), then runs the environment.
+  - `browser` job, a matrix of engine (`chromium`, `firefox`, `webkit`) by Django (`52`, `61`), running
+    `browser-<engine>-django<version>`: installs that browser with `playwright install --with-deps <engine>`
+    (`--only-shell` for Chromium; `--with-deps` adds the system libraries through the runner's `sudo`), then runs
+    the environment.
   - `test` job: a matrix over the tox environments; each saves its coverage data as an artifact. The `postgres`
     environment runs with a PostgreSQL service container; `redis` and `redis-json` with a Redis one (`redis:8`), and
     `memcached` with a Memcached one (`memcached:1.6`), each job with a server of its own. `djangomain` uses
