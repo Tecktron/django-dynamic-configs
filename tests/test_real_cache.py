@@ -3,12 +3,19 @@
 The settings and guard tests run everywhere; the rest need a server, so they skip unless the variable is set.
 """
 
+import json
 import logging
+import os
+import subprocess
+import sys
+import threading
 import warnings
+from pathlib import Path
 
 import pytest
 from django.core.cache import CacheKeyWarning, caches
 from django.core.exceptions import ImproperlyConfigured
+from django.db import connection
 
 import dynamic_configs
 from dynamic_configs import cache
@@ -182,3 +189,71 @@ def test_the_guard_sees_data_it_did_not_write():
         assert real_cache.server_holds_data()
     finally:
         client.delete("someone-else")
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+READ_TIMEOUT = 30
+
+
+class Reader:
+    """A second process (``tests.cross_process_reader``) that reads settings through the shared cache and database."""
+
+    def __init__(self, process):
+        self.process = process
+
+    def ask(self, name):
+        """Send ``name`` to the process and return its JSON reply, failing the test if it takes over ``READ_TIMEOUT``."""
+        try:
+            self.process.stdin.write(name + "\n")
+            self.process.stdin.flush()
+        except BrokenPipeError:
+            pytest.fail(f"The second process has ended: {self.process.stderr.read()}")
+        line = []
+        reader = threading.Thread(target=lambda: line.append(self.process.stdout.readline()), daemon=True)
+        reader.start()
+        reader.join(READ_TIMEOUT)
+        if reader.is_alive():
+            pytest.fail(f"The second process didn't answer for {name!r} within {READ_TIMEOUT} seconds.")
+        if not line[0]:
+            pytest.fail(f"The second process ended without answering for {name!r}: {self.process.stderr.read()}")
+        return json.loads(line[0])
+
+
+@pytest.fixture
+def reader():
+    """The second process, started once for the test and closed afterwards."""
+    environment = {**os.environ, "DYNAMIC_CONFIGS_TEST_SHARED_DB": connection.settings_dict["NAME"]}
+    process = subprocess.Popen(
+        [sys.executable, "-m", "tests.cross_process_reader"],
+        cwd=REPOSITORY_ROOT,
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        yield Reader(process)
+    finally:
+        try:
+            process.stdin.close()
+        except BrokenPipeError:  # The process has already ended.
+            pass
+        try:
+            process.wait(timeout=READ_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+        process.stdout.close()
+        process.stderr.close()
+
+
+@real_server_only
+@pytest.mark.django_db(transaction=True)
+def test_a_second_process_sees_creates_updates_and_deletes(reader):
+    dynamic_configs.get_or_create("SITE_NAME", "str", "First")
+    assert reader.ask("SITE_NAME") == {"get": "First", "cached": "('str', 'First')"}
+    dynamic_configs.update("SITE_NAME", "Second")
+    assert reader.ask("SITE_NAME") == {"get": "Second", "cached": "('str', 'Second')"}
+    dynamic_configs.delete("SITE_NAME")
+    assert reader.ask("SITE_NAME") == {"get": None, "cached": "ABSENT"}
