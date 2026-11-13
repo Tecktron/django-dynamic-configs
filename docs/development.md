@@ -112,8 +112,8 @@ would start measuring, so the plugin's module-level code would show as uncovered
 
 ## The documentation
 
-The site is built with Sphinx from Markdown pages (MyST) in `docs/`, with the furo theme; the API reference comes from
-the docstrings. Build it with warnings as errors:
+The site is built with Sphinx from Markdown pages (MyST) in `docs/`, with the Read the Docs theme (sphinx-rtd-theme);
+the API reference comes from the docstrings. Build it with warnings as errors:
 
 ```
 venv/bin/tox -e docs

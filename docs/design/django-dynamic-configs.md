@@ -629,7 +629,9 @@ Opt-in: install `django-dynamic-configs[simple-history]` and add `"dynamic_confi
 Hosted on Read the Docs, built with **Sphinx**:
 
 - **MyST** so pages are written in Markdown; **autodoc** (with type hints) for the API reference, generated from the
-  docstrings; the **furo** theme.
+  docstrings; the **Read the Docs theme** (sphinx-rtd-theme), for the layout readers know from other projects' docs
+  (it has no dark mode). `docs/_static/custom.css` lets table cells wrap, which the theme turns off, so wide tables
+  fit the page instead of scrolling sideways.
 - Pages: Overview, Installation, Quick start, Reading and writing settings (the API), Types (built-in, list and set,
   custom, constraints as custom types), Worked example: the money types (writing a type, then extending it), Caching, Failure handling and logging, Admin and skins (including the JSON editor's colours and the list editor), simple-history,
   Testing, API reference, Changelog, and Development (contributing, running tox, this design document).
@@ -719,7 +721,7 @@ tests/
   browser tests), ruff and tox, installed into a `venv/` in the repository (ignored by git). The browser tests need
   Chromium, installed into the virtualenv's Playwright package with
   `PLAYWRIGHT_BROWSERS_PATH=0 venv/bin/playwright install --only-shell chromium`. The documentation tools
-  (sphinx, myst-parser, furo, sphinx-autodoc-typehints) go in `docs/requirements.txt`, which `requirements.txt`
+  (sphinx, myst-parser, sphinx-rtd-theme, sphinx-autodoc-typehints) go in `docs/requirements.txt`, which `requirements.txt`
   includes and Read the Docs installs.
 - `pytest11` entry point: `dynamic_configs = "dynamic_configs.test.pytest_plugin"`.
 - Type hints throughout, with `py.typed`.
