@@ -52,8 +52,16 @@ def test_a_long_site_key_prefix_makes_shorter_names_hash(settings):
 
 def test_a_site_key_prefix_too_long_for_any_key_still_works(settings):
     # Even the hash alone can't fit (200 + 3 + 19 + 1 + 64 = 287): the backend's own warning stands, and on a backend
-    # that raises instead (Memcached), cache errors are already logged and fall back to the database.
-    settings.CACHES = {**settings.CACHES, "default": {**settings.CACHES["default"], "KEY_PREFIX": "x" * 200}}
+    # that raises instead (Memcached), cache errors are already logged and fall back to the database. LocMemCache, a
+    # backend that warns, whichever server the suite runs against: django-redis doesn't check keys at all.
+    settings.CACHES = {
+        **settings.CACHES,
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "dynamic-configs-tests",
+            "KEY_PREFIX": "x" * 200,
+        },
+    }
     with pytest.warns(CacheKeyWarning):
         cache.write("A" * 40, ("str", "Example"))
     with pytest.warns(CacheKeyWarning):
