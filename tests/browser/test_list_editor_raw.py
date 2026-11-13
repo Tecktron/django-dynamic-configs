@@ -22,6 +22,11 @@ def options(page):
     return page.get_by_role("listbox", name="Items").locator("option")
 
 
+# The element's box as the page measures it: Playwright's WebKit gives a list's options no box of their own.
+def box(locator):
+    return locator.evaluate("element => element.getBoundingClientRect().toJSON()")
+
+
 def button(page, name):
     return page.get_by_role("button", name=name, exact=True)
 
@@ -125,7 +130,10 @@ def test_raw_mode_refuses_a_list_of_one_empty_item(admin_page):
 
 def test_raw_text_is_editable_once_the_line_break_item_is_removed(admin_page):
     open_config(admin_page, "SIGNATURES", "list:text", ["Thanks", "Regards,\nThe team"])
-    options(admin_page).nth(1).click()
+    # A real click on the item's row.
+    admin_page.get_by_role("listbox", name="Items").scroll_into_view_if_needed()
+    row = box(options(admin_page).nth(1))
+    admin_page.mouse.click(row["x"] + row["width"] / 2, row["y"] + row["height"] / 2)
     expect(button(admin_page, "Update")).to_be_visible()
     button(admin_page, "Remove").click()
     expect(options(admin_page)).to_have_count(1)

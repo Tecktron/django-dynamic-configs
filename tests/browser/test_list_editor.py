@@ -41,6 +41,11 @@ def options(page):
     return items(page).locator("option")
 
 
+# The element's box as the page measures it: Playwright's WebKit gives a list's options no box of their own.
+def box(locator):
+    return locator.evaluate("element => element.getBoundingClientRect().toJSON()")
+
+
 def item_input(page):
     return page.locator("[name=value__item]")
 
@@ -253,7 +258,7 @@ def test_the_list_shows_several_items_at_once(admin_page):
     # keeps the rows its size asks for.
     open_config(admin_page, "PORTS", "list:int", ["80", "443", "8080"])
     expect(options(admin_page)).to_have_count(3)
-    row = options(admin_page).first.bounding_box()
+    row = box(options(admin_page).first)
     assert items(admin_page).bounding_box()["height"] >= 4 * row["height"]
 
 
