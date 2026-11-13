@@ -375,6 +375,8 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
   `DummyCache`. `None` disables caching.
 - **Per key:** `dynamic_configs:v1:<name>` holds the tuple `(type_key, stored_text)`, never a deserialized object,
   so custom classes are never pickled into the cache. `v1` lets a later release change the format safely.
+  A name long enough to push the cache's full key past 250 characters (Memcached's limit) is keyed by its start and a
+  hash of the whole name instead.
 - **Missing settings** are cached as a marker, so `get(name, default)` for a nonexistent setting doesn't query the
   database on every call.
 - **Timeout:** `DYNAMIC_CONFIGS["TIMEOUT"]`, default `300` seconds; `None` means no expiry (Django's semantics).

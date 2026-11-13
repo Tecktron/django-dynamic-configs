@@ -3,13 +3,16 @@
 Each setting has one entry, ``dynamic_configs:v1:<name>``, holding ``(type_key, stored_text)``: the stored strings,
 never a deserialized value, so custom classes are never pickled into the cache (a renamed class would break
 unpickling). A setting known not to exist is cached as a marker, so ``get(name, default)`` doesn't query the database
-every time. ``v1`` lets a later release change the format without reading old entries.
+every time. ``v1`` lets a later release change the format without reading old entries. A name long enough to push
+the cache's full key (with its ``KEY_PREFIX`` and ``VERSION``) past 250 characters, Memcached's limit, is keyed by its
+start and a SHA-256 of the whole name instead.
 
 Cache failures are logged and never raised: callers fall back to the database.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from functools import partial
 from typing import Final
@@ -26,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 KEY_PREFIX: Final = "dynamic_configs:v1:"
 _ABSENT_MARKER: Final = "dynamic_configs:absent"
+MAX_KEY_LENGTH: Final = 250  # Memcached's limit, which Django's key warnings follow
 
 Entry = tuple[str, "str | None"]
 
@@ -46,9 +50,23 @@ NOT_CACHED: Final = _Sentinel("NOT_CACHED")
 ABSENT: Final = _Sentinel("ABSENT")
 
 
-def cache_key(name: str) -> str:
-    """Return the cache key for the setting ``name``."""
-    return f"{KEY_PREFIX}{name}"
+def cache_key(name: str, backend: BaseCache) -> str:
+    """Return the cache key for the setting ``name``.
+
+    The plain key while the backend's full key (its ``KEY_PREFIX`` and ``VERSION`` added) fits in ``MAX_KEY_LENGTH``;
+    otherwise the name's start, ``#`` and the SHA-256 of the whole name, cut so the full key fits. A name can't
+    contain ``#``, so a hashed key never equals a plain one.
+
+    :param name: the setting's name
+    :param backend: the cache the key is for
+    :returns: the key to use with ``backend``
+    """
+    plain = f"{KEY_PREFIX}{name}"
+    if len(backend.make_key(plain)) <= MAX_KEY_LENGTH:
+        return plain
+    digest = hashlib.sha256(name.encode()).hexdigest()
+    room = MAX_KEY_LENGTH - len(backend.make_key(f"{KEY_PREFIX}#{digest}"))
+    return f"{KEY_PREFIX}{name[: max(room, 0)]}#{digest}"
 
 
 def get_cache() -> BaseCache | None:
@@ -74,7 +92,7 @@ def read(name: str) -> Entry | _Sentinel:
     if backend is None:
         return NOT_CACHED
     try:
-        raw = backend.get(cache_key(name))
+        raw = backend.get(cache_key(name, backend))
     except Exception:
         log(
             logger,
@@ -112,10 +130,10 @@ def write(name: str, entry: Entry | _Sentinel, *, overwrite: bool = True) -> Non
     timeout = get_settings()["TIMEOUT"]
     try:
         if overwrite:
-            backend.set(cache_key(name), value, timeout=timeout)
+            backend.set(cache_key(name, backend), value, timeout=timeout)
             stored = True
         else:
-            stored = backend.add(cache_key(name), value, timeout=timeout)
+            stored = backend.add(cache_key(name, backend), value, timeout=timeout)
     except Exception:
         log(
             logger,
@@ -147,7 +165,7 @@ def delete(name: str) -> None:
     if backend is None:
         return
     try:
-        backend.delete(cache_key(name))
+        backend.delete(cache_key(name, backend))
     except Exception:
         log(
             logger,
