@@ -71,14 +71,16 @@ def test_a_255_character_name_is_cached_on_the_server(
 @memcached_only
 @pytest.mark.django_db
 def test_a_value_too_big_for_the_server_is_still_returned(django_capture_on_commit_callbacks):
-    # Over Memcached's default 1 MB item limit. What gets logged depends on the client, so it isn't asserted: Django's
-    # memcached set deletes the key without raising when the client only reports failure, while pymemcache raises
-    # (logged as a failed cache write, on every read that tries to cache it).
+    # Over Memcached's default 1 MB item limit, so the server refuses the create's cache write and each read's cache
+    # fill (run here by executing the on-commit callbacks): the second read follows a failed fill. What gets logged
+    # depends on the client, so it isn't asserted: Django's memcached set deletes the key without raising when the
+    # client only reports failure, while pymemcache raises (logged as a failed cache write).
     big = "x" * (2 * 1024 * 1024)
     with django_capture_on_commit_callbacks(execute=True):
         dynamic_configs.get_or_create("BIG_TEXT", "text", big)
-    assert dynamic_configs.get("BIG_TEXT") == big
-    assert dynamic_configs.get("BIG_TEXT") == big
+    for _ in range(2):
+        with django_capture_on_commit_callbacks(execute=True):
+            assert dynamic_configs.get("BIG_TEXT") == big
 
 
 def test_cache_settings_reject_an_unknown_backend(monkeypatch):
