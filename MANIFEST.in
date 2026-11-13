@@ -1,0 +1,5 @@
+# The sdist carries the whole test suite, so the package can be tested where it's built from the sdist, plus the
+# changelog and the tox configuration. The wheel holds only the package (see [tool.setuptools] in pyproject.toml).
+include CHANGELOG.md tox.ini
+graft tests
+global-exclude __pycache__ *.py[cod]

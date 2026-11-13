@@ -654,7 +654,7 @@ Hosted on Read the Docs, built with **Sphinx**:
 The `src/` layout, so tests run against the installed package. Modules mirror Django's layout.
 
 ```
-pyproject.toml   tox.ini   LICENSE   README.md   CHANGELOG.md   .readthedocs.yaml
+pyproject.toml   tox.ini   MANIFEST.in   LICENSE   README.md   CHANGELOG.md   .readthedocs.yaml
 .github/workflows/ci.yml   .github/workflows/release.yml
 docs/
     conf.py   index.md   (one .md per page listed under Documentation site)
@@ -716,6 +716,10 @@ tests/
   Django 6.0, and pip resolves the newest release anyway).
 - Package data: `py.typed` and the static files (`static/dynamic_configs/*.js` and `*.css`); the suite checks they
   are found, which under tox (installing the built wheel) checks they're packaged.
+- The sdist also carries the whole test suite, `CHANGELOG.md` and `tox.ini` (`MANIFEST.in`), so the package can be
+  tested where it's built from the sdist; without it, setuptools picks up only `tests/test*.py`, which can't run
+  without `tests/settings.py`. The wheel holds only the package.
+- Project URLs: Homepage, Documentation (Read the Docs), Source, Issues and Changelog (`CHANGELOG.md` on GitHub).
 - Development dependencies in `requirements.txt`: an editable install of the package plus coverage, pytest,
   pytest-django, pytest-mock (tests patch with its `mocker` fixture, not `unittest.mock`), pytest-playwright (the
   browser tests), ruff and tox, installed into a `venv/` in the repository (ignored by git). The browser tests need
@@ -790,6 +794,8 @@ Configured in `pyproject.toml`:
 
 - **`ci.yml`**, on pushes and pull requests:
   - `lint` and `docs` jobs.
+  - `package` job: builds the sdist and wheel and runs `twine check --strict`, the same as `release.yml`'s build, so
+    a packaging problem shows up on the pull request rather than after a tag is pushed.
   - `browser` job, a matrix over the two browser environments: installs Chromium with
     `playwright install --with-deps --only-shell chromium` (`--with-deps` adds the system libraries through the
     runner's `sudo`), then runs the environment.
@@ -813,8 +819,12 @@ documentation build (Read the Docs), PyPI version, supported Python versions, su
 - **PyPI:** before the first release, on pypi.org, *Your account → Publishing → Add a pending publisher*: project
   `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`, workflow `release.yml`, environment
   `pypi`. The PyPI badges show "not found" until the first release.
-- **GitHub:** create the `pypi` environment in the repository settings (optionally requiring approval before a
-  release runs).
-- **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Builds then
-  run on every push, and the docs badge starts working. Then, in the project's *Admin → Automation Rules*, add a rule
-  that activates new versions for tags matching SemVer (or `v*`); without it, Read the Docs doesn't build release tags.
+- **GitHub:** create the `pypi` environment in the repository settings. Under *Deployment branches and tags*, choose
+  *Selected branches and tags* and add a rule of ref type *Tag* for `v*`: a release runs from a tag, and *Protected
+  branches only* lets only protected branches deploy, so it would block the release. Optionally, add required
+  reviewers, so each release waits for approval.
+- **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Its GitHub
+  integration starts a build on every push, and the docs badge starts working; if a push to `main` doesn't start a
+  build, check the integration in the project's *Admin → Integrations*. Then, in *Admin → Automation Rules*, add a
+  rule that activates new versions for tags matching SemVer (or `v*`); without it, Read the Docs doesn't build
+  release tags.

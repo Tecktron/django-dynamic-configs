@@ -29,6 +29,18 @@ jobs:
       - run: python -m pip install tox
       - run: tox -e docs
 
+  # The same build and check as release.yml, so a packaging problem shows up here rather than after a tag is pushed.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: python -m pip install build twine
+      - run: python -m build
+      - run: twine check --strict dist/*
+
   browser:
     runs-on: ubuntu-latest
     strategy:

@@ -127,6 +127,8 @@ tag.
 GitHub Actions runs `ci.yml` on pushes to `main` and on pull requests:
 
 - the `lint` and `docs` jobs;
+- the `package` job: it builds the sdist and the wheel, as a release does, and checks them with
+  `twine check --strict`, so a packaging problem shows up before a tag is pushed;
 - the browser tests, one job per browser environment;
 - the test suite, one job per tox environment, including `postgres` (with a PostgreSQL service container) and
   `djangomain` (allowed to fail); each saves its coverage data;
@@ -158,11 +160,15 @@ Outside the repository, once:
 - **PyPI:** before the first release, on pypi.org, *Your account → Publishing → Add a pending publisher*: project
   `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`, workflow `release.yml`, environment
   `pypi`. The PyPI badges show "not found" until the first release.
-- **GitHub:** create the `pypi` environment in the repository settings (optionally requiring approval before a
-  release runs).
-- **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Builds then
-  run on every push, and the docs badge starts working. Then, in the project's *Admin → Automation Rules*, add a rule
-  that activates new versions for tags matching SemVer (or `v*`); without it, Read the Docs doesn't build release tags.
+- **GitHub:** create the `pypi` environment in the repository settings. Under *Deployment branches and tags*, choose
+  *Selected branches and tags* and add a rule of ref type *Tag* for `v*`: a release runs from a tag, and *Protected
+  branches only* lets only protected branches deploy, so it would block the release. Optionally, add required
+  reviewers, so each release waits for approval.
+- **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Its GitHub
+  integration starts a build on every push, and the docs badge starts working; if a push to `main` doesn't start a
+  build, check the integration in the project's *Admin → Integrations*. Then, in *Admin → Automation Rules*, add a
+  rule that activates new versions for tags matching SemVer (or `v*`); without it, Read the Docs doesn't build
+  release tags.
 
 ## Design
 
