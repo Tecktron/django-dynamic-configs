@@ -187,14 +187,23 @@
         textarea.readOnly = false;
         modeInput.value = "list";
 
+        // The items the list's options show, as JSON.
+        let shown = null;
+
         function render() {
-            select.replaceChildren(
-                ...items.map((text, index) => {
-                    const option = make("option", "", text);
-                    option.value = String(index);
-                    return option;
-                }),
-            );
+            const json = JSON.stringify(items);
+            // Rebuilt only when the items change: Firefox ignores an arrow key pressed just after the options under the
+            // keyboard are replaced, and loading each item renders again.
+            if (json !== shown) {
+                shown = json;
+                select.replaceChildren(
+                    ...items.map((text, index) => {
+                        const option = make("option", "", text);
+                        option.value = String(index);
+                        return option;
+                    }),
+                );
+            }
             // Never disabled: the browser would take the focus away, and the keyboard couldn't move on through it.
             select.selectedIndex = chosen ?? selected ?? -1;
             saveButton.textContent = selected === null ? "Add" : "Update";
@@ -208,7 +217,7 @@
             cancelButton.disabled = busy;
             sortButton.textContent = descending ? "Sort ↓" : "Sort ↑";
             sortButton.title = descending ? "Sort largest first" : "Sort smallest first";
-            itemsInput.value = JSON.stringify(items);
+            itemsInput.value = json;
         }
 
         // Ask the server, with the buttons disabled until it answers, so a second click can't act twice; then `apply`
