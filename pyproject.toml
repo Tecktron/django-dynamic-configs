@@ -37,8 +37,10 @@ simple-history = ["django-simple-history>=3.8"]
 
 [project.urls]
 Homepage = "https://github.com/Tecktron/django-dynamic-configs"
+Documentation = "https://django-dynamic-configs.readthedocs.io/"
 Source = "https://github.com/Tecktron/django-dynamic-configs"
 Issues = "https://github.com/Tecktron/django-dynamic-configs/issues"
+Changelog = "https://github.com/Tecktron/django-dynamic-configs/blob/main/CHANGELOG.md"
 
 [project.entry-points.pytest11]
 dynamic_configs = "dynamic_configs.test.pytest_plugin"
