@@ -69,7 +69,7 @@ Plain `tox` runs these environments:
 - **`docs`**: builds this documentation site with warnings as errors.
 - **`coverage`**: combines the coverage of every test environment and enforces 100%.
 
-Two more run only when named, and always in CI:
+Five more run only when named, and always in CI:
 
 - **`postgres`**: the suite on PostgreSQL (`DYNAMIC_CONFIGS_TEST_POSTGRES=1`). It needs a server: the connection comes
   from libpq's standard `PG*` variables, which tox passes through, and the user must be able to create the test
@@ -78,6 +78,30 @@ Two more run only when named, and always in CI:
   ```
   PGHOST=localhost PGUSER=postgres PGPASSWORD=postgres venv/bin/tox -e postgres
   ```
+
+- **`redis`, `redis-json` and `memcached`**: the suite against a real cache server instead of LocMemCache
+  (`DYNAMIC_CONFIGS_TEST_CACHE`): Django's Redis backend; django-redis with its JSON serializer, on Django 6.0 (the
+  newest django-redis supports); and Django's pymemcache backend. The server's address comes from
+  `DYNAMIC_CONFIGS_TEST_REDIS_URL` or `DYNAMIC_CONFIGS_TEST_MEMCACHED`, which tox passes through. There is no default
+  address.
+
+  **The tests empty the server.** The suite clears the cache around every test: `FLUSHDB` on the Redis database, and
+  the whole Memcached server. Never point them at a server holding anything you want to keep. As a guard, a run stops
+  before the first test, deleting nothing, if the server already holds data or can't be reached. Give each environment
+  its own server, or its own Redis database: two runs sharing one would empty each other's cache. For example, with
+  throwaway servers in Docker, on uncommon ports bound to `127.0.0.1`:
+
+  ```
+  docker run --rm -d --name dc-test-redis -p 127.0.0.1:16379:6379 redis:8
+  docker run --rm -d --name dc-test-memcached -p 127.0.0.1:21211:11211 memcached:1.6
+  DYNAMIC_CONFIGS_TEST_REDIS_URL=redis://127.0.0.1:16379/0 venv/bin/tox -e redis
+  DYNAMIC_CONFIGS_TEST_REDIS_URL=redis://127.0.0.1:16379/1 venv/bin/tox -e redis-json
+  DYNAMIC_CONFIGS_TEST_MEMCACHED=127.0.0.1:21211 venv/bin/tox -e memcached
+  docker stop dc-test-redis dc-test-memcached
+  ```
+
+  These environments use a file-backed SQLite test database, in the system's temporary directory, instead of the
+  in-memory one, so a second process can open it.
 
 - **`djangomain`**: the suite on Django's development version, installed from GitHub each time. It may fail while
   Django's main branch changes.
@@ -130,8 +154,9 @@ GitHub Actions runs `ci.yml` on pushes to `main` and on pull requests:
 - the `package` job: it builds the sdist and the wheel, as a release does, and checks them with
   `twine check --strict`, so a packaging problem shows up before a tag is pushed;
 - the browser tests, one job per browser environment;
-- the test suite, one job per tox environment, including `postgres` (with a PostgreSQL service container) and
-  `djangomain` (allowed to fail); each saves its coverage data;
+- the test suite, one job per tox environment, including `postgres` (with a PostgreSQL service container), `redis`,
+  `redis-json` and `memcached` (each job with a Redis or Memcached service container of its own) and `djangomain`
+  (allowed to fail); each saves its coverage data;
 - the `coverage` job, after the tests: it combines their data, prints the report with any missing lines, fails under
   100%, and saves the HTML report to download.
 

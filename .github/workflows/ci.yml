@@ -81,11 +81,17 @@ jobs:
           - {env: py315-django61, python: "3.15", prereleases: true}
           - {env: extras, python: "3.14"}
           - {env: postgres, python: "3.14"}
+          - {env: redis, python: "3.14"}
+          - {env: redis-json, python: "3.14"}
+          - {env: memcached, python: "3.14"}
           - {env: djangomain, python: "3.14", experimental: true}
     env:
       PGHOST: localhost
       PGUSER: postgres
       PGPASSWORD: postgres
+      # Each job has its own server (below), which the tests empty.
+      DYNAMIC_CONFIGS_TEST_REDIS_URL: redis://localhost:6379/0
+      DYNAMIC_CONFIGS_TEST_MEMCACHED: localhost:11211
     services:
       postgres:
         image: ${{ matrix.env == 'postgres' && 'postgres:17' || '' }}
@@ -98,6 +104,19 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: ${{ (matrix.env == 'redis' || matrix.env == 'redis-json') && 'redis:8' || '' }}
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      memcached:
+        image: ${{ matrix.env == 'memcached' && 'memcached:1.6' || '' }}
+        ports:
+          - 11211:11211
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

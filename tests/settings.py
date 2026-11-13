@@ -1,6 +1,10 @@
 """Django settings for the test suite."""
 
 import os
+import tempfile
+from pathlib import Path
+
+from tests import real_cache
 
 SECRET_KEY = "dynamic-configs-tests-not-a-secret"
 INSTALLED_APPS = [
@@ -54,3 +58,15 @@ if os.environ.get("DYNAMIC_CONFIGS_TEST_EXTRAS") == "1":
 if os.environ.get("DYNAMIC_CONFIGS_TEST_POSTGRES") == "1":
     # NAME only: the host, port, user and password come from libpq's PG* environment variables.
     DATABASES = {"default": {"ENGINE": "django.db.backends.postgresql", "NAME": "dynamic_configs"}}
+
+if os.environ.get("DYNAMIC_CONFIGS_TEST_CACHE"):
+    # A real server (tests/real_cache.py): an unknown value, or a missing address, stops here.
+    CACHES["default"] = real_cache.cache_settings()
+    # A file-backed SQLite test database, which a second process can open (the in-memory one can't be shared).
+    shared_db = os.environ.get("DYNAMIC_CONFIGS_TEST_SHARED_DB")
+    if shared_db:
+        # The second process: it opens the first one's test database as its own.
+        DATABASES["default"]["NAME"] = shared_db
+    else:
+        test_db = Path(tempfile.gettempdir()) / f"dynamic-configs-tests-{os.getpid()}.sqlite3"
+        DATABASES["default"]["TEST"] = {"NAME": str(test_db)}

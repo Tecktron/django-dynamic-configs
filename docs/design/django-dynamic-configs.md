@@ -765,14 +765,26 @@ Plus:
   which tox passes through. Every other environment, and every local run, uses SQLite: the package's ORM use is
   plain, so this checks that it installs, migrates and runs on the database most projects use (and runs `update`'s
   row lock for real, which SQLite ignores).
+- `redis`, `redis-json` and `memcached`: the suite against a real cache server instead of LocMemCache, chosen by
+  `DYNAMIC_CONFIGS_TEST_CACHE` in `tests/settings.py` (helpers in `tests/real_cache.py`): Django's `RedisCache` (newest
+  Django, `redis`); django-redis with its JSON serializer (Django 6.0, the newest django-redis supports); Django's
+  `PyMemcacheCache` (newest Django, `pymemcache`); all on the newest Python. The address comes from
+  `DYNAMIC_CONFIGS_TEST_REDIS_URL` or `DYNAMIC_CONFIGS_TEST_MEMCACHED`, passed through by tox, with no default: the
+  suite empties the cache around every test (`FLUSHDB`, or a full Memcached flush), and a default of the standard local
+  address could erase another project's data. An unknown value, or a missing address, is an error when the settings
+  load. Before the first test, `pytest_sessionstart` in `tests/conftest.py` stops the run, deleting nothing, if the
+  server already holds data (Redis's `DBSIZE` for the URL's database, Memcached's `curr_items`) or can't be reached.
+  The test database is a file-backed SQLite one, so a second process can share it. `tests/test_real_cache.py` checks
+  that each environment really uses its server (the backend's class, an entry read back with the server's own client,
+  the JSON serializer's lists) and that a 255-character name is cached there.
 - `djangomain`: Django's main branch on the newest Python; non-blocking in CI.
 - `lint`: ruff check and format check.
 - `docs`: builds the documentation site with warnings as errors.
 - `coverage`: combines every environment's data and enforces the threshold.
 
 Plain `tox` runs the matrix, the browser environments, `extras`, `lint`, `docs` and `coverage`. `postgres` (it needs a
-PostgreSQL server) and `djangomain` (it installs Django from GitHub each time) run only when named (`tox -e
-postgres`), and always in CI.
+PostgreSQL server), `redis`, `redis-json` and `memcached` (each needs a server of its own) and `djangomain` (it installs
+Django from GitHub each time) run only when named (`tox -e postgres`), and always in CI.
 
 ### Coverage
 
@@ -802,7 +814,9 @@ Configured in `pyproject.toml`:
     `playwright install --with-deps --only-shell chromium` (`--with-deps` adds the system libraries through the
     runner's `sudo`), then runs the environment.
   - `test` job: a matrix over the tox environments; each saves its coverage data as an artifact. The `postgres`
-    environment runs with a PostgreSQL service container. `djangomain` uses `continue-on-error`.
+    environment runs with a PostgreSQL service container; `redis` and `redis-json` with a Redis one (`redis:8`), and
+    `memcached` with a Memcached one (`memcached:1.6`), each job with a server of its own. `djangomain` uses
+    `continue-on-error`.
   - `coverage` job: after `test`; combines the artifacts, prints the report (with any missing lines), fails under
     100%, and saves the HTML report as an artifact to download. No coverage service: the 100% rule already blocks any
     drop, and the job's log names the missing lines.

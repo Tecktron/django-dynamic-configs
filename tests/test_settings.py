@@ -9,6 +9,8 @@ import pytest
 def reload_settings(monkeypatch):
     """Reload tests.settings with environment variables set, and reload it as it was afterwards."""
     module = importlib.import_module("tests.settings")
+    # The real cache servers' environments set this; it changes DATABASES too, so the switches are checked without it.
+    monkeypatch.delenv("DYNAMIC_CONFIGS_TEST_CACHE", raising=False)
 
     def reload(**environ):
         for name, value in environ.items():
