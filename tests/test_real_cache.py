@@ -161,6 +161,7 @@ def test_a_second_run_cannot_take_the_server_lock(locks):
     assert len(locks) == 1
 
 
+@flock_only
 def test_closing_the_lock_file_releases_the_lock(locks):
     assert real_cache.lock_server()
     locks.pop().close()
