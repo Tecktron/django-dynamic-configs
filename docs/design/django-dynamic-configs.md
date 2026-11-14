@@ -763,7 +763,11 @@ Plus:
   environment, so a failure names its browser and CI runs them in parallel. Without coverage, since the matrix holds
   the Python code to 100%. The browser tests
   run after all other tests in any run: Playwright keeps an event loop on the test thread until the session ends, so
-  Django's async check (`DJANGO_ALLOW_ASYNC_UNSAFE`) is relaxed only from the first browser test on.
+  Django's async check (`DJANGO_ALLOW_ASYNC_UNSAFE`) is relaxed only from the first browser test on. All six are in
+  plain `tox`'s list. Firefox and WebKit need system libraries a machine may lack, and fail without them: locally,
+  `tox --skip-env browser-webkit` leaves WebKit out, and the development guide gives a recipe that runs the WebKit
+  environments in Playwright's Docker image (`mcr.microsoft.com/playwright/python`, non-root, `--ipc=host`, with a
+  `base_python` override for the image's Python 3.12).
 - `extras`: newest Django and Python, with django-simple-history installed and its app enabled in the test settings
   (`tests/settings.py` reads an environment variable).
 - `postgres`: newest Django and Python against PostgreSQL, with `psycopg[binary]`; `tests/settings.py` switches to

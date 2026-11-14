@@ -22,9 +22,9 @@ PLAYWRIGHT_BROWSERS_PATH=0 venv/bin/playwright install --only-shell chromium
 
 To run them in Firefox or WebKit as well, install those the same way (`install firefox`, `install webkit`) and pass
 `--browser firefox` or `--browser webkit` to pytest. Either may need system libraries the machine lacks: Playwright
-names them when it can't start the browser (`playwright install-deps` installs them, with `sudo`). Playwright's Docker
-image of the same version (`mcr.microsoft.com/playwright/python`) has them, so the tox environment can run there
-instead.
+names them when it can't start the browser, and `playwright install-deps` installs them (with `sudo`). Without them,
+that browser's tests fail, and so do its tox environments: [tox](#tox) shows how to skip WebKit's, or run them in
+Docker.
 
 ## Running the tests
 
@@ -69,6 +69,34 @@ Plain `tox` runs these environments:
 - **`browser-chromium-django52` to `browser-webkit-django61`**: the browser tests in each headless browser (Chromium,
   Firefox, WebKit) on the oldest and newest Django (their admin markup differs), one engine per environment, each
   installing only its own browser. Without coverage, since the matrix holds the Python code to 100%.
+
+  Firefox and WebKit need the system libraries described in [Setting up](#setting-up); without them, their
+  environments fail. To leave WebKit out, skip its environments (tox matches the pattern from the start of each name):
+
+  ```
+  venv/bin/tox --skip-env browser-webkit
+  ```
+
+  Or run them in Playwright's Docker image, which has the libraries. This copies the working tree into the container
+  (nothing is mounted, so the container's `.tox` stays apart from yours), installs tox there as the image's non-root
+  user, and points the environments at the image's Python 3.12, since they ask for 3.14:
+
+  ```
+  git ls-files -co --exclude-standard | tar -cf - -T - | docker run --rm -i --ipc=host --user pwuser \
+      mcr.microsoft.com/playwright/python:v1.64.1-noble bash -c '
+          set -e
+          umask 022
+          mkdir ~/src
+          tar -xf - -C ~/src
+          cd ~/src
+          pip install --user --quiet --no-warn-script-location tox
+          python3 -m tox -e browser-webkit-django52,browser-webkit-django61 \
+              -x testenv:browser-webkit-django52.base_python=python3 \
+              -x testenv:browser-webkit-django61.base_python=python3'
+  ```
+
+  The image provides the libraries of its Playwright version; if tox installs a newer Playwright whose browsers need
+  more, use the image tag of that version.
 - **`extras`**: the suite with django-simple-history installed and its app enabled in the test settings
   (`DYNAMIC_CONFIGS_TEST_EXTRAS=1`).
 - **`lint`**: ruff's check and format check.
