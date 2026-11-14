@@ -252,6 +252,9 @@ def reader():
 @pytest.mark.django_db(transaction=True)
 def test_a_second_process_sees_creates_updates_and_deletes(reader):
     dynamic_configs.get_or_create("SITE_NAME", "str", "First")
+    # Drop the entry the create cached, so the second process has to read the shared database and fill the cache; the
+    # update then replaces an entry the second process wrote.
+    cache.delete("SITE_NAME")
     assert reader.ask("SITE_NAME") == {"get": "First", "cached": "('str', 'First')"}
     dynamic_configs.update("SITE_NAME", "Second")
     assert reader.ask("SITE_NAME") == {"get": "Second", "cached": "('str', 'Second')"}
