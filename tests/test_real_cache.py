@@ -148,6 +148,12 @@ def locks(mocker, monkeypatch, tmp_path):
         file.close()
 
 
+flock_only = pytest.mark.skipif(
+    real_cache.fcntl is None, reason="the server lock is POSIX-only (flock): without fcntl, as on Windows, there's none"
+)
+
+
+@flock_only
 def test_a_second_run_cannot_take_the_server_lock(locks):
     assert real_cache.lock_server()
     # A second open of the same file stands in for a second process: flock locks belong to the open file.
@@ -167,6 +173,7 @@ def test_each_address_has_its_own_lock(locks, monkeypatch):
     assert real_cache.lock_server()
 
 
+@flock_only
 def test_a_server_in_use_by_another_run_stops_the_run(locks, mocker, request):
     holds_data = mocker.patch("tests.real_cache.server_holds_data", return_value=False)
     assert real_cache.lock_server()
