@@ -42,22 +42,25 @@ jobs:
       - run: twine check --strict dist/*
 
   browser:
+    name: browser (${{ matrix.engine }}, django${{ matrix.django }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        env: [browser-django52, browser-django61]
+        engine: [chromium, firefox, webkit]
+        django: ["52", "61"]
     env:
       PLAYWRIGHT_BROWSERS_PATH: "0"
+      TOX_ENV: browser-${{ matrix.engine }}-django${{ matrix.django }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - run: python -m pip install tox
-      - run: tox -e ${{ matrix.env }} --notest
-      - run: .tox/${{ matrix.env }}/bin/playwright install --with-deps --only-shell chromium
-      - run: tox -e ${{ matrix.env }}
+      - run: tox -e ${{ env.TOX_ENV }} --notest
+      - run: .tox/${{ env.TOX_ENV }}/bin/playwright install --with-deps ${{ matrix.engine == 'chromium' && '--only-shell' || '' }} ${{ matrix.engine }}
+      - run: tox -e ${{ env.TOX_ENV }}
 
   test:
     name: test (${{ matrix.env }})
@@ -81,11 +84,17 @@ jobs:
           - {env: py315-django61, python: "3.15", prereleases: true}
           - {env: extras, python: "3.14"}
           - {env: postgres, python: "3.14"}
+          - {env: redis, python: "3.14"}
+          - {env: redis-json, python: "3.14"}
+          - {env: memcached, python: "3.14"}
           - {env: djangomain, python: "3.14", experimental: true}
     env:
       PGHOST: localhost
       PGUSER: postgres
       PGPASSWORD: postgres
+      # Each job has its own server (below), which the tests empty.
+      DYNAMIC_CONFIGS_TEST_REDIS_URL: redis://localhost:6379/0
+      DYNAMIC_CONFIGS_TEST_MEMCACHED: localhost:11211
     services:
       postgres:
         image: ${{ matrix.env == 'postgres' && 'postgres:17' || '' }}
@@ -98,6 +107,19 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: ${{ (matrix.env == 'redis' || matrix.env == 'redis-json') && 'redis:8' || '' }}
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      memcached:
+        image: ${{ matrix.env == 'memcached' && 'memcached:1.6' || '' }}
+        ports:
+          - 11211:11211
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

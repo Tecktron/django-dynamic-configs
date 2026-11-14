@@ -13,12 +13,18 @@ python3 -m venv venv
 venv/bin/pip install -r requirements.txt
 ```
 
-The browser tests (`tests/browser`, the admin's scripts in Chromium) need a browser. This installs one inside the
-virtual environment, about 280 MB:
+The browser tests (`tests/browser`, the admin's scripts in Chromium, Firefox and WebKit) need a browser. They use
+Chromium unless told otherwise; this installs it inside the virtual environment, about 280 MB:
 
 ```
 PLAYWRIGHT_BROWSERS_PATH=0 venv/bin/playwright install --only-shell chromium
 ```
+
+To run them in Firefox or WebKit as well, install those the same way (`install firefox`, `install webkit`) and pass
+`--browser firefox` or `--browser webkit` to pytest. Either may need system libraries the machine lacks: Playwright
+names them when it can't start the browser, and `playwright install-deps` installs them (with `sudo`). Without them,
+that browser's tests fail, and so do its tox environments: [tox](#tox) shows how to skip WebKit's, or run them in
+Docker.
 
 ## Running the tests
 
@@ -60,16 +66,44 @@ Plain `tox` runs these environments:
 
 - **The matrix** (`py310-django52` to `py315-django61`): the suite under coverage, without the browser tests, since
   the scripts don't change with Python or Django.
-- **`browser-django52` and `browser-django61`**: the browser tests in headless Chromium, on the oldest and newest
-  Django (their admin markup differs), each installing its own Chromium. Without coverage, since the matrix holds the
-  Python code to 100%.
+- **`browser-chromium-django52` to `browser-webkit-django61`**: the browser tests in each headless browser (Chromium,
+  Firefox, WebKit) on the oldest and newest Django (their admin markup differs), one engine per environment, each
+  installing only its own browser. Without coverage, since the matrix holds the Python code to 100%.
+
+  Firefox and WebKit need the system libraries described in [Setting up](#setting-up); without them, their
+  environments fail. To leave WebKit out, skip its environments (tox matches the pattern from the start of each name):
+
+  ```
+  venv/bin/tox --skip-env browser-webkit
+  ```
+
+  Or run them in Playwright's Docker image, which has the libraries. This copies the working tree into the container
+  (nothing is mounted, so the container's `.tox` stays apart from yours), installs tox there as the image's non-root
+  user, and points the environments at the image's Python 3.12, since they ask for 3.14:
+
+  ```
+  git ls-files -co --exclude-standard | tar -cf - -T - | docker run --rm -i --ipc=host --user pwuser \
+      mcr.microsoft.com/playwright/python:v1.64.1-noble bash -c '
+          set -e
+          umask 022
+          mkdir ~/src
+          tar -xf - -C ~/src
+          cd ~/src
+          pip install --user --quiet --no-warn-script-location tox
+          python3 -m tox -e browser-webkit-django52,browser-webkit-django61 \
+              -x testenv:browser-webkit-django52.base_python=python3 \
+              -x testenv:browser-webkit-django61.base_python=python3'
+  ```
+
+  The image provides the libraries of its Playwright version; if tox installs a newer Playwright whose browsers need
+  more, use the image tag of that version.
 - **`extras`**: the suite with django-simple-history installed and its app enabled in the test settings
   (`DYNAMIC_CONFIGS_TEST_EXTRAS=1`).
 - **`lint`**: ruff's check and format check.
 - **`docs`**: builds this documentation site with warnings as errors.
 - **`coverage`**: combines the coverage of every test environment and enforces 100%.
 
-Two more run only when named, and always in CI:
+Five more run only when named, and always in CI:
 
 - **`postgres`**: the suite on PostgreSQL (`DYNAMIC_CONFIGS_TEST_POSTGRES=1`). It needs a server: the connection comes
   from libpq's standard `PG*` variables, which tox passes through, and the user must be able to create the test
@@ -78,6 +112,34 @@ Two more run only when named, and always in CI:
   ```
   PGHOST=localhost PGUSER=postgres PGPASSWORD=postgres venv/bin/tox -e postgres
   ```
+
+- **`redis`, `redis-json` and `memcached`**: the suite against a real cache server instead of LocMemCache
+  (`DYNAMIC_CONFIGS_TEST_CACHE`): Django's Redis backend; django-redis with its JSON serializer, on Django 6.0 (the
+  newest django-redis supports); and Django's pymemcache backend. The server's address comes from
+  `DYNAMIC_CONFIGS_TEST_REDIS_URL` or `DYNAMIC_CONFIGS_TEST_MEMCACHED`, which tox passes through. There is no default
+  address.
+
+  **The tests empty the server.** The suite clears the cache around every test: `FLUSHDB` on the Redis database, and
+  the whole Memcached server. Never point them at a server holding anything you want to keep. As a guard, a run stops
+  before the first test, deleting nothing, if the server already holds data or can't be reached, or another run on the
+  same machine holds the lock for its address. The lock is a file in the system's temporary directory, named from the
+  address exactly as written: `localhost` and `127.0.0.1`, or a Redis URL with and without `/0`, are different
+  addresses to it, and a run on another machine or in another container doesn't see it. Give each environment its own
+  server, or its own Redis database: two runs sharing one would empty each other's cache. On Windows there's no lock,
+  so runs there aren't protected against each other. For example, with throwaway servers in Docker, on uncommon ports
+  bound to `127.0.0.1`:
+
+  ```
+  docker run --rm -d --name dc-test-redis -p 127.0.0.1:16379:6379 redis:8
+  docker run --rm -d --name dc-test-memcached -p 127.0.0.1:21211:11211 memcached:1.6
+  DYNAMIC_CONFIGS_TEST_REDIS_URL=redis://127.0.0.1:16379/0 venv/bin/tox -e redis
+  DYNAMIC_CONFIGS_TEST_REDIS_URL=redis://127.0.0.1:16379/1 venv/bin/tox -e redis-json
+  DYNAMIC_CONFIGS_TEST_MEMCACHED=127.0.0.1:21211 venv/bin/tox -e memcached
+  docker stop dc-test-redis dc-test-memcached
+  ```
+
+  These environments use a file-backed SQLite test database, in the system's temporary directory, instead of the
+  in-memory one, so a second process can open it.
 
 - **`djangomain`**: the suite on Django's development version, installed from GitHub each time. It may fail while
   Django's main branch changes.
@@ -130,8 +192,9 @@ GitHub Actions runs `ci.yml` on pushes to `main` and on pull requests:
 - the `package` job: it builds the sdist and the wheel, as a release does, and checks them with
   `twine check --strict`, so a packaging problem shows up before a tag is pushed;
 - the browser tests, one job per browser environment;
-- the test suite, one job per tox environment, including `postgres` (with a PostgreSQL service container) and
-  `djangomain` (allowed to fail); each saves its coverage data;
+- the test suite, one job per tox environment, including `postgres` (with a PostgreSQL service container), `redis`,
+  `redis-json` and `memcached` (each job with a Redis or Memcached service container of its own) and `djangomain`
+  (allowed to fail); each saves its coverage data;
 - the `coverage` job, after the tests: it combines their data, prints the report with any missing lines, fails under
   100%, and saves the HTML report to download.
 
@@ -153,6 +216,22 @@ Pushing the tag runs `release.yml`: it checks that the tag matches the package v
 wheel, and publishes them to PyPI through trusted publishing, so no token is stored. Read the Docs builds the tag's
 version of the docs, once the automation rule below is in place.
 
+### Dry run
+
+To try the release pipeline without releasing, start `release.yml` by hand from `main`:
+
+```
+gh workflow run release.yml --ref main
+```
+
+A manual run skips the tag check, rewrites `version` in the runner's copy of `pyproject.toml` to
+`X.Y.Z.devN` (`N` is the run number; nothing is committed), and builds and checks the distributions. Started from
+`main`, it publishes them to TestPyPI only, through the `testpypi` environment; started from any other branch, it
+publishes nothing. A tag never reaches TestPyPI, and a manual run never reaches PyPI. A `.devN` version is a
+pre-release, so a dry run can repeat without using up `X.Y.Z` on either index. To repeat one, start a fresh run rather
+than re-running one: a re-run keeps the run number, so TestPyPI refuses the duplicate `.devN`. GitHub offers a manual
+run only for a workflow on the default branch, so the dry run works once the change is merged to `main`.
+
 ### One-time setup (maintainer)
 
 Outside the repository, once:
@@ -160,10 +239,15 @@ Outside the repository, once:
 - **PyPI:** before the first release, on pypi.org, *Your account → Publishing → Add a pending publisher*: project
   `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`, workflow `release.yml`, environment
   `pypi`. The PyPI badges show "not found" until the first release.
+- **TestPyPI:** for the dry run, create an account on test.pypi.org (a separate site from PyPI) with 2FA, then *Your
+  account → Publishing → Add a pending publisher*: project `django-dynamic-configs`, owner `Tecktron`, repository
+  `django-dynamic-configs`, workflow `release.yml`, environment `testpypi`.
 - **GitHub:** create the `pypi` environment in the repository settings. Under *Deployment branches and tags*, choose
   *Selected branches and tags* and add a rule of ref type *Tag* for `v*`: a release runs from a tag, and *Protected
   branches only* lets only protected branches deploy, so it would block the release. Optionally, add required
   reviewers, so each release waits for approval.
+- **GitHub (dry run):** create the `testpypi` environment. Under *Deployment branches and tags*, choose *Selected
+  branches and tags* and add a rule of ref type *Branch* for `main`: a dry run starts from `main`.
 - **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Its GitHub
   integration starts a build on every push, and the docs badge starts working; if a push to `main` doesn't start a
   build, check the integration in the project's *Admin → Integrations*. Then, in *Admin → Automation Rules*, add a

@@ -375,6 +375,8 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
   `DummyCache`. `None` disables caching.
 - **Per key:** `dynamic_configs:v1:<name>` holds the tuple `(type_key, stored_text)`, never a deserialized object,
   so custom classes are never pickled into the cache. `v1` lets a later release change the format safely.
+  A name long enough to push the cache's full key past 250 characters (Memcached's limit) is keyed by its start and a
+  hash of the whole name instead.
 - **Missing settings** are cached as a marker, so `get(name, default)` for a nonexistent setting doesn't query the
   database on every call.
 - **Timeout:** `DYNAMIC_CONFIGS["TIMEOUT"]`, default `300` seconds; `None` means no expiry (Django's semantics).
@@ -506,7 +508,9 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   - **Enter** keeps the line's indent, adds a level after `{` or `[`, and between a pair of brackets puts the closing
     one on its own line. Tab is left alone, so it still moves to the next field.
   - A **closing bracket** typed on a line of nothing but indent steps back a level (two spaces or a tab), in the same
-    undo step. It goes by the character typed (`beforeinput`), not the key, so AltGr layouts get it too.
+    undo step. It goes by the character typed (`beforeinput`), not the key, so AltGr layouts get it too. A bracket
+    committed through an input method (IME), as some phone keyboards do, arrives as `insertCompositionText`, which
+    can't be cancelled, so it doesn't adjust the indent.
   - A **note** under the field says "Valid JSON." or where and why it isn't ("Invalid JSON at line 2, column 7:
     expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". JSON nested past
     the server's limit gets "The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.", at the
@@ -701,8 +705,8 @@ src/dynamic_configs/
     py.typed
 tests/
     settings.py   conftest.py   then a mirror of src/dynamic_configs/
-    browser/      the admin's scripts in Chromium (Playwright), with a small test app (models with zoned
-                  datetimes and an inline)
+    browser/      the admin's scripts in Chromium, Firefox and WebKit (Playwright), with a small test app
+                  (models with zoned datetimes and an inline)
 ```
 
 ## Packaging and tooling
@@ -723,8 +727,9 @@ tests/
 - Development dependencies in `requirements.txt`: an editable install of the package plus coverage, pytest,
   pytest-django, pytest-mock (tests patch with its `mocker` fixture, not `unittest.mock`), pytest-playwright (the
   browser tests), ruff and tox, installed into a `venv/` in the repository (ignored by git). The browser tests need
-  Chromium, installed into the virtualenv's Playwright package with
-  `PLAYWRIGHT_BROWSERS_PATH=0 venv/bin/playwright install --only-shell chromium`. The documentation tools
+  a browser, installed into the virtualenv's Playwright package: Chromium, which they use by default, with
+  `PLAYWRIGHT_BROWSERS_PATH=0 venv/bin/playwright install --only-shell chromium`, and Firefox or WebKit
+  (`install firefox`, `install webkit`) to run them there with `--browser`. The documentation tools
   (sphinx, myst-parser, sphinx-rtd-theme, sphinx-autodoc-typehints) go in `docs/requirements.txt`, which `requirements.txt`
   includes and Read the Docs installs.
 - `pytest11` entry point: `dynamic_configs = "dynamic_configs.test.pytest_plugin"`.
@@ -750,12 +755,19 @@ Pairs follow Django's support table:
 The matrix environments skip `tests/browser` (`--ignore`), since the scripts don't change with Python or Django.
 
 Plus:
-- `browser-django52` and `browser-django61`: the oldest and newest Django (their admin markup differs: 5.2's time
-  zone note doesn't name the zone and sits beside each input), on the newest Python; each runs `tests/browser` in
-  headless Chromium with pytest-playwright, against pytest-django's live server, installing the browser into the
-  environment's Playwright package (`PLAYWRIGHT_BROWSERS_PATH=0`). Without coverage, since the matrix holds the Python code to 100%. The browser tests
+- `browser-{chromium,firefox,webkit}-django{52,61}`: six environments, one per browser engine on the oldest and
+  newest Django (their admin markup differs: 5.2's time zone note doesn't name the zone and sits beside each input),
+  on the newest Python; each runs `tests/browser` in its headless browser (`--browser <engine>`) with
+  pytest-playwright, against pytest-django's live server, installing only that browser into the environment's
+  Playwright package (`PLAYWRIGHT_BROWSERS_PATH=0`; Chromium as the headless shell, `--only-shell`). One engine per
+  environment, so a failure names its browser and CI runs them in parallel. Without coverage, since the matrix holds
+  the Python code to 100%. The browser tests
   run after all other tests in any run: Playwright keeps an event loop on the test thread until the session ends, so
-  Django's async check (`DJANGO_ALLOW_ASYNC_UNSAFE`) is relaxed only from the first browser test on.
+  Django's async check (`DJANGO_ALLOW_ASYNC_UNSAFE`) is relaxed only from the first browser test on. All six are in
+  plain `tox`'s list. Firefox and WebKit need system libraries a machine may lack, and fail without them: locally,
+  `tox --skip-env browser-webkit` leaves WebKit out, and the development guide gives a recipe that runs the WebKit
+  environments in Playwright's Docker image (`mcr.microsoft.com/playwright/python`, non-root, `--ipc=host`, with a
+  `base_python` override for the image's Python 3.12).
 - `extras`: newest Django and Python, with django-simple-history installed and its app enabled in the test settings
   (`tests/settings.py` reads an environment variable).
 - `postgres`: newest Django and Python against PostgreSQL, with `psycopg[binary]`; `tests/settings.py` switches to
@@ -763,14 +775,29 @@ Plus:
   which tox passes through. Every other environment, and every local run, uses SQLite: the package's ORM use is
   plain, so this checks that it installs, migrates and runs on the database most projects use (and runs `update`'s
   row lock for real, which SQLite ignores).
+- `redis`, `redis-json` and `memcached`: the suite against a real cache server instead of LocMemCache, chosen by
+  `DYNAMIC_CONFIGS_TEST_CACHE` in `tests/settings.py` (helpers in `tests/real_cache.py`): Django's `RedisCache` (newest
+  Django, `redis`); django-redis with its JSON serializer (Django 6.0, the newest django-redis supports); Django's
+  `PyMemcacheCache` (newest Django, `pymemcache`); all on the newest Python. The address comes from
+  `DYNAMIC_CONFIGS_TEST_REDIS_URL` or `DYNAMIC_CONFIGS_TEST_MEMCACHED`, passed through by tox, with no default: the
+  suite empties the cache around every test (`FLUSHDB`, or a full Memcached flush), and a default of the standard local
+  address could erase another project's data. An unknown value, or a missing address, is an error when the settings
+  load. Before the first test, `pytest_sessionstart` in `tests/conftest.py` stops the run, deleting nothing, if
+  another run holds the address's lock (a file in the temporary directory named from a hash of the address, locked
+  with `flock` until the process exits; not on Windows, which has no `fcntl`), or the server already holds data
+  (Redis's `DBSIZE` for the URL's database, Memcached's `curr_items`), or can't be reached. A running suite keeps the
+  server empty between tests, so the emptiness check alone can't see a second run; the lock can.
+  The test database is a file-backed SQLite one, so a second process can share it. `tests/test_real_cache.py` checks
+  that each environment really uses its server (the backend's class, an entry read back with the server's own client,
+  the JSON serializer's lists) and that a 255-character name is cached there.
 - `djangomain`: Django's main branch on the newest Python; non-blocking in CI.
 - `lint`: ruff check and format check.
 - `docs`: builds the documentation site with warnings as errors.
 - `coverage`: combines every environment's data and enforces the threshold.
 
 Plain `tox` runs the matrix, the browser environments, `extras`, `lint`, `docs` and `coverage`. `postgres` (it needs a
-PostgreSQL server) and `djangomain` (it installs Django from GitHub each time) run only when named (`tox -e
-postgres`), and always in CI.
+PostgreSQL server), `redis`, `redis-json` and `memcached` (each needs a server of its own) and `djangomain` (it installs
+Django from GitHub each time) run only when named (`tox -e postgres`), and always in CI.
 
 ### Coverage
 
@@ -796,16 +823,23 @@ Configured in `pyproject.toml`:
   - `lint` and `docs` jobs.
   - `package` job: builds the sdist and wheel and runs `twine check --strict`, the same as `release.yml`'s build, so
     a packaging problem shows up on the pull request rather than after a tag is pushed.
-  - `browser` job, a matrix over the two browser environments: installs Chromium with
-    `playwright install --with-deps --only-shell chromium` (`--with-deps` adds the system libraries through the
-    runner's `sudo`), then runs the environment.
+  - `browser` job, a matrix of engine (`chromium`, `firefox`, `webkit`) by Django (`52`, `61`), running
+    `browser-<engine>-django<version>`: installs that browser with `playwright install --with-deps <engine>`
+    (`--only-shell` for Chromium; `--with-deps` adds the system libraries through the runner's `sudo`), then runs
+    the environment.
   - `test` job: a matrix over the tox environments; each saves its coverage data as an artifact. The `postgres`
-    environment runs with a PostgreSQL service container. `djangomain` uses `continue-on-error`.
+    environment runs with a PostgreSQL service container; `redis` and `redis-json` with a Redis one (`redis:8`), and
+    `memcached` with a Memcached one (`memcached:1.6`), each job with a server of its own. `djangomain` uses
+    `continue-on-error`.
   - `coverage` job: after `test`; combines the artifacts, prints the report (with any missing lines), fails under
     100%, and saves the HTML report as an artifact to download. No coverage service: the 100% rule already blocks any
     drop, and the job's log names the missing lines.
 - **`release.yml`**, on pushing a `v*` tag: checks the tag matches the package version, builds the sdist and wheel,
   and publishes to PyPI through trusted publishing (environment `pypi`, `id-token: write`), so no token is stored.
+  Also runnable by hand (`workflow_dispatch`) as a dry run: the tag check is skipped, `version` is rewritten in the
+  runner's copy to `<version>.dev<run number>` (nothing is committed), and a separate job publishes to TestPyPI
+  through the `testpypi` environment. Each publish job is guarded by its trigger (`pypi` only for a `v*` tag push,
+  `testpypi` only for a manual run), so a manual run can't reach PyPI nor a tag TestPyPI.
 
 ## README
 
@@ -819,10 +853,15 @@ documentation build (Read the Docs), PyPI version, supported Python versions, su
 - **PyPI:** before the first release, on pypi.org, *Your account → Publishing → Add a pending publisher*: project
   `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`, workflow `release.yml`, environment
   `pypi`. The PyPI badges show "not found" until the first release.
+- **TestPyPI:** for the dry run, create an account on test.pypi.org with 2FA, then *Your account → Publishing → Add a
+  pending publisher*: project `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`,
+  workflow `release.yml`, environment `testpypi`.
 - **GitHub:** create the `pypi` environment in the repository settings. Under *Deployment branches and tags*, choose
   *Selected branches and tags* and add a rule of ref type *Tag* for `v*`: a release runs from a tag, and *Protected
   branches only* lets only protected branches deploy, so it would block the release. Optionally, add required
   reviewers, so each release waits for approval.
+- **GitHub (dry run):** create the `testpypi` environment, with a deployment rule (*Selected branches and tags*) that
+  allows the branch `main`.
 - **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Its GitHub
   integration starts a build on every push, and the docs badge starts working; if a push to `main` doesn't start a
   build, check the integration in the project's *Admin → Integrations*. Then, in *Admin → Automation Rules*, add a

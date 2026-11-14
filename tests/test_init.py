@@ -1,4 +1,6 @@
 import importlib
+import re
+from pathlib import Path
 
 import pytest
 from django.apps import apps
@@ -7,7 +9,10 @@ import dynamic_configs
 
 
 def test_version_matches_the_package_metadata():
-    assert dynamic_configs.__version__ == "0.1.0"
+    # Compared with pyproject.toml rather than a literal, so the release workflow's dry run (a .devN build) passes too.
+    pyproject = (Path(__file__).parent.parent / "pyproject.toml").read_text()
+    [version] = re.findall(r'^version = "([^"]+)"$', pyproject, re.MULTILINE)
+    assert dynamic_configs.__version__ == version
 
 
 def test_app_is_installed_with_a_readable_name():

@@ -1,13 +1,71 @@
 import json
 import logging
+import warnings
 
 import pytest
+from django.core.cache import CacheKeyWarning
 
 from dynamic_configs import cache
 
 
 def test_keys_are_versioned_and_namespaced():
-    assert cache.cache_key("SITE_NAME") == "dynamic_configs:v1:SITE_NAME"
+    assert cache.cache_key("SITE_NAME", cache.get_cache()) == "dynamic_configs:v1:SITE_NAME"
+
+
+def test_the_longest_name_whose_key_fits_keeps_its_plain_key():
+    # Django's full key is KEY_PREFIX:VERSION:key, ":1:" by default: 3 + 19 + 228 = 250.
+    backend = cache.get_cache()
+    assert cache.cache_key("A" * 228, backend) == "dynamic_configs:v1:" + "A" * 228
+
+
+def test_a_longer_name_gets_a_hashed_key_that_fits():
+    backend = cache.get_cache()
+    key = cache.cache_key("A" * 229, backend)
+    assert key.startswith("dynamic_configs:v1:AAA")
+    assert "#" in key
+    assert len(backend.make_key(key)) <= cache.MAX_KEY_LENGTH
+
+
+def test_long_names_with_the_same_start_get_different_keys():
+    backend = cache.get_cache()
+    assert cache.cache_key("A" * 254 + "B", backend) != cache.cache_key("A" * 254 + "C", backend)
+
+
+def test_a_255_character_name_round_trips_without_a_key_warning():
+    name = "A" * 255
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", CacheKeyWarning)
+        cache.write(name, ("str", "Example"))
+        assert cache.read(name) == ("str", "Example")
+        cache.delete(name)
+        assert cache.read(name) is cache.NOT_CACHED
+
+
+def test_a_long_site_key_prefix_makes_shorter_names_hash(settings):
+    # 150 + 3 + 19 + 100 = 272 characters plain; the hashed key fits.
+    settings.CACHES = {**settings.CACHES, "default": {**settings.CACHES["default"], "KEY_PREFIX": "x" * 150}}
+    backend = cache.get_cache()
+    key = cache.cache_key("A" * 100, backend)
+    assert "#" in key
+    assert len(backend.make_key(key)) == cache.MAX_KEY_LENGTH
+
+
+def test_a_site_key_prefix_too_long_for_any_key_still_works(settings):
+    # Even the hash alone can't fit (200 + 3 + 19 + 1 + 64 = 287): the backend's own warning stands, and on a backend
+    # that raises instead (Memcached), cache errors are already logged and fall back to the database. LocMemCache, a
+    # backend that warns, whichever server the suite runs against: django-redis doesn't check keys at all.
+    settings.CACHES = {
+        **settings.CACHES,
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "dynamic-configs-tests",
+            "KEY_PREFIX": "x" * 200,
+        },
+    }
+    with pytest.warns(CacheKeyWarning):
+        cache.write("A" * 40, ("str", "Example"))
+    with pytest.warns(CacheKeyWarning):
+        assert cache.read("A" * 40) == ("str", "Example")
 
 
 def test_entries_round_trip():
@@ -28,12 +86,12 @@ def test_nothing_cached_reads_as_not_cached():
 def test_entries_from_a_cache_that_stores_json_read_as_hits(text):
     # Review: caches that serialize to JSON or msgpack (django-redis's JSON serializer, say) give lists back, which
     # read as misses, so every get() went to the database and the fill (an add) never replaced the entry.
-    cache.get_cache().set(cache.cache_key("SITE_NAME"), json.loads(json.dumps(("str", text))))
+    cache.get_cache().set(cache.cache_key("SITE_NAME", cache.get_cache()), json.loads(json.dumps(("str", text))))
     assert cache.read("SITE_NAME") == ("str", text)
 
 
 def test_unexpected_cached_values_read_as_not_cached():
-    cache.get_cache().set(cache.cache_key("SITE_NAME"), "garbage")
+    cache.get_cache().set(cache.cache_key("SITE_NAME", cache.get_cache()), "garbage")
     assert cache.read("SITE_NAME") is cache.NOT_CACHED
 
 

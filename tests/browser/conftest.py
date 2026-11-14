@@ -1,7 +1,8 @@
-"""Fixtures for the browser tests: a live server, a logged-in admin in Chromium, and a check for console errors.
+"""Fixtures for the browser tests: a live server, a logged-in admin in a browser, and a check for console errors.
 
-These tests run the admin's scripts in a real browser with Playwright. The matrix tox environments skip this directory;
-the ``browser-django52`` and ``browser-django61`` environments run it.
+These tests run the admin's scripts in a real browser with Playwright: Chromium, Firefox or WebKit, as ``--browser``
+says (Chromium by default). The matrix tox environments skip this directory; the ``browser-<engine>-django52`` and
+``browser-<engine>-django61`` environments run it, one per engine.
 """
 
 import os
@@ -16,6 +17,17 @@ os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
 
 # The browser's own zone: far from the site's TIME_ZONE (America/New_York), so a test can tell the two apart.
 BROWSER_ZONE = "Asia/Tokyo"
+
+
+@pytest.fixture(scope="session")
+def browser(live_server, browser):
+    """Return Playwright's browser, started after the live server so that it closes before the server stops.
+
+    The test database is in memory, so the server's request threads share its connection, and each closes it when its
+    socket closes. Firefox keeps its keep-alive sockets open until the browser closes: after the server stopped sharing
+    the connection, every one of those threads would fail to close it.
+    """
+    return browser
 
 
 @pytest.fixture

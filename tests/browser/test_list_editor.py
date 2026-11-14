@@ -41,6 +41,11 @@ def options(page):
     return items(page).locator("option")
 
 
+# The element's box as the page measures it: Playwright's WebKit gives a list's options no box of their own.
+def box(locator):
+    return locator.evaluate("element => element.getBoundingClientRect().toJSON()")
+
+
 def item_input(page):
     return page.locator("[name=value__item]")
 
@@ -253,7 +258,7 @@ def test_the_list_shows_several_items_at_once(admin_page):
     # keeps the rows its size asks for.
     open_config(admin_page, "PORTS", "list:int", ["80", "443", "8080"])
     expect(options(admin_page)).to_have_count(3)
-    row = options(admin_page).first.bounding_box()
+    row = box(options(admin_page).first)
     assert items(admin_page).bounding_box()["height"] >= 4 * row["height"]
 
 
@@ -368,6 +373,17 @@ def test_the_arrow_keys_move_through_the_list(admin_page):
     expect(item_input(admin_page)).to_have_value("4")
     expect(items(admin_page)).to_be_focused()
     expect(button(admin_page, "Remove")).to_be_enabled()
+
+
+def test_loading_an_item_keeps_the_lists_options(admin_page):
+    # The load renders the list again, which keeps its options while the items are the same: Firefox ignores an arrow
+    # key pressed just after the options under the keyboard are replaced.
+    open_config(admin_page, "PORTS", "list:int", ["1", "2", "3"])
+    first = options(admin_page).first.element_handle()
+    items(admin_page).select_option(index=1)
+    expect(item_input(admin_page)).to_have_value("2")
+    expect(button(admin_page, "Update")).to_be_enabled()
+    assert first.evaluate("option => option.isConnected")
 
 
 def test_down_pressed_from_the_keyboard_keeps_its_focus(admin_page):
