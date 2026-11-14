@@ -88,10 +88,10 @@ UTC offset (`2026-11-02 17:00+09:00`), and one without is in `TIME_ZONE`.
 ## The JSON editor
 
 JSON settings get a small editor: a **Format** link, Enter that keeps the indent, a closing bracket on its own line
-that steps back a level, a note saying whether the JSON is valid (and where it isn't), and colours. It works on the
-text as typed and never re-encodes values, so integers too large for JavaScript (`12345678901234567890`) are kept
-exactly. (Saving stores numbers as Python's `json` reads them: integers exactly, other numbers as floats, so `1.10` is
-saved as `1.1`.)
+that steps back a level, a note saying whether the JSON is valid (and where it isn't), colours, and a whitespace view.
+It works on the text as typed and never re-encodes values, so integers too large for JavaScript
+(`12345678901234567890`) are kept exactly. (Saving stores numbers as Python's `json` reads them: integers exactly,
+other numbers as floats, so `1.10` is saved as `1.1`.)
 
 - **Format** re-indents the value, two spaces per level. On invalid JSON, or JSON nested too deeply, it changes nothing
   and moves the cursor to the problem.
@@ -104,6 +104,9 @@ saved as `1.1`.)
   [limit of 128 levels](types.md) gets "The JSON is nested too deeply at line 1, column 129: the limit is 128
   levels.", pointing at the bracket that goes over. An empty field gets no note.
 - Edits go through the browser's undo.
+- **Show whitespace**, a checkbox beside Format, off when the page opens, puts a faint dot on every space and a line
+  across every tab, inside strings too, so indents and double spaces can be counted. It changes nothing in the value,
+  and it isn't saved.
 
 The colours are CSS custom properties. Set any of them in your admin stylesheet to change them:
 
@@ -115,13 +118,14 @@ The colours are CSS custom properties. Set any of them in your admin stylesheet 
     --dynamic-configs-json-literal: #0000ff;
     --dynamic-configs-json-punctuation: #6b6b6b;
     --dynamic-configs-json-error: #ba2121;
+    --dynamic-configs-json-whitespace: #999999;
 }
 ```
 
 There's a dark set too. It follows the browser's light or dark preference, and the admin's theme toggle overrides it.
 The token where the JSON breaks is underlined. If your stylesheet changes the editor's font, padding or size so the
 colours would no longer line up with the text, the colours turn off and the plain textarea shows; without `admin.css`
-they never start, and Format and the note still work.
+they never start, and Format and the note still work. Show whitespace draws in the colours, so it goes with them.
 
 ## The list editor
 

@@ -468,7 +468,8 @@ name is an identifier, not a value), and `text` values and descriptions are alwa
 ## Admin
 
 The admin ships **no templates** of its own; it uses stock `ModelAdmin` pages, so admin skins apply. Its scripts are
-optional and every page works without them: `dynamic_configs/admin.js` fills in defaults and saves clicks,
+optional and every page works without them: `dynamic_configs/admin.js` fills in defaults, saves clicks and keeps whole
+numbers whole,
 `dynamic_configs/json_editor.js` is the JSON editor and `dynamic_configs/list_editor.js` the list editor, with
 `dynamic_configs/admin.css`, which styles only the editors' own elements. Projects can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
 
@@ -502,6 +503,14 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   picker, styled textarea), and the zoned datetime widget gets the admin's date and time pickers, keeping their
   attributes. A type's own widget is never replaced, even one built on `Textarea`. List and set values get the list
   editor's widget (`AdminListEditorWidget`).
+- **Whole numbers:** a whole-number field (an `IntegerField`, but not `FloatField` or `DecimalField`, which Django
+  makes its subclasses) with Django's plain `NumberInput` gets `AdminIntegerInput`, marked `data-dynamic-configs-int`,
+  with `admin.js`. The script trims a decimal to its whole part (`1.7` to `1`, `-1.7` to `-1`, `-0.5` to `0`) as text,
+  so a whole part too long for a JavaScript number isn't rounded: on `change`, which the browser fires on leaving the
+  input and right after each step of its arrows and spin buttons, and on Enter, in the capture phase, before the form
+  submits or the list editor adds the item. On load it drops the input's `value` attribute, keeping the value shown:
+  the browser counts steps from that attribute, so after the server refused `1.7`, up went to `2.7`. A value with an
+  exponent (`1e3`) is left to the server, which refuses it.
 - **JSON editor:** the `json` type's textarea (`AdminJSONTextarea`) gets `json_editor.js` and `admin.css`:
   - A **Format** link re-indents the value, two spaces per level, and on invalid JSON, or JSON nested too deeply,
     changes nothing and moves the cursor to the problem.
@@ -522,9 +531,17 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
     its scrolling and resizing; if a stylesheet overrides those styles on the copy, or the two differ in height once
     the textarea scrolls, the colours turn off and the plain textarea shows. Without `admin.css` the colours never
     start, and Format and the note still work.
+  - **Show whitespace**, a checkbox beside Format (no `name`, so never posted; off when the page opens), marks every
+    space with a dot and every tab with a line, inside strings too. The copy always wraps each space and tab in a span
+    of its own (`-space`, `-tab`) holding the character itself, so its text and layout stay the textarea's; the
+    checkbox only toggles a class that draws the marks as backgrounds. The marks follow the colours: the checkbox is
+    added only with them and hidden when they turn off. The admin's textarea font is proportional (a space is about
+    3.4px at 13px), so the dots are small enough to stay apart.
+  - The field and its tools sit in one block (`.dynamic-configs-json-field`): Django 5.2 lays a form row's children
+    out side by side, which put the tools in a narrow column beside the field.
   - The colours are custom properties (`--dynamic-configs-json-key`, `-string`, `-number`, `-literal`,
-    `-punctuation`, `-error`) that a project can set in its own admin stylesheet. The light set has at least 4.5:1
-    contrast on white; the dark set follows `prefers-color-scheme`, and Django's admin theme toggle (`data-theme`)
+    `-punctuation`, `-error`, `-whitespace`) that a project can set in its own admin stylesheet. The light set has at
+    least 4.5:1 contrast on white, except the whitespace marks, which are decoration and fainter on purpose; the dark set follows `prefers-color-scheme`, and Django's admin theme toggle (`data-theme`)
     overrides either way, as in Django's own admin CSS.
   - The script never parses values: it tokenizes the text and rebuilds it token by token, so integers too large for
     JavaScript (`12345678901234567890`) keep their exact text, and edits go through the browser's undo. Saving stores

@@ -15,6 +15,7 @@
     --dynamic-configs-json-literal: #0000ff;
     --dynamic-configs-json-punctuation: #6b6b6b;
     --dynamic-configs-json-error: #ba2121;
+    --dynamic-configs-json-whitespace: #999999;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -25,6 +26,7 @@
         --dynamic-configs-json-literal: #569cd6;
         --dynamic-configs-json-punctuation: #a0a0a0;
         --dynamic-configs-json-error: #ff7b72;
+        --dynamic-configs-json-whitespace: #6a6a6a;
     }
 }
 
@@ -35,6 +37,7 @@
     --dynamic-configs-json-literal: #569cd6;
     --dynamic-configs-json-punctuation: #a0a0a0;
     --dynamic-configs-json-error: #ff7b72;
+    --dynamic-configs-json-whitespace: #6a6a6a;
 }
 
 /* The textarea and the coloured copy of its text behind it. The script copies the textarea's font, padding and size
@@ -79,9 +82,43 @@
     text-decoration-skip-ink: none;
 }
 
+/* Show whitespace: a dot on each space and a line across each tab, drawn behind the character so nothing moves. */
+.dynamic-configs-json-whitespace .dynamic-configs-json-space {
+    background: radial-gradient(circle, var(--dynamic-configs-json-whitespace) 0.07em, transparent 0.08em) center / 100%
+        100% no-repeat;
+}
+
+.dynamic-configs-json-whitespace .dynamic-configs-json-tab {
+    background: linear-gradient(var(--dynamic-configs-json-whitespace), var(--dynamic-configs-json-whitespace)) center /
+        calc(100% - 0.4em) 1px no-repeat;
+}
+
 /* The Format link and the note under the field. */
 .dynamic-configs-json-tools {
     margin-top: 4px;
+}
+
+/* Undo the admin's aligned-form label (a block of fixed width), so the checkbox sits in the line. */
+.dynamic-configs-json-tools label.dynamic-configs-json-show-whitespace {
+    display: inline;
+    float: none;
+    width: auto;
+    min-width: 0;
+    margin: 0 0 0 0.5em;
+    padding: 0;
+    font-weight: normal;
+    color: var(--body-quiet-color, #666);
+}
+
+.dynamic-configs-json-show-whitespace input {
+    margin: 0 0.25em 0 0;
+    vertical-align: middle;
+}
+
+/* The whitespace is shown in the colours: when they turn off, so does the checkbox. */
+.dynamic-configs-json-editor:not(.dynamic-configs-json-coloured) + .dynamic-configs-json-tools
+    .dynamic-configs-json-show-whitespace {
+    display: none;
 }
 
 .dynamic-configs-json-status {

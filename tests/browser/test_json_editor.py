@@ -1,5 +1,7 @@
 """The admin's JSON editor (json_editor.js), in a real browser."""
 
+import re
+
 import pytest
 from playwright.sync_api import expect
 
@@ -7,6 +9,9 @@ from dynamic_configs.models import Config
 
 LIGHT_KEY = "rgb(4, 81, 165)"
 DARK_KEY = "rgb(156, 220, 254)"
+LIGHT_WHITESPACE = "rgb(153, 153, 153)"
+DARK_WHITESPACE = "rgb(106, 106, 106)"
+MARKS = ".dynamic-configs-json-space, .dynamic-configs-json-tab"
 
 
 @pytest.fixture
@@ -31,6 +36,19 @@ def colours(page):
 
 def click_format(page):
     page.get_by_role("button", name="Format").click()
+
+
+def show_whitespace(page):
+    return page.get_by_role("checkbox", name="Show whitespace")
+
+
+def box(locator):
+    return locator.evaluate("element => element.getBoundingClientRect().toJSON()")
+
+
+def text_of(locator):
+    """The element's text exactly, where Playwright's text assertions collapse runs of spaces."""
+    return locator.evaluate("element => element.textContent")
 
 
 def test_format_indents_without_changing_any_value(editor):
@@ -237,9 +255,12 @@ def test_the_colours_line_up_with_the_text_and_scroll_with_it(editor):
 def test_the_colours_turn_off_when_the_copy_cant_line_up(editor):
     # A skin's rule the script can't follow: the copy's text no longer wraps where the textarea's does.
     editor.add_style_tag(content=".dynamic-configs-json-highlight { letter-spacing: 6px !important; }")
+    expect(show_whitespace(editor)).to_be_visible()
     textarea(editor).fill('{"long": "' + "word " * 60 + '"}')
     expect(textarea(editor)).not_to_have_css("color", "rgba(0, 0, 0, 0)")
     expect(colours(editor)).to_be_hidden()
+    # The whitespace is shown in the colours, so its checkbox goes with them.
+    expect(show_whitespace(editor)).to_be_hidden()
     # The rest of the editor still works.
     expect(status(editor)).to_have_text("Valid JSON.")
 
@@ -249,6 +270,7 @@ def test_without_the_stylesheet_the_field_stays_plain_but_still_checks(admin_pag
     Config.objects.create(name="FLAGS", type="json", value='{"beta": true}')
     admin_page.goto("/admin/dynamic_configs/config/FLAGS/change/")
     expect(colours(admin_page)).to_have_count(0)
+    expect(show_whitespace(admin_page)).to_have_count(0)
     expect(textarea(admin_page)).not_to_have_css("color", "rgba(0, 0, 0, 0)")
     textarea(admin_page).fill('{"a":1}')
     click_format(admin_page)
@@ -271,6 +293,67 @@ def test_dark_colours_follow_the_browser_and_the_admins_theme_toggle(editor):
 def test_a_projects_own_colours_win(editor):
     editor.add_style_tag(content=":root { --dynamic-configs-json-key: rgb(1, 2, 3); }")
     expect(colours(editor).locator(".dynamic-configs-json-key").first).to_have_css("color", "rgb(1, 2, 3)")
+
+
+def test_whitespace_shows_only_while_its_box_is_ticked(editor):
+    textarea(editor).fill('{\n  "a": 1\n}')
+    mark = colours(editor).locator(".dynamic-configs-json-space").first
+    expect(show_whitespace(editor)).not_to_be_checked()
+    expect(mark).to_have_css("background-image", "none")
+    show_whitespace(editor).check()
+    expect(mark).to_have_css("background-image", re.compile(re.escape(LIGHT_WHITESPACE)))
+    show_whitespace(editor).uncheck()
+    expect(mark).to_have_css("background-image", "none")
+
+
+def test_every_space_and_tab_is_marked_strings_included(editor):
+    text = '{\n\t"a b": "c  d",\n  "e": [1, 2]\n}'
+    textarea(editor).fill(text)
+    copy = colours(editor)
+    expect(copy.locator(".dynamic-configs-json-space")).to_have_count(text.count(" "))
+    expect(copy.locator(".dynamic-configs-json-tab")).to_have_count(text.count("\t"))
+    # One character each, and the copy's text is still exactly the textarea's (and its last line's placeholder).
+    assert copy.locator(MARKS).evaluate_all("marks => marks.map(mark => mark.textContent).join('')") == "".join(
+        char for char in text if char in " \t"
+    )
+    assert text_of(copy) == text + "​"
+    # A string keeps its colour around its marks.
+    assert text_of(copy.locator(".dynamic-configs-json-string")) == '"c  d"'
+    assert text_of(copy.locator(".dynamic-configs-json-key").first) == '"a b"'
+
+
+def test_the_marks_keep_the_colours_lined_up(editor):
+    show_whitespace(editor).check()
+    # Long enough to scroll, with indents, and a line of spaces long enough to wrap.
+    lines = [f'  "key{n}": "{"word  " * (40 if n == 3 else 1)}",' for n in range(60)]
+    textarea(editor).fill("{\n" + "\n".join(lines) + '\n  "end": [\n\t1\n  ]\n}\n')
+    wait_until_lined_up(editor)
+    textarea(editor).evaluate("t => { t.scrollTop = t.scrollHeight; }")
+    editor.wait_for_function("() => document.querySelector('.dynamic-configs-json-highlight').scrollTop > 0")
+    wait_until_lined_up(editor)
+    expect(colours(editor)).to_be_visible()
+
+
+def test_whitespace_marks_have_a_dark_colour(editor):
+    show_whitespace(editor).check()
+    mark = colours(editor).locator(".dynamic-configs-json-space").first
+    editor.emulate_media(color_scheme="dark")
+    expect(mark).to_have_css("background-image", re.compile(re.escape(DARK_WHITESPACE)))
+
+
+def test_the_whitespace_box_isnt_part_of_the_form(editor):
+    fields = "t => [...new FormData(t.form).keys()]"
+    posted = textarea(editor).evaluate(fields)
+    show_whitespace(editor).check()
+    assert textarea(editor).evaluate(fields) == posted
+
+
+def test_the_tools_sit_under_the_field(editor):
+    # Django 5.2 lays a form row's children out side by side, which put the tools in a narrow column beside the field.
+    field = box(textarea(editor))
+    tools = box(editor.locator(".dynamic-configs-json-tools"))
+    assert tools["top"] >= field["bottom"]
+    assert abs(tools["left"] - field["left"]) < 1
 
 
 def test_the_add_page_has_the_editor(admin_page):

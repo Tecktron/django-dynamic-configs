@@ -331,6 +331,28 @@
         "paddingLeft",
     ];
 
+    // The text with each space and tab in a span of its own, which the whitespace view marks (only while it's on, so
+    // the spans change nothing otherwise). Each mark is the character itself, so the copy's text and layout stay the
+    // textarea's.
+    function marked(text) {
+        const parts = [];
+        let start = 0;
+        for (const match of text.matchAll(/[ \t]/g)) {
+            if (match.index > start) {
+                parts.push(text.slice(start, match.index));
+            }
+            const mark = document.createElement("span");
+            mark.className = match[0] === " " ? `${PREFIX}-space` : `${PREFIX}-tab`;
+            mark.textContent = match[0];
+            parts.push(mark);
+            start = match.index + 1;
+        }
+        if (start < text.length) {
+            parts.push(text.slice(start));
+        }
+        return parts;
+    }
+
     // Put a coloured copy of the field's text behind it, or return null when the page lacks the stylesheet.
     function colourer(field) {
         const wrapper = document.createElement("div");
@@ -383,9 +405,9 @@
             if (!on) {
                 return;
             }
-            const spans = tokens.map((token) => {
+            const spans = tokens.flatMap((token) => {
                 if (token.kind === "space") {
-                    return token.text;
+                    return marked(token.text);
                 }
                 const span = document.createElement("span");
                 const kind = token.kind === "invalid" ? "invalid" : token.kind;
@@ -393,8 +415,8 @@
                 if (problem?.token === token) {
                     span.classList.add(`${PREFIX}-invalid`);
                 }
-                span.textContent = token.text;
-                return span;
+                span.append(...marked(token.text));
+                return [span];
             });
             // An empty last line has no height in the copy, as it does in the textarea, without something on it.
             copy.replaceChildren(...spans, "​");
@@ -440,10 +462,30 @@
         status.className = `${PREFIX}-status`;
         status.id = `${field.id || field.name}_json_status`;
         status.setAttribute("aria-live", "polite");
-        tools.append(formatLink, " ", status);
+        tools.append(formatLink, " ");
 
         const paint = colourer(field);
-        (field.closest(`.${PREFIX}-editor`) ?? field).after(tools);
+        const wrapper = field.closest(`.${PREFIX}-editor`);
+        // The whitespace is shown in the colours, so the checkbox comes with them (and the stylesheet hides it if they
+        // turn off). It has no name, so it's never posted.
+        if (paint) {
+            const showWhitespace = document.createElement("input");
+            showWhitespace.type = "checkbox";
+            showWhitespace.addEventListener("change", () => {
+                wrapper.classList.toggle(`${PREFIX}-whitespace`, showWhitespace.checked);
+            });
+            const label = document.createElement("label");
+            label.className = `${PREFIX}-show-whitespace`;
+            label.append(showWhitespace, " Show whitespace");
+            tools.append(label, " ");
+        }
+        tools.append(status);
+        // The field (with its colours) and its tools in one block, so that a form row laying its children out side by
+        // side (Django 5.2's) keeps the tools under the field.
+        const block = document.createElement("div");
+        block.className = `${PREFIX}-field`;
+        (wrapper ?? field).before(block);
+        block.append(wrapper ?? field, tools);
         const describedBy = field.getAttribute("aria-describedby");
         field.setAttribute("aria-describedby", describedBy ? `${describedBy} ${status.id}` : status.id);
 
