@@ -19,6 +19,17 @@ os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "0")
 BROWSER_ZONE = "Asia/Tokyo"
 
 
+@pytest.fixture(scope="session")
+def browser(live_server, browser):
+    """Return Playwright's browser, started after the live server so that it closes before the server stops.
+
+    The test database is in memory, so the server's request threads share its connection, and each closes it when its
+    socket closes. Firefox keeps its keep-alive sockets open until the browser closes: after the server stopped sharing
+    the connection, every one of those threads would fail to close it.
+    """
+    return browser
+
+
 @pytest.fixture
 def browser_context_args(browser_context_args, live_server):
     """Point pages at the live server, and fix the browser's time zone so the tests don't depend on the machine's."""
