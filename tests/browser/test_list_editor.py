@@ -375,6 +375,17 @@ def test_the_arrow_keys_move_through_the_list(admin_page):
     expect(button(admin_page, "Remove")).to_be_enabled()
 
 
+def test_loading_an_item_keeps_the_lists_options(admin_page):
+    # The load renders the list again, which keeps its options while the items are the same: Firefox ignores an arrow
+    # key pressed just after the options under the keyboard are replaced.
+    open_config(admin_page, "PORTS", "list:int", ["1", "2", "3"])
+    first = options(admin_page).first.element_handle()
+    items(admin_page).select_option(index=1)
+    expect(item_input(admin_page)).to_have_value("2")
+    expect(button(admin_page, "Update")).to_be_enabled()
+    assert first.evaluate("option => option.isConnected")
+
+
 def test_down_pressed_from_the_keyboard_keeps_its_focus(admin_page):
     open_config(admin_page, "PORTS", "list:int", ["1", "2", "3", "4"])
     items(admin_page).select_option(index=0)
