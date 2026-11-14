@@ -832,6 +832,10 @@ Configured in `pyproject.toml`:
     drop, and the job's log names the missing lines.
 - **`release.yml`**, on pushing a `v*` tag: checks the tag matches the package version, builds the sdist and wheel,
   and publishes to PyPI through trusted publishing (environment `pypi`, `id-token: write`), so no token is stored.
+  Also runnable by hand (`workflow_dispatch`) as a dry run: the tag check is skipped, `version` is rewritten in the
+  runner's copy to `<version>.dev<run number>` (nothing is committed), and a separate job publishes to TestPyPI
+  through the `testpypi` environment. Each publish job is guarded by its trigger (`pypi` only for a `v*` tag push,
+  `testpypi` only for a manual run), so a manual run can't reach PyPI nor a tag TestPyPI.
 
 ## README
 
@@ -845,10 +849,15 @@ documentation build (Read the Docs), PyPI version, supported Python versions, su
 - **PyPI:** before the first release, on pypi.org, *Your account → Publishing → Add a pending publisher*: project
   `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`, workflow `release.yml`, environment
   `pypi`. The PyPI badges show "not found" until the first release.
+- **TestPyPI:** for the dry run, create an account on test.pypi.org with 2FA, then *Your account → Publishing → Add a
+  pending publisher*: project `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`,
+  workflow `release.yml`, environment `testpypi`.
 - **GitHub:** create the `pypi` environment in the repository settings. Under *Deployment branches and tags*, choose
   *Selected branches and tags* and add a rule of ref type *Tag* for `v*`: a release runs from a tag, and *Protected
   branches only* lets only protected branches deploy, so it would block the release. Optionally, add required
   reviewers, so each release waits for approval.
+- **GitHub (dry run):** create the `testpypi` environment, with a deployment rule (*Selected branches and tags*) that
+  allows the branch `main`.
 - **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Its GitHub
   integration starts a build on every push, and the docs badge starts working; if a push to `main` doesn't start a
   build, check the integration in the project's *Admin → Integrations*. Then, in *Admin → Automation Rules*, add a

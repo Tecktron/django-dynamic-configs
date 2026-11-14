@@ -186,6 +186,20 @@ Pushing the tag runs `release.yml`: it checks that the tag matches the package v
 wheel, and publishes them to PyPI through trusted publishing, so no token is stored. Read the Docs builds the tag's
 version of the docs, once the automation rule below is in place.
 
+### Dry run
+
+To try the release pipeline without releasing, start `release.yml` by hand from `main`:
+
+```
+gh workflow run release.yml --ref main
+```
+
+A manual run skips the tag check, rewrites `version` in the runner's copy of `pyproject.toml` to
+`X.Y.Z.devN` (`N` is the run number; nothing is committed), builds and checks the distributions, and publishes them
+to TestPyPI only, through the `testpypi` environment. A tag never reaches TestPyPI, and a manual run never reaches
+PyPI. A `.devN` version is a pre-release, so a dry run can repeat without using up `X.Y.Z` on either index. GitHub
+offers a manual run only for a workflow on the default branch, so the dry run works once the change is merged to `main`.
+
 ### One-time setup (maintainer)
 
 Outside the repository, once:
@@ -193,10 +207,15 @@ Outside the repository, once:
 - **PyPI:** before the first release, on pypi.org, *Your account → Publishing → Add a pending publisher*: project
   `django-dynamic-configs`, owner `Tecktron`, repository `django-dynamic-configs`, workflow `release.yml`, environment
   `pypi`. The PyPI badges show "not found" until the first release.
+- **TestPyPI:** for the dry run, create an account on test.pypi.org (a separate site from PyPI) with 2FA, then *Your
+  account → Publishing → Add a pending publisher*: project `django-dynamic-configs`, owner `Tecktron`, repository
+  `django-dynamic-configs`, workflow `release.yml`, environment `testpypi`.
 - **GitHub:** create the `pypi` environment in the repository settings. Under *Deployment branches and tags*, choose
   *Selected branches and tags* and add a rule of ref type *Tag* for `v*`: a release runs from a tag, and *Protected
   branches only* lets only protected branches deploy, so it would block the release. Optionally, add required
   reviewers, so each release waits for approval.
+- **GitHub (dry run):** create the `testpypi` environment. Under *Deployment branches and tags*, choose *Selected
+  branches and tags* and add a rule of ref type *Branch* for `main`: a dry run starts from `main`.
 - **Read the Docs:** sign in at readthedocs.org with GitHub and import `Tecktron/django-dynamic-configs`. Its GitHub
   integration starts a build on every push, and the docs badge starts working; if a push to `main` doesn't start a
   build, check the integration in the project's *Admin → Integrations*. Then, in *Admin → Automation Rules*, add a
