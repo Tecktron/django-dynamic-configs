@@ -225,8 +225,10 @@ gh workflow run release.yml --ref main
 A manual run skips the tag check, rewrites `version` in the runner's copy of `pyproject.toml` to
 `X.Y.Z.devN` (`N` is the run number; nothing is committed), and builds and checks the distributions. Started from
 `main`, it publishes them to TestPyPI only, through the `testpypi` environment; started from any other branch, it
-publishes nothing. A tag never reaches TestPyPI, and a manual run never reaches PyPI. A `.devN` version is a pre-release, so a dry run can repeat without using up `X.Y.Z` on either index. GitHub
-offers a manual run only for a workflow on the default branch, so the dry run works once the change is merged to `main`.
+publishes nothing. A tag never reaches TestPyPI, and a manual run never reaches PyPI. A `.devN` version is a
+pre-release, so a dry run can repeat without using up `X.Y.Z` on either index. To repeat one, start a fresh run rather
+than re-running one: a re-run keeps the run number, so TestPyPI refuses the duplicate `.devN`. GitHub offers a manual
+run only for a workflow on the default branch, so the dry run works once the change is merged to `main`.
 
 ### One-time setup (maintainer)
 
