@@ -121,11 +121,13 @@ Five more run only when named, and always in CI:
 
   **The tests empty the server.** The suite clears the cache around every test: `FLUSHDB` on the Redis database, and
   the whole Memcached server. Never point them at a server holding anything you want to keep. As a guard, a run stops
-  before the first test, deleting nothing, if another run is using the same address (a lock file in the system's
-  temporary directory), or the server already holds data or can't be reached. Give each environment its own server, or
-  its own Redis database: two runs sharing one would empty each other's cache. On Windows there's no lock, so runs
-  there aren't protected against each other. For example, with throwaway servers in Docker, on uncommon ports bound to
-  `127.0.0.1`:
+  before the first test, deleting nothing, if the server already holds data or can't be reached, or another run on the
+  same machine holds the lock for its address. The lock is a file in the system's temporary directory, named from the
+  address exactly as written: `localhost` and `127.0.0.1`, or a Redis URL with and without `/0`, are different
+  addresses to it, and a run on another machine or in another container doesn't see it. Give each environment its own
+  server, or its own Redis database: two runs sharing one would empty each other's cache. On Windows there's no lock,
+  so runs there aren't protected against each other. For example, with throwaway servers in Docker, on uncommon ports
+  bound to `127.0.0.1`:
 
   ```
   docker run --rm -d --name dc-test-redis -p 127.0.0.1:16379:6379 redis:8
