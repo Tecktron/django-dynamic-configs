@@ -214,6 +214,19 @@ def test_dates_and_texts_use_the_admin_widgets(admin_client):
     assert "vLargeTextField" in admin_client.get(change_url("NOTES")).content.decode()
 
 
+def test_whole_numbers_are_marked_for_the_admin_script(admin_client):
+    make("MAX_RETRIES", "int", "3")
+    content = admin_client.get(change_url("MAX_RETRIES")).content.decode()
+    assert re.search(r'<input type="number" name="value" value="3"[^>]* data-dynamic-configs-int', content)
+    assert "dynamic_configs/admin.js" in content
+
+
+@pytest.mark.parametrize(("type_key", "value"), [("float", "1.5"), ("decimal", "1.50"), ("minutes", "1.5")])
+def test_numbers_that_take_decimals_arent_marked(admin_client, type_key, value):
+    make("AMOUNT", type_key, value)
+    assert "data-dynamic-configs-int" not in admin_client.get(change_url("AMOUNT")).content.decode()
+
+
 def post_datetime(admin_client, name, day, clock, zone):
     data = {"value_0": day, "value_1": clock, "value_2": zone, "description": "", "_save": "Save"}
     return admin_client.post(change_url(name), data)

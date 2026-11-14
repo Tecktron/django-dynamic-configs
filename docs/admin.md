@@ -2,7 +2,8 @@
 
 Settings are edited in the Django admin, under **Configs**. The admin ships **no templates** of its own: it uses the
 stock `ModelAdmin` pages, so admin skins apply. Its scripts are optional and every page works without them:
-`dynamic_configs/admin.js` fills in defaults and saves clicks, `dynamic_configs/json_editor.js` is the JSON editor and
+`dynamic_configs/admin.js` fills in defaults, saves clicks and keeps whole numbers whole,
+`dynamic_configs/json_editor.js` is the JSON editor and
 `dynamic_configs/list_editor.js` the list editor, with `dynamic_configs/admin.css`, which styles only the editors' own
 elements. You can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
 
@@ -32,6 +33,11 @@ step again.
 The name and type are read-only. The value uses its type's input: a checkbox, a date picker, the JSON editor, the
 list editor, and so on. Django's plain date, date-and-time and textarea widgets are swapped for the admin's versions;
 a type's own widget is never replaced.
+
+An `int` takes a whole number. With the admin script, a decimal typed into its input (or a list item's) is trimmed to
+its whole part, `1.7` to `1` and `-1.7` to `-1`, when you leave the input, step it with the arrows, or press Enter, and
+the arrows always count in whole numbers. Without the script, the server refuses a decimal with "Enter a whole
+number.", except one ending in zeros, such as `1.0`, which it reads as `1`.
 
 ## Empty values
 

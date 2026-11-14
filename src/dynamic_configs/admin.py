@@ -63,6 +63,19 @@ class AdminZonedDateTimeWidget(ZonedDateTimeWidget):
         js = (ADMIN_SCRIPT,)
 
 
+class AdminIntegerInput(forms.NumberInput):
+    """A whole number's input, marked for the admin script, which trims a decimal typed into it to its whole part."""
+
+    def __init__(self, attrs: dict[str, Any] | None = None) -> None:
+        """Keep ``attrs`` (the field's min, max and step) and add the mark."""
+        super().__init__(attrs={**(attrs or {}), "data-dynamic-configs-int": True})
+
+    class Media:
+        """The admin script, which keeps the input to whole numbers."""
+
+        js = (ADMIN_SCRIPT,)
+
+
 class AdminJSONTextarea(admin_widgets.AdminTextareaWidget):
     """The admin's textarea for JSON: the editor script formats, checks and colours it as it's typed."""
 
@@ -135,8 +148,18 @@ _ADMIN_WIDGETS: dict[type[forms.Widget], type[forms.Widget]] = {
 
 
 def _use_admin_widget(field: forms.Field) -> None:
-    """Swap ``field``'s widget for the admin's version when it's one of Django's plain widgets, keeping its attrs."""
+    """Swap ``field``'s widget for the admin's version when it's one of Django's plain widgets, keeping its attrs.
+
+    A number input is swapped only for a whole-number field: float and decimal fields use the same input (and Django
+    makes them subclasses of ``IntegerField``).
+    """
     widget_class = _ADMIN_WIDGETS.get(type(field.widget))
+    if (
+        type(field.widget) is forms.NumberInput
+        and isinstance(field, forms.IntegerField)
+        and not isinstance(field, (forms.FloatField, forms.DecimalField))
+    ):
+        widget_class = AdminIntegerInput
     if widget_class is not None:
         field.widget = widget_class(attrs=field.widget.attrs)
 

@@ -68,8 +68,9 @@ def test_add_checks_each_item_with_the_server(admin_page):
     button(admin_page, "Add").click()
     expect(options(admin_page)).to_have_text(["7"])
     expect(item_input(admin_page)).to_have_value("")
-    # Chromium won't type letters into a number input; 1.5 can be typed, and isn't a whole number.
-    item_input(admin_page).fill("1.5")
+    # Chromium won't type letters into a number input, and the admin script trims a decimal (1.5 to 1); 1e3 can be
+    # typed, and the server doesn't read it as a whole number.
+    item_input(admin_page).fill("1e3")
     button(admin_page, "Add").click()
     expect(message(admin_page)).to_have_text("Enter a whole number.")
     expect(options(admin_page)).to_have_text(["7"])

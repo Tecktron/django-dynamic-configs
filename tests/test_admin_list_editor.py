@@ -60,6 +60,12 @@ def test_the_item_editor_brings_its_widgets_scripts(admin_client):
     assert "admin/js/admin/DateTimeShortcuts.js" in content
 
 
+def test_a_whole_number_item_editor_is_marked_for_the_admin_script(admin_client):
+    content = admin_client.get(f"{URL}add/?type=list:int").content.decode()
+    assert re.search(r'<input type="number" name="value__item"[^>]* data-dynamic-configs-int', content)
+    assert "dynamic_configs/admin.js" in content
+
+
 def test_the_item_editor_and_the_raw_textarea_each_have_their_own_help(admin_client):
     content = admin_client.get(f"{URL}add/?type=list:bool").content.decode()
     item = re.search(r'<div class="dynamic-configs-list-item" hidden>(.*?)</div></div>', content, re.S).group(1)

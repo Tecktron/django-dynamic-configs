@@ -164,6 +164,49 @@
         select.after(shortcuts);
     }
 
+    // ---- Whole numbers ----
+    // An int's input takes only whole numbers: a decimal typed into it is trimmed to its whole part (1.7 to 1, -1.7 to
+    // -1) on leaving it, on a step (the browser's arrows and spin buttons fire "change" right after each) and on Enter.
+
+    const WHOLE = "input[data-dynamic-configs-int]";
+    // A number input's decimal: the browser's value is always a valid number, so "-" and "1." can't reach here. A value
+    // with an exponent (1e3) is left for the server.
+    const DECIMAL = /^(-?)(\d*)\.\d+$/;
+
+    // Trimmed as text, so that a whole part too long for a JavaScript number isn't rounded.
+    function trimToWhole(input) {
+        const match = DECIMAL.exec(input.value);
+        if (match) {
+            const whole = match[2].replace(/^0+(?=\d)/, "") || "0";
+            input.value = whole === "0" ? "0" : match[1] + whole;
+        }
+    }
+
+    // The browser counts steps from the value the page was served with: from a refused 1.7, up went to 2.7. Keep the
+    // value shown but not as that starting point, so steps count from whole numbers, then trim it.
+    function setUpWhole(input) {
+        const shown = input.value;
+        input.removeAttribute("value");
+        input.value = shown;
+        trimToWhole(input);
+    }
+
+    document.addEventListener("change", (event) => {
+        if (event.target instanceof Element && event.target.matches(WHOLE)) {
+            trimToWhole(event.target);
+        }
+    });
+    // Before the form submits, or the list editor adds the item (its own Enter).
+    document.addEventListener(
+        "keydown",
+        (event) => {
+            if (event.key === "Enter" && event.target instanceof Element && event.target.matches(WHOLE)) {
+                trimToWhole(event.target);
+            }
+        },
+        true,
+    );
+
     // Listening on the document covers inline rows added later.
     for (const type of ["pointerdown", "focusin"]) {
         document.addEventListener(
@@ -208,6 +251,7 @@
         for (const select of document.querySelectorAll("select[data-dynamic-configs-type]")) {
             setUpTypeChoice(select);
         }
+        document.querySelectorAll(WHOLE).forEach(setUpWhole);
         const selects = document.querySelectorAll(ZONE_SELECT);
         selects.forEach(startOnBrowserZone);
         selects.forEach(addZoneShortcuts);
