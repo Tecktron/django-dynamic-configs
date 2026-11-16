@@ -32,7 +32,7 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
 
     :param name: the config's name, such as ``"SITE_NAME"``
     :param default: returned when the config doesn't exist or can't be read
-    :param no_cache: skip the cache read; the entry is refreshed from the database when the read's transaction commits
+    :param no_cache: skip the cache read; the entry is refreshed from the primary database when its transaction commits
     :returns: the typed value, or None for an empty ``allow_null`` config
     :raises ConfigDoesNotExist: the config doesn't exist and no default was passed
     :raises ConfigValueError: the stored value can't be read (or its type isn't registered) and no default was passed

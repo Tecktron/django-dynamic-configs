@@ -378,7 +378,7 @@ aget(...), aget_or_create(...), aupdate(...), adelete(...)  # async, same argume
 
 - **`get`** returns the deserialized value, or `None` for an empty `allow_null` setting. When the setting doesn't
   exist and no default was passed, it raises `ConfigDoesNotExist`. `no_cache=True` skips the cache read; when the
-  read's transaction commits, the entry is refreshed from the database (see Caching).
+  transaction on the primary database commits, the entry is refreshed from it (see Caching).
 - Names that don't match the name pattern can never be saved, so `get` treats them as missing without touching the
   cache or the database.
 - **`get_or_create`** always reads the database, then refreshes the cache on commit. When the setting exists, it
