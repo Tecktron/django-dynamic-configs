@@ -83,7 +83,7 @@ Plain `tox` runs these environments:
 
   ```
   git ls-files -co --exclude-standard | tar -cf - -T - | docker run --rm -i --ipc=host --user pwuser \
-      mcr.microsoft.com/playwright/python:v1.64.1-noble bash -c '
+      mcr.microsoft.com/playwright/python:v1.65.1-noble bash -c '
           set -e
           umask 022
           mkdir ~/src
@@ -95,8 +95,10 @@ Plain `tox` runs these environments:
               -x testenv:browser-webkit-django61.base_python=python3'
   ```
 
-  The image provides the libraries of its Playwright version; if tox installs a newer Playwright whose browsers need
-  more, use the image tag of that version.
+  The image tag must match the Playwright version tox installs, because the image provides the libraries that version's
+  browsers need. tox doesn't pin Playwright, so check it after the environments are built:
+  `.tox/browser-webkit-django61/bin/python -m pip show playwright` (1.65.1 at the time of writing), and change the tag
+  to match.
 - **`extras`**: the suite with django-simple-history installed and its app enabled in the test settings
   (`DYNAMIC_CONFIGS_TEST_EXTRAS=1`).
 - **`extras-oldest`**: the same on the oldest Django and django-simple-history the package supports, so the shipped
@@ -205,8 +207,8 @@ There's no coverage service: the 100% rule already blocks any drop, and the job'
 ## Releasing
 
 1. Bump `version` in `pyproject.toml` to the new version, `X.Y.Z`.
-2. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` (today's date), and start a new, empty
-   `## [Unreleased]` above it.
+2. In `CHANGELOG.md`, put the new version's entries under `## [X.Y.Z] - YYYY-MM-DD` (today's date), and leave an empty
+   `## [Unreleased]` above it. If `## [X.Y.Z]` is already there, as `## [0.1.0]` is before its release, set its date.
 3. Commit both on `main`, then tag the commit and push the tag:
 
    ```

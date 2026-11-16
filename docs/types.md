@@ -78,7 +78,8 @@ The `datetime` type follows Django's time zone settings.
   `TIME_ZONE`. So `17:00` with no zone, under `TIME_ZONE = "America/New_York"`, means 17:00 New York time. An aware
   datetime keeps its zone. The value is stored in UTC (`2026-11-02T22:00:00+00:00`), so the instant is kept, and read
   back as an aware datetime in UTC, as Django's ORM returns them. A local time that's ambiguous or doesn't exist
-  around a daylight-saving change, given from code, is resolved by Python's `zoneinfo` rules (`fold=0`).
+  around a daylight-saving change, given from code, is resolved by Python's `zoneinfo` rules: a caller's `fold` is
+  honoured, and a naive time that doesn't set one has `fold=0`.
 - **`USE_TZ = False`**: an aware datetime is converted to `TIME_ZONE` and made naive, which is Django's own convention
   for this mode; values are stored and returned naive.
 

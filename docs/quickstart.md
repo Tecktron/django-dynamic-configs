@@ -20,7 +20,9 @@ page_size, created = dynamic_configs.get_or_create(
 
 Names are UPPER_SNAKE_CASE: a capital letter, then capital letters, digits and underscores. The type is a type key,
 such as `"int"`, `"str"`, `"hours"` or `"list:str"` (see [Types](types.md)), and it can't change once the setting
-exists. The value must be of that type: `get_or_create("PAGE_SIZE", "int", "20")` raises `ConfigTypeError`.
+exists. The value must be of that type: `get_or_create("NEW_SIZE", "int", "20")` raises `ConfigTypeError`, because
+`"20"` is text. (A name that already exists is a different case: it returns the stored value, and raises only if the
+type you pass differs from the stored one.)
 
 `get_or_create` always reads the database, so once an admin has changed the setting, it returns the admin's value,
 not the one in your code. Call it where a database query is fine, such as a management command your deploy runs.

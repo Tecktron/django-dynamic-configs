@@ -49,9 +49,9 @@ adding a custom type would get a spurious migration. The admin form and the API 
 ### Serializer interface
 
 A serializer is a subclass of `BaseSerializer` (`types/serializers.py`) that overrides its two methods. It is
-instantiated with no arguments, by the system checks and by each registry build (not just once). The registry also accepts any class with callable
-`serialize` and `deserialize`, so a serializer that doesn't inherit `BaseSerializer` still works; inheriting it is the
-way to write one.
+instantiated by the system checks and by each registry build, with the type's `options` as keyword arguments, or with no
+arguments when it has none. The registry also accepts any class with callable `serialize` and `deserialize`, so a
+serializer that doesn't inherit `BaseSerializer` still works; inheriting it is the way to write one.
 
 ```python
 class ColorSerializer(BaseSerializer):
@@ -349,9 +349,9 @@ Django system checks validate the configuration at startup (`manage.py check`, a
 
 | Check                   | Condition                                                                |
 |-------------------------|--------------------------------------------------------------------------|
-| `dynamic_configs.E001`  | `DYNAMIC_CONFIGS` or `TYPES` has the wrong shape, an invalid key, an entry missing `type`/`serializer`, an `options` that isn't a dict with string keys, an entry with both `sort_key` and `sort_compare` or one that isn't callable, or `STRIP_STRINGS` isn't `True`, `False` or `None` |
+| `dynamic_configs.E001`  | `DYNAMIC_CONFIGS` or `TYPES` has the wrong shape, an invalid key, an entry missing `type`/`serializer`, an `options` that isn't a dict with string keys, an entry with both `sort_key` and `sort_compare` or one that isn't callable, a `TIMEOUT` that isn't `None` or a whole number of seconds (0 or more), a `REGISTER_ADMIN` that isn't `True` or `False`, a `CACHE` that isn't a string or `None`, or `STRIP_STRINGS` isn't `True`, `False` or `None` |
 | `dynamic_configs.E002`  | a dotted path can't be imported                                          |
-| `dynamic_configs.E003`  | a serializer can't be created (with its `options`, if any), or lacks a callable `serialize` or `deserialize` |
+| `dynamic_configs.E003`  | a serializer isn't a class, can't be created (with its `options`, if any: it needs arguments, or raises `TypeError` or `ValueError`), or lacks a callable `serialize` or `deserialize` |
 | `dynamic_configs.E004`  | `form` is not a `django.forms.Field` subclass                            |
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
 | `dynamic_configs.E006`  | an admin using `ConfigAdminMixin` has a base class before the mixin in its MRO that defines `history_form_view` and isn't a `ConfigAdminMixin` subclass, so its view would run instead of the mixin's (see the django-simple-history integration) |
@@ -488,7 +488,10 @@ Each module logs to its own logger under `dynamic_configs` (`logging.getLogger(_
   for config %r; reading from the database"). Exceptions are logged with `exc_info`.
 - Every record carries `extra={"config_name": ...}` (and `"config_type"` where known), so structured log handlers can
   filter on them.
-- System check failures are reported through Django's checks framework, not logged.
+- System check failures are reported through Django's checks framework. Two are also logged at run time, because checks
+  don't run under gunicorn or uwsgi: an invalid `TYPES` setting or entry (logged at `ERROR` and skipped, naming the
+  check id) and a `CACHE` alias that isn't in `CACHES` (see Caching). Every other check is reported only by the
+  framework.
 
 ## Code documentation
 
@@ -604,7 +607,9 @@ numbers whole,
   - **Enter** keeps the line's indent, adds a level after `{` or `[`, and between a pair of brackets puts the closing
     one on its own line. Tab is left alone, so it still moves to the next field.
   - A **closing bracket** typed on a line of nothing but indent steps back a level (two spaces or a tab), in the same
-    undo step. It goes by the character typed (`beforeinput`), not the key, so AltGr layouts get it too. A bracket
+    undo step. It goes by the character typed (`beforeinput`), not the key, so a layout that types the bracket without
+    a key press of its own, as AltGr layouts may, gets it too. That is tested in Chromium and WebKit with inserted
+    text, not with a real AltGr layout; in Firefox it isn't tested. A bracket
     committed through an input method (IME), as some phone keyboards do, arrives as `insertCompositionText`, which
     can't be cancelled, so it doesn't adjust the indent.
   - A **note** under the field says "Valid JSON." or where and why it isn't ("Invalid JSON at line 2, column 7:
@@ -974,7 +979,7 @@ Configured in `pyproject.toml`:
   Also runnable by hand (`workflow_dispatch`) as a dry run: the tag check is skipped, `version` is rewritten in the
   runner's copy to `<version>.dev<run number>` (nothing is committed), and a separate job publishes to TestPyPI
   through the `testpypi` environment. Each publish job is guarded by its trigger (`pypi` only for a `v*` tag push,
-  `testpypi` only for a manual run), so a manual run can't reach PyPI nor a tag TestPyPI.
+  `testpypi` only for a manual run on `main`), so a manual run can't reach PyPI nor a tag TestPyPI.
 
 ## README
 

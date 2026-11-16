@@ -140,7 +140,7 @@ The colours are CSS custom properties. Set any of them in your admin stylesheet 
 
 ```css
 :root {
-    --dynamic-configs-json-key: #7a3e9d;
+    --dynamic-configs-json-key: #0451a5;
     --dynamic-configs-json-string: #a31515;
     --dynamic-configs-json-number: #098658;
     --dynamic-configs-json-literal: #0000ff;
