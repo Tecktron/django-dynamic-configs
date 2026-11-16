@@ -1,6 +1,8 @@
 """The admin's JSON editor (json_editor.js), in a real browser."""
 
+import json
 import re
+import time
 
 import pytest
 from playwright.sync_api import expect
@@ -233,6 +235,15 @@ def wait_until_lined_up(page):
     )
 
 
+IN_SYNC = """() => document.querySelector(".dynamic-configs-json-highlight").textContent
+    === document.querySelector("textarea[name=value]").value + "\\u200b" """
+
+
+def wait_until_in_sync(page, timeout=5000):
+    """Wait until the coloured copy holds the textarea's text exactly (and its last line's placeholder)."""
+    page.wait_for_function(IN_SYNC, timeout=timeout)
+
+
 def test_the_colours_line_up_with_the_text_and_scroll_with_it(editor):
     # Long enough to scroll, with a line long enough to wrap.
     lines = [f'  "key{n}": "{"word " * (40 if n == 3 else 1)}",' for n in range(60)]
@@ -253,9 +264,10 @@ def test_the_colours_line_up_with_the_text_and_scroll_with_it(editor):
 
 
 def test_the_colours_turn_off_when_the_copy_cant_line_up(editor):
+    # Visible while the colours are on; checked before the rule below, which turns them off at the next line-up check.
+    expect(show_whitespace(editor)).to_be_visible()
     # A skin's rule the script can't follow: the copy's text no longer wraps where the textarea's does.
     editor.add_style_tag(content=".dynamic-configs-json-highlight { letter-spacing: 6px !important; }")
-    expect(show_whitespace(editor)).to_be_visible()
     textarea(editor).fill('{"long": "' + "word " * 60 + '"}')
     expect(textarea(editor)).not_to_have_css("color", "rgba(0, 0, 0, 0)")
     expect(colours(editor)).to_be_hidden()
@@ -369,3 +381,90 @@ def test_nesting_is_checked_against_the_servers_limit_without_crashing(editor):
     # Far past the limit: the check uses a stack, so it can't overflow, and it points at the bracket that goes over.
     textarea(editor).fill("[" * 5000 + "]" * 5000)
     expect(status(editor)).to_have_text("The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.")
+
+
+def test_after_back_the_copy_matches_the_textarea(editor, browser_name):
+    if browser_name == "firefox":
+        pytest.skip(
+            "Playwright's Firefox loads the page afresh after Back, with the stored value rather than the edited text, "
+            "so there is no restored text for the copy to fall behind."
+        )
+    # Chromium and WebKit put the edited text back after the script has drawn its copy, without an input event.
+    edited = '{"beta": false,}'
+    error = "Invalid JSON at line 1, column 16: expected a property name in double quotes."
+    textarea(editor).fill(edited)
+    expect(status(editor)).to_have_text(error)
+    editor.goto("/admin/")
+    editor.go_back()
+    # What Save would post.
+    expect(textarea(editor)).to_have_value(edited)
+    wait_until_in_sync(editor)
+    expect(status(editor)).to_have_text(error)
+
+
+def test_format_of_a_thousand_lines_is_quick(editor, browser_name):
+    # Format inserts the text as typing would; Chromium fires an input event per line, and redrawing the whole
+    # document for each one froze the tab for 46 s.
+    data = {f"key{n}": n for n in range(998)}
+    pretty = json.dumps(data, indent=2)
+    assert pretty.count("\n") + 1 == 1000
+    textarea(editor).fill(json.dumps(data, separators=(",", ":")))
+    wait_until_in_sync(editor)
+    started = time.monotonic()
+    click_format(editor)
+    expect(textarea(editor)).to_have_value(pretty, timeout=120_000)
+    wait_until_in_sync(editor, timeout=120_000)
+    expect(status(editor)).to_have_text("Valid JSON.")
+    elapsed = time.monotonic() - started
+    if browser_name != "chromium":
+        pytest.skip(f"The time bound is set for Chromium, the engine that was slow; formatting took {elapsed:.1f} s.")
+    assert elapsed < 5
+
+
+def test_typing_a_burst_leaves_the_copy_in_sync(editor):
+    field = textarea(editor)
+    field.fill('{"beta": true')
+    field.press("End")
+    burst = ', "burst": "' + "abcdefghijkl" * 3 + '"}'
+    assert len(burst) == 50
+    editor.keyboard.type(burst, delay=0)
+    # The script redraws at most once per animation frame; a frame callback asked for now runs after its own.
+    editor.evaluate("() => new Promise(resolve => requestAnimationFrame(resolve))")
+    assert editor.evaluate(IN_SYNC)
+    assert text_of(status(editor)) == "Valid JSON."
+
+
+def test_a_300_kb_document_is_coloured(admin_page):
+    # Over a hundred thousand spans and pieces of text, more than one call can take as arguments.
+    numbers = list(range(35_000))
+    Config.objects.create(name="BIG", type="json", value=json.dumps(numbers))
+    admin_page.goto("/admin/dynamic_configs/config/BIG/change/")
+    assert textarea(admin_page).evaluate("t => t.value.length") == len(json.dumps(numbers, indent=2))
+    copy = colours(admin_page)
+    expect(copy.locator(".dynamic-configs-json-number").last).to_have_text(str(numbers[-1]))
+    expect(copy.locator(".dynamic-configs-json-punctuation").last).to_have_text("]")
+    assert admin_page.evaluate(IN_SYNC)
+    expect(status(admin_page)).to_have_text("Valid JSON.")
+
+
+def test_space_presses_format(editor):
+    # Tall enough to scroll, which Space would otherwise do.
+    editor.evaluate("() => { document.body.style.minHeight = '400vh'; }")
+    link = editor.get_by_role("button", name="Format")
+    for key in ("Space", "Enter"):
+        textarea(editor).fill('{"a":1}')
+        link.focus()
+        scrolled = editor.evaluate("() => window.scrollY")
+        link.press(key)
+        expect(textarea(editor)).to_have_value('{\n  "a": 1\n}')
+        assert editor.evaluate("() => window.scrollY") == scrolled
+
+
+def test_a_number_too_large_is_not_valid(editor):
+    # The server reads a number with a fraction or exponent as a float, and refuses one that overflows to infinity.
+    textarea(editor).fill('{"a": 1e400}')
+    expect(status(editor)).to_have_text("A number in the JSON is too large for a float at line 1, column 7.")
+    expect(colours(editor).locator(".dynamic-configs-json-invalid")).to_have_text("1e400")
+    # Whole numbers are read exactly, however large.
+    textarea(editor).fill('{"a": 1' + "0" * 400 + "}")
+    expect(status(editor)).to_have_text("Valid JSON.")

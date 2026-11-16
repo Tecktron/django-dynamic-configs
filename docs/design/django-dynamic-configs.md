@@ -590,8 +590,9 @@ numbers whole,
   the browser counts steps from that attribute, so after the server refused `1.7`, up went to `2.7`. A value with an
   exponent (`1e3`) is left to the server, which refuses it.
 - **JSON editor:** the `json` type's textarea (`AdminJSONTextarea`) gets `json_editor.js` and `admin.css`:
-  - A **Format** link re-indents the value, two spaces per level, and on invalid JSON, or JSON nested too deeply,
-    changes nothing and moves the cursor to the problem.
+  - A **Format** link re-indents the value, two spaces per level, and on invalid JSON, JSON nested too deeply or a
+    number too large, changes nothing and moves the cursor to the problem. It has the button role, so Enter and Space
+    press it (Space without scrolling the page).
   - **Enter** keeps the line's indent, adds a level after `{` or `[`, and between a pair of brackets puts the closing
     one on its own line. Tab is left alone, so it still moves to the next field.
   - A **closing bracket** typed on a line of nothing but indent steps back a level (two spaces or a tab), in the same
@@ -602,13 +603,21 @@ numbers whole,
     expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". JSON nested past
     the server's limit gets "The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.", at the
     bracket that goes over: the widget writes the limit on the textarea (`data-dynamic-configs-json-max-depth`), so
-    the script never has its own copy. An empty field gets no note.
+    the script never has its own copy. A number with a fraction or exponent too large for a float (`1e400`), which
+    the server refuses, gets "A number in the JSON is too large for a float at line 1, column 7.", the server's words
+    with the position. An empty field gets no note.
   - **Colours:** a copy of the text, built only with `textContent`, sits behind the textarea, whose own text is made
     transparent. Keys, strings, numbers, `true`/`false`/`null` and punctuation each have a colour, and the token where
     the JSON breaks is underlined. The script copies the textarea's font, padding and size onto the copy and follows
     its scrolling and resizing; if a stylesheet overrides those styles on the copy, or the two differ in height once
     the textarea scrolls, the colours turn off and the plain textarea shows. Without `admin.css` the colours never
     start, and Format and the note still work.
+  - **Redrawing:** input redraws the copy and the note at most once per animation frame, from the textarea's text at
+    that frame. Format inserts its text as typing would, and Chromium fires an input event per line, so redrawing on
+    each one froze the tab (46 s for 1,000 lines). Format itself first checks the text as it stands. The copy is built
+    in a `DocumentFragment`, one node at a time, never with one argument per node, which overflows past about 120,000
+    nodes (about 200 KB of pretty JSON). After Back the browser can put the edited text back once the script has drawn
+    its copy, with no input event, so the script checks the text again on `pageshow` and once on `load`.
   - **Show whitespace**, a checkbox beside Format (no `name`, so never posted; off when the page opens), marks every
     space with a dot and every tab with a line, inside strings too. The copy always wraps each space and tab in a span
     of its own (`-space`, `-tab`) holding the character itself, so its text and layout stay the textarea's; the
@@ -622,7 +631,8 @@ numbers whole,
     least 4.5:1 contrast on white, except the whitespace marks, which are decoration and fainter on purpose; the dark set follows `prefers-color-scheme`, and Django's admin theme toggle (`data-theme`)
     overrides either way, as in Django's own admin CSS.
   - The script never parses values: it tokenizes the text and rebuilds it token by token, so integers too large for
-    JavaScript (`12345678901234567890`) keep their exact text, and edits go through the browser's undo. Saving stores
+    JavaScript (`12345678901234567890`) keep their exact text, and edits go through the browser's undo. It reads a
+    number only to check that one with a fraction or exponent fits a float, as the server does. Saving stores
     numbers as Python's `json` reads them: integers exactly, other numbers as floats, so `1.10` is saved as `1.1`. The checker uses a stack, not recursion, so deep nesting can't overflow it. (django-prettyjson and
     django-json-widget were considered and dropped: both re-encode the value through JavaScript numbers, which rounds
     large integers, and the second also blocks a strict Content Security Policy with inline scripts.)
