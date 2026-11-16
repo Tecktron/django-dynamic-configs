@@ -36,9 +36,9 @@ when they're enabled.
 
 `money` is an amount: its Python type is `Decimal`, so it needs no class of its own, only a serializer.
 
-The rule every amount follows lives in one function. **More than 2 decimal places is rejected, never rounded.** The
-test is by digits, not value: more than 2 digits after the decimal point is rejected even when the extra digits are
-zeros, so `9.990` and `9.999` are both rejected. For a `Decimal` from code this means an exponent below -2
+The rule every amount follows lives in one function. **More than 2 decimal places is rejected, never rounded** (unless
+the type sets a [rounding](#rounding)). The test is by digits, not value: more than 2 digits after the decimal point
+is rejected even when the extra digits are zeros, so `9.990` and `9.999` are both rejected. For a `Decimal` from code this means an exponent below -2
 (`Decimal("9.990").as_tuple().exponent == -3`). Amounts are always stored and shown with exactly 2 places: `10` is
 stored as `"10.00"`. Negative amounts are allowed.
 
@@ -69,6 +69,36 @@ The serializer alone would make a working type: without a `form`, the admin show
 
 Since the serializer is the check every path runs (code, the admin's form, a list's raw mode), the form field only
 shapes how the amount is entered.
+
+### Rounding
+
+To round instead of refusing, give the type a `rounding` through the entry's `options`. It is one of decimal's eight
+constants: `ROUND_UP`, `ROUND_DOWN`, `ROUND_CEILING`, `ROUND_FLOOR`, `ROUND_HALF_UP`, `ROUND_HALF_DOWN`,
+`ROUND_HALF_EVEN` and `ROUND_05UP`. They are plain strings, so `decimal.ROUND_HALF_UP` and `"ROUND_HALF_UP"` both work.
+Anything else is a `dynamic_configs.E003` error.
+
+```python
+import decimal
+
+DYNAMIC_CONFIGS = {
+    "TYPES": {
+        "money": {
+            "type": "decimal.Decimal",
+            "serializer": "dynamic_configs.types.money.MoneySerializer",
+            "options": {"rounding": decimal.ROUND_HALF_UP},
+            "form": "dynamic_configs.forms.money.MoneyField",
+        },
+    },
+}
+```
+
+With that, `9.946` is stored as `"9.95"`, whether it comes from the admin, a list's raw mode or code
+(`update("PRICE", Decimal("9.946"))`). The admin's amount input then accepts more than 2 places and the serializer
+rounds. Without `rounding` (or with `None`), 3 places are refused as before. The rounding is set per type, so you can
+register two types with different rules.
+
+`money_currency` takes the same option and rounds the text it reads. `Money(...)` in code still refuses 3 places, so
+give it an amount that is already rounded.
 
 ## Extending a type: `money_currency`
 

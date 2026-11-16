@@ -95,7 +95,8 @@ def formfield_for(
     :param allow_null: whether the config may be empty; a boolean then gets a three-way (yes/no/unknown) field
     :param item: whether the field edits one item of a list or set (the admin's item editor), which decides whether a
         typed string is stripped (``STRIP_STRINGS``, which covers only ``str`` and custom types without a ``form``)
-    :param kwargs: options for the field, such as ``required``, ``label`` and ``help_text``
+    :param kwargs: options for the field, such as ``required``, ``label`` and ``help_text``; a ``rounding`` is added
+        when the type's serializer has one, so a ``form`` for such a type must accept it
     :returns: a ``TypedLineListField`` for list and set types, the type's ``form_class``, or a ``SerializerField``
     :rtype: forms.Field
     """
@@ -118,6 +119,11 @@ def formfield_for(
     if allow_null and form_class is forms.BooleanField:
         # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
         form_class = forms.NullBooleanField
+    rounding = getattr(config_type.serializer, "rounding", None)
+    if rounding is not None:
+        # A serializer that rounds (the money types) tells its form field, so the field lets the extra places
+        # through to be rounded by the serializer, rather than refusing them first.
+        kwargs["rounding"] = rounding
     field = form_class(**kwargs)
     if config_type.key == "str" and form_class is forms.CharField:
         # Only the built-in str follows STRIP_STRINGS; every other type's own form field (a custom form, a duration,

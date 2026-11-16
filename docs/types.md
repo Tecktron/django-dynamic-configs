@@ -130,6 +130,7 @@ DYNAMIC_CONFIGS = {
         "color": {
             "type": "myapp.colors.Color",                 # required
             "serializer": "myapp.colors.ColorSerializer",  # required
+            "options": {"shade": "dark"},                  # optional: keyword arguments for the serializer
             "form": "myapp.forms.ColorField",              # optional: a django.forms.Field subclass
             "label": "Color",                              # optional, defaults to the key
             "help_text": "Pick a color",                   # optional, defaults to "": help for the form's input
@@ -142,6 +143,10 @@ DYNAMIC_CONFIGS = {
 }
 ```
 
+- `options` is a dict of keyword arguments for the serializer, set per type: the registry creates it as
+  `ColorSerializer(**options)`, or with no arguments when there's no `options`. The keys must be strings. A serializer
+  that doesn't take an option, or refuses one, is reported by the system checks (the money types use it for
+  `rounding`).
 - Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants).
 - A key that matches a built-in replaces that built-in.
 - A listable custom type gets a set variant only if its class is hashable (`__hash__` isn't `None`).

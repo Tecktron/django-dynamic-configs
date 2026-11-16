@@ -26,7 +26,18 @@ logger = logging.getLogger(__name__)
 # No ":" allowed, because it marks list and set variants.
 TYPE_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 _ENTRY_KEYS = frozenset(
-    {"type", "serializer", "form", "label", "help_text", "raw_help_text", "listable", "sort_key", "sort_compare"}
+    {
+        "type",
+        "serializer",
+        "options",
+        "form",
+        "label",
+        "help_text",
+        "raw_help_text",
+        "listable",
+        "sort_key",
+        "sort_compare",
+    }
 )
 
 
@@ -43,8 +54,8 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
     """Return the ``ConfigType`` declared by one ``TYPES`` entry, importing its dotted paths.
 
     :param key: the type key, such as ``"color"``
-    :param entry: the entry's dict (``type``, ``serializer`` and optionally ``form``, ``label``, ``help_text``,
-        ``raw_help_text``, ``listable``, ``sort_key``, ``sort_compare``)
+    :param entry: the entry's dict (``type``, ``serializer`` and optionally ``options``, ``form``, ``label``,
+        ``help_text``, ``raw_help_text``, ``listable``, ``sort_key``, ``sort_compare``)
     :returns: the loaded type
     :rtype: ConfigType
     :raises TypeConfigError: the entry is invalid; ``check_id`` says which system check reports it
@@ -66,7 +77,7 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
     python_type = _import(where, "type", entry["type"])
     if not isinstance(python_type, type):
         raise TypeConfigError(f"{where}['type'] must be a class.", "dynamic_configs.E001")
-    serializer = _load_serializer(where, entry["serializer"])
+    serializer = _load_serializer(where, entry["serializer"], entry.get("options", {}))
     form_class = _load_form(where, entry["form"]) if "form" in entry else None
     sort_key = _load_sort_key(where, entry)
     label = entry.get("label", key)
@@ -103,17 +114,19 @@ def _import(where: str, field: str, path: str) -> Any:
         ) from error
 
 
-def _load_serializer(where: str, path: str) -> Any:
-    """Import the serializer class at ``path`` and create it with no arguments."""
+def _load_serializer(where: str, path: str, options: Any) -> Any:
+    """Import the serializer class at ``path`` and create it with ``options`` as keyword arguments."""
+    if not (isinstance(options, dict) and all(isinstance(name, str) for name in options)):
+        raise TypeConfigError(f"{where}['options'] must be a dict of keyword arguments.", "dynamic_configs.E001")
     serializer_class = _import(where, "serializer", path)
     if not isinstance(serializer_class, type):
         raise TypeConfigError(f"{where}['serializer'] must be a class.", "dynamic_configs.E003")
     try:
-        serializer = serializer_class()
+        serializer = serializer_class(**options)
     except Exception as error:
-        raise TypeConfigError(
-            f"{where}['serializer']: {path!r} must be creatable with no arguments ({error}).", "dynamic_configs.E003"
-        ) from error
+        # Never the options' values: a serializer's own message names an option, not what it was given.
+        reason = "can't be created with those options" if options else "must be creatable with no arguments"
+        raise TypeConfigError(f"{where}['serializer']: {path!r} {reason} ({error}).", "dynamic_configs.E003") from error
     if not (callable(getattr(serializer, "serialize", None)) and callable(getattr(serializer, "deserialize", None))):
         raise TypeConfigError(
             f"{where}['serializer']: {path!r} needs serialize() and deserialize() methods.", "dynamic_configs.E003"

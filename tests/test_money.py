@@ -93,3 +93,49 @@ def test_a_set_of_money_rejects_the_same_amount_twice_in_the_admin(admin_client)
     )
     assert response.status_code == 200
     assert "Lines 1 and 2 are the same." in response.content.decode()
+
+
+@pytest.fixture
+def _rounding_types(settings):
+    settings.DYNAMIC_CONFIGS = {
+        "TYPES": {key: {**entry, "options": {"rounding": "ROUND_HALF_UP"}} for key, entry in MONEY_TYPES.items()}
+    }
+
+
+@pytest.mark.usefixtures("_rounding_types")
+def test_a_type_with_rounding_rounds_a_value_from_code():
+    dynamic_configs.get_or_create("PRICE", "money", Decimal("1"))
+    dynamic_configs.update("PRICE", Decimal("9.946"))
+    assert dynamic_configs.get("PRICE") == Decimal("9.95")
+    assert Config.objects.get(name="PRICE").value == "9.95"
+
+
+@pytest.mark.usefixtures("_rounding_types")
+@pytest.mark.parametrize(
+    ("key", "data", "stored"),
+    [
+        ("money", {"value": "9.946"}, "9.95"),
+        ("money_currency", {"value_0": "9.946", "value_1": "cad"}, "9.95 CAD"),
+    ],
+)
+def test_a_type_with_rounding_rounds_in_the_admin(admin_client, key, data, stored):
+    response = admin_client.post(
+        f"/admin/dynamic_configs/config/add/?type={key}",
+        {"name": "PRICE", **data, "description": "", "_save": "Save"},
+    )
+    assert response.status_code == 302
+    assert Config.objects.get(name="PRICE").value == stored
+
+
+@pytest.mark.parametrize(
+    ("key", "data"),
+    [("money", {"value": "9.946"}), ("money_currency", {"value_0": "9.946", "value_1": "cad"})],
+)
+def test_a_type_without_rounding_refuses_three_places_in_the_admin(admin_client, key, data):
+    response = admin_client.post(
+        f"/admin/dynamic_configs/config/add/?type={key}",
+        {"name": "PRICE", **data, "description": "", "_save": "Save"},
+    )
+    assert response.status_code == 200
+    assert "at most 2 decimal places" in response.content.decode()
+    assert not Config.objects.filter(name="PRICE").exists()

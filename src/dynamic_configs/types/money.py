@@ -9,7 +9,22 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from decimal import ROUND_HALF_EVEN, Context, Decimal, DivisionByZero, InvalidOperation, Overflow, localcontext
+from decimal import (
+    ROUND_05UP,
+    ROUND_CEILING,
+    ROUND_DOWN,
+    ROUND_FLOOR,
+    ROUND_HALF_DOWN,
+    ROUND_HALF_EVEN,
+    ROUND_HALF_UP,
+    ROUND_UP,
+    Context,
+    Decimal,
+    DivisionByZero,
+    InvalidOperation,
+    Overflow,
+    localcontext,
+)
 
 from dynamic_configs.types.serializers import BaseSerializer
 
@@ -18,20 +33,23 @@ _CENTS = Decimal("0.01")
 _CONTEXT = Context(prec=28, rounding=ROUND_HALF_EVEN, traps=[InvalidOperation, DivisionByZero, Overflow])
 
 
-def check_amount(amount: Decimal) -> Decimal:
+def check_amount(amount: Decimal, rounding: str | None = None) -> Decimal:
     """Return ``amount`` with exactly 2 decimal places.
 
-    More than 2 decimal places is rejected, never rounded, and counted as written: ``9.990`` is rejected too.
+    Without ``rounding``, more than 2 decimal places is rejected, never rounded, and counted as written: ``9.990`` is
+    rejected too. With one of decimal's ``ROUND_*`` constants, the amount is rounded to 2 places that way.
 
-    :raises ValueError: the amount isn't finite, has more than 2 decimal places, or is too large
+    :param rounding: how to round an amount with more than 2 places, or None to reject it
+    :raises ValueError: the amount isn't finite, has more than 2 decimal places (and ``rounding`` is None), or is too
+        large
     """
     if not amount.is_finite():
         raise ValueError("An amount must be a finite number.")
-    if amount.as_tuple().exponent < -2:  # type: ignore[operator]
+    if rounding is None and amount.as_tuple().exponent < -2:  # type: ignore[operator]
         raise ValueError("An amount can have at most 2 decimal places.")
     try:
         with localcontext(_CONTEXT):
-            return amount.quantize(_CENTS)
+            return amount.quantize(_CENTS, rounding=rounding)
     except InvalidOperation:
         raise ValueError("That amount is too large.") from None
 
@@ -72,20 +90,37 @@ def by_currency_then_amount(money: Money) -> tuple[str, Decimal]:
 
 
 class MoneySerializer(BaseSerializer):
-    """An amount of money: plain decimal text with at most 2 decimal places, stored with exactly 2 (``10.00``)."""
+    """An amount of money: plain decimal text, stored with exactly 2 decimal places (``10.00``).
+
+    More than 2 places is refused, unless ``rounding`` says how to round it.
+    """
 
     _AMOUNT_RE = re.compile(r"-?\d+(\.\d+)?")
+    ROUNDINGS = frozenset(
+        {ROUND_UP, ROUND_DOWN, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_05UP}
+    )
+
+    def __init__(self, rounding: str | None = None) -> None:
+        """Round amounts with more than 2 places the way ``rounding`` says, or refuse them when it's None.
+
+        :param rounding: None, or one of decimal's ``ROUND_*`` constants (such as ``decimal.ROUND_HALF_UP``)
+        :raises ValueError: ``rounding`` is anything else
+        """
+        super().__init__()
+        if rounding is not None and rounding not in self.ROUNDINGS:
+            raise ValueError("rounding must be one of decimal's ROUND_* constants.")
+        self.rounding = rounding
 
     def serialize(self, value: Decimal) -> str:
         """Return the amount with exactly 2 decimal places."""
-        return str(check_amount(value))
+        return str(check_amount(value, self.rounding))
 
     def deserialize(self, text: str) -> Decimal:
         """Return the amount written in ``text``; exponents, separators and signs other than ``-`` are rejected."""
         stripped = text.strip()
         if not self._AMOUNT_RE.fullmatch(stripped):
             raise ValueError("Enter an amount such as 9.99.")
-        return check_amount(Decimal(stripped))
+        return check_amount(Decimal(stripped), self.rounding)
 
 
 class MoneyCurrencySerializer(MoneySerializer):

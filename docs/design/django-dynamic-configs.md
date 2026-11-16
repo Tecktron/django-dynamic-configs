@@ -230,6 +230,7 @@ DYNAMIC_CONFIGS = {
         "color": {
             "type": "myapp.colors.Color",                 # required
             "serializer": "myapp.colors.ColorSerializer",  # required
+            "options": {"shade": "dark"},                  # optional: keyword arguments for the serializer
             "form": "myapp.forms.ColorField",              # optional: a django.forms.Field subclass
             "label": "Color",                              # optional, defaults to the key
             "help_text": "Pick a color",                   # optional, defaults to "": help for the form's input
@@ -245,6 +246,12 @@ DYNAMIC_CONFIGS = {
 - Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants).
 - A listable custom type gets a set variant only if its class is hashable (`__hash__` isn't `None`).
 - A key that matches a built-in replaces that built-in.
+- `options`, an optional dict of keyword arguments for the serializer, set per type: the registry creates it as
+  `serializer_class(**options)`, or with no arguments when the key is absent. A value that isn't a dict with string
+  keys is E001; a serializer that raises `TypeError` or `ValueError` on creation (an unknown option, a refused value)
+  is E003, naming the serializer and the error, never the options' values. The form field's keyword arguments come
+  from `formfield_for`, which also passes `rounding=` when the type's serializer has a `rounding` attribute that
+  isn't None.
 - Without `form`, the admin uses `SerializerField(serializer)`: a text input that calls `deserialize` to clean and
   `serialize` to display.
 - A `form` field is instantiated with `required=False`, `label` and `help_text`. The admin form applies the
@@ -299,15 +306,24 @@ DYNAMIC_CONFIGS = {
 - Amounts are always stored and displayed with exactly 2 places: `10` is stored as `"10.00"`.
 - `MoneySerializer.serialize` applies the same rule to values from code (`Decimal("9.999")` raises
   `ConfigValueError`).
-- `MoneyField` is a `DecimalField(decimal_places=2)`.
+- **Rounding is opt-in, per type.** `MoneySerializer(rounding=None)` takes `None` (the rule above) or one of decimal's
+  eight constants (`ROUND_UP`, `ROUND_DOWN`, `ROUND_CEILING`, `ROUND_FLOOR`, `ROUND_HALF_UP`, `ROUND_HALF_DOWN`,
+  `ROUND_HALF_EVEN`, `ROUND_05UP`, in `MoneySerializer.ROUNDINGS`); anything else raises `ValueError`, which is
+  E003. A type sets it with `"options": {"rounding": decimal.ROUND_HALF_UP}` (the constants are strings, so
+  `"ROUND_HALF_UP"` works too). Entered text and values from code are then rounded to 2 places by that rule, so
+  `9.946` is stored as `"9.95"`. The rounding is passed to `quantize`, so the thread's context doesn't decide it.
+- `MoneyField` is a `DecimalField(decimal_places=2)`. With `rounding` set (passed by `formfield_for`), it has no
+  `decimal_places`, keeps `step="0.01"`, and the serializer rounds.
 
 **`money_currency`: an amount and a currency, built on `money`**
 
 - Python type `Money`: a frozen dataclass (`amount: Decimal`, `currency: str`), so it's immutable and hashable. Its
   `__post_init__` validates both parts (the amount by the `money` rule, the currency as exactly 3 uppercase letters)
-  and raises `ValueError`, so an invalid `Money` can't be created. `str(Money(...))` is `"9.99 CAD"`.
+  and raises `ValueError`, so an invalid `Money` can't be created. `str(Money(...))` is `"9.99 CAD"`. `Money` never
+  rounds: `Money(Decimal("9.946"), "CAD")` is refused, so code gives it an amount already rounded.
 - `MoneyCurrencySerializer` **subclasses `MoneySerializer`** and reuses its amount parsing and formatting, adding the
-  currency code. Stored text is `"9.99 CAD"`; on input the code is uppercased (`"9.99 cad"` is accepted).
+  currency code. Stored text is `"9.99 CAD"`; on input the code is uppercased (`"9.99 cad"` is accepted). It takes
+  the same `rounding` and rounds the amount of entered text before it creates `Money`.
 - `MoneyCurrencyField` is a `MultiValueField` combining `MoneyField` (the amount) with a 3-character currency input,
   shown side by side with no JavaScript.
 - Currency codes are checked for shape (3 letters), not against the ISO 4217 list, so there is no data file to keep
@@ -331,9 +347,9 @@ Django system checks validate the configuration at startup (`manage.py check`, a
 
 | Check                   | Condition                                                                |
 |-------------------------|--------------------------------------------------------------------------|
-| `dynamic_configs.E001`  | `DYNAMIC_CONFIGS` or `TYPES` has the wrong shape, an invalid key, an entry missing `type`/`serializer`, an entry with both `sort_key` and `sort_compare` or one that isn't callable, or `STRIP_STRINGS` isn't `True`, `False` or `None` |
+| `dynamic_configs.E001`  | `DYNAMIC_CONFIGS` or `TYPES` has the wrong shape, an invalid key, an entry missing `type`/`serializer`, an `options` that isn't a dict with string keys, an entry with both `sort_key` and `sort_compare` or one that isn't callable, or `STRIP_STRINGS` isn't `True`, `False` or `None` |
 | `dynamic_configs.E002`  | a dotted path can't be imported                                          |
-| `dynamic_configs.E003`  | a serializer lacks a callable `serialize` or `deserialize`               |
+| `dynamic_configs.E003`  | a serializer can't be created (with its `options`, if any), or lacks a callable `serialize` or `deserialize` |
 | `dynamic_configs.E004`  | `form` is not a `django.forms.Field` subclass                            |
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
 | `dynamic_configs.W001`  | (warning) an admin using `ConfigAdminMixin` sets `fields`, `fieldsets` or `readonly_fields`, which the mixin ignores (see Admin) |

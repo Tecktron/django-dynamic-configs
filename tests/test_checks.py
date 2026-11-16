@@ -82,3 +82,20 @@ def test_strip_strings_must_be_true_false_or_none(settings, value):
     [message] = check_settings()
     assert message.id == "dynamic_configs.E001"
     assert message.msg == "DYNAMIC_CONFIGS['STRIP_STRINGS'] must be True, False or None."
+
+
+MONEY = {"type": "decimal.Decimal", "serializer": "dynamic_configs.types.money.MoneySerializer"}
+
+
+@pytest.mark.parametrize(
+    ("options", "check_id"),
+    [
+        ({"rounding": "ROUND_HALF_UP"}, None),
+        (["rounding"], "dynamic_configs.E001"),
+        ({"colour": "red"}, "dynamic_configs.E003"),
+        ({"rounding": "ROUND_SIDEWAYS"}, "dynamic_configs.E003"),
+    ],
+)
+def test_serializer_options_are_checked(settings, options, check_id):
+    settings.DYNAMIC_CONFIGS = {"TYPES": {"money": {**MONEY, "options": options}}}
+    assert ids(check_settings()) == ([check_id] if check_id else [])

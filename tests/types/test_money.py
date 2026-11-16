@@ -123,3 +123,64 @@ def test_currency_must_be_three_ascii_letters():
     with pytest.raises(ValueError, match="currency"):
         MoneyCurrencySerializer().deserialize("1 ıso")
     assert MoneyCurrencySerializer().deserialize("1 usd") == Money(Decimal("1"), "USD")
+
+
+@pytest.mark.parametrize(
+    ("rounding", "text", "stored"),
+    [
+        (decimal.ROUND_HALF_UP, "9.946", "9.95"),
+        (decimal.ROUND_HALF_UP, "9.945", "9.95"),
+        (decimal.ROUND_HALF_EVEN, "9.945", "9.94"),
+        (decimal.ROUND_DOWN, "-9.949", "-9.94"),
+    ],
+)
+def test_money_rounds_entered_text(rounding, text, stored):
+    serializer = MoneySerializer(rounding=rounding)
+    assert serializer.serialize(serializer.deserialize(text)) == stored
+
+
+def test_money_rounds_a_value_written_from_code():
+    assert MoneySerializer(rounding=decimal.ROUND_HALF_UP).serialize(Decimal("9.946")) == "9.95"
+
+
+def test_the_rounding_given_decides_not_the_thread_context():
+    with decimal.localcontext() as context:
+        context.rounding = decimal.ROUND_DOWN
+        assert check_amount(Decimal("9.946"), rounding=decimal.ROUND_HALF_UP) == Decimal("9.95")
+
+
+@pytest.mark.parametrize("serializer", [MoneySerializer(), MoneySerializer(rounding=None)])
+def test_money_without_rounding_still_refuses_three_places(serializer):
+    with pytest.raises(ValueError, match="at most 2 decimal places"):
+        serializer.deserialize("9.946")
+
+
+def test_rounding_still_refuses_an_amount_that_is_too_large():
+    with pytest.raises(ValueError, match="too large"):
+        check_amount(Decimal("1E+40"), rounding=decimal.ROUND_HALF_UP)
+
+
+@pytest.mark.parametrize("rounding", sorted(MoneySerializer.ROUNDINGS))
+def test_money_takes_each_of_decimals_roundings(rounding):
+    assert MoneySerializer(rounding=rounding).rounding == rounding
+
+
+@pytest.mark.parametrize("rounding", ["ROUND_SIDEWAYS", 1, ""])
+def test_money_refuses_another_rounding(rounding):
+    with pytest.raises(ValueError, match=r"rounding must be one of decimal's ROUND_\* constants"):
+        MoneySerializer(rounding=rounding)
+
+
+def test_money_currency_rounds_entered_text():
+    s = MoneyCurrencySerializer(rounding=decimal.ROUND_HALF_UP)
+    assert s.deserialize("9.946 cad") == Money(Decimal("9.95"), "CAD")
+
+
+def test_money_currency_without_rounding_refuses_three_places():
+    with pytest.raises(ValueError, match="at most 2 decimal places"):
+        MoneyCurrencySerializer().deserialize("9.946 CAD")
+
+
+def test_money_itself_still_refuses_three_places():
+    with pytest.raises(ValueError, match="at most 2 decimal places"):
+        Money(Decimal("9.946"), "CAD")
