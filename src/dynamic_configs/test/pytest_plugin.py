@@ -18,17 +18,17 @@ class ConfigOverrides:
 
     def __init__(self) -> None:
         """Remember the overrides active before the test."""
-        self._previous = _overrides.current()
+        self._previous = _overrides.snapshot()
 
     def set(self, **values: Any) -> None:
-        """Override configs by name for the rest of the test."""
-        _overrides.replace({**_overrides.current(), **values})
+        """Override configs by name for the rest of the test, even if called inside a ``with override_configs()``."""
+        _overrides.pin(values)
 
     def restore(self) -> None:
         """Put back the overrides active before the test."""
-        # replace() rather than a push/pop token: the test may run in a different context than the fixture's
+        # A snapshot rather than a push/pop token: the test may run in a different context than the fixture's
         # setup (for example an async test), and a token can only be reset in the context that created it.
-        _overrides.replace(self._previous)
+        _overrides.restore(self._previous)
 
 
 @pytest.fixture

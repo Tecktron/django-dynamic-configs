@@ -1,7 +1,9 @@
+import json
 import logging
 import threading
 
 import pytest
+from django.core.management import call_command
 from django.db import DEFAULT_DB_ALIAS, DatabaseError, connections, transaction
 
 import dynamic_configs
@@ -138,3 +140,29 @@ def test_a_database_error_in_the_commit_callback_is_logged_and_drops_the_entry(
     assert [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING] == [
         "Database read failed for config 'SITE_NAME' after a commit; dropped its cache entry"
     ]
+
+
+def test_loaddata_caches_the_loaded_value(tmp_path, django_capture_on_commit_callbacks):
+    # F15: loaddata saves raw rows, and the signal still caches them.
+    fixture = tmp_path / "configs.json"
+    saved = "2026-01-01T00:00:00Z"
+    fields = {"type": "str", "value": "Loaded", "created_on": saved, "modified_on": saved}
+    fixture.write_text(json.dumps([{"model": "dynamic_configs.config", "pk": "SITE_NAME", "fields": fields}]))
+    cache.write("SITE_NAME", ("str", "Old"))
+    with django_capture_on_commit_callbacks(execute=True):
+        call_command("loaddata", str(fixture), verbosity=0)
+    assert cache.read("SITE_NAME") == ("str", "Loaded")
+
+
+def test_an_inner_savepoint_rolled_back_leaves_the_outer_value_cached(django_capture_on_commit_callbacks):
+    # F15
+    Config.objects.create(name="SITE_NAME", type="str", value="Old")
+    with django_capture_on_commit_callbacks(execute=True), transaction.atomic():
+        dynamic_configs.update("SITE_NAME", "Outer")
+        try:
+            with transaction.atomic():
+                dynamic_configs.update("SITE_NAME", "Inner")
+                raise RuntimeError("roll back the savepoint")
+        except RuntimeError:
+            pass
+    assert cache.read("SITE_NAME") == ("str", "Outer")

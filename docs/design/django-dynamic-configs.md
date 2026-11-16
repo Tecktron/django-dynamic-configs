@@ -687,15 +687,21 @@ Opt-in: install `django-dynamic-configs[simple-history]` and add `"dynamic_confi
 
 ## Test helpers
 
-- **`dynamic_configs.test.override_configs(**values)`**: a context manager and decorator (for functions, methods and
-  classes). Overridden values are returned by `get` and `get_or_create` (as `(value, False)`) without touching the
-  cache or the database. Restored in a `finally` block. Built on `contextvars`, so overrides don't leak between
-  threads or async tasks, and they propagate into the async variants. On a class, like `override_settings`, it covers
-  the whole class: its `test*` methods, inherited ones included, and the setup and teardown hooks of unittest, Django
-  and pytest (`setUp`, `setUpClass`, `setUpTestData`, `setup_method`, `setup_class` and their teardowns). A
-  subclass's values win over a decorated base's; stacked on one class, the inner decorator wins, as on functions.
+- **`dynamic_configs.test.override_configs(**values)`**: a context manager and decorator (for functions, coroutine
+  functions, generator and async generator functions, methods and classes). Overridden values are returned by `get`
+  and `get_or_create` (as `(value, False)`) without touching the cache or the database. Restored in a `finally` block.
+  Built on `contextvars`, so overrides don't leak between threads or async tasks, and they propagate into the async
+  variants. One instance can be open in several tasks at once: its tokens are kept per context. A decorated generator
+  runs under the overrides each time it resumes, not across its `yield`s. On a class, like `override_settings`, it
+  covers the whole class: its `test*` methods, inherited ones included, the setup and teardown hooks of unittest,
+  Django and pytest (`setUp`, `asyncSetUp`, `setUpClass`, `setUpTestData`, `setup_method`, `setup_class` and their
+  teardowns), and cleanups registered with `addCleanup` (which `addAsyncCleanup` and `enterContext` use). Subclasses,
+  decorated or not, get the same through an `__init_subclass__` hook. A subclass's values win over a decorated
+  base's; stacked on one class, the inner decorator wins, as on functions.
 - **pytest plugin** (`dynamic_configs/test/pytest_plugin.py`, registered under the `pytest11` entry point): a
   `config_overrides` fixture whose `.set(**values)` applies overrides for the rest of the test, cleared at teardown.
+  Inside a `with override_configs(...)` block, or a decorated test, `.set()` still holds after the block ends. The
+  latest wins: `.set()` beats a block applied before it, and a block opened after `.set()` beats it while open.
   (It isn't named `dynamic_configs`, which would hide the module inside tests that also call `dynamic_configs.get`.)
   The plugin imports nothing from Django at load time.
 - The plugin does not clear the project's cache between tests. The README tells projects to use `"CACHE": None` in
