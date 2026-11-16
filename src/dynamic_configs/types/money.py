@@ -8,7 +8,7 @@ reuses its amount handling.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import (
     ROUND_05UP,
@@ -153,7 +153,7 @@ class MoneyCurrencySerializer(MoneySerializer):
 
     @classmethod
     def _suggestions(cls, currencies: Iterable[str] | Mapping[str, str]) -> dict[str, str]:
-        """Return ``currencies`` as a dict of code to label, in the order given."""
+        """Return ``currencies`` as a dict of code to label, in the order given (sorted, from a set)."""
         message = "currencies must be a list of 3-letter codes in capitals, or a mapping of codes to labels."
         if isinstance(currencies, str) or not isinstance(currencies, Iterable):
             raise ValueError(message)
@@ -164,6 +164,9 @@ class MoneyCurrencySerializer(MoneySerializer):
             if not all(isinstance(label, str) for label in currencies.values()):
                 raise ValueError(message)
             return dict(currencies)
+        if not isinstance(currencies, Sequence):
+            # A set has no order of its own, and string hashing differs from one run to the next.
+            codes.sort()
         return {code: iso4217.CURRENCIES.get(code, "") for code in codes}
 
     def serialize(self, value: Money) -> str:  # type: ignore[override]

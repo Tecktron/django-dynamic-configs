@@ -203,6 +203,15 @@ def test_the_currency_serializer_suggests_the_iso_list_by_default():
     assert MoneyCurrencySerializer(currencies=None).currencies == iso4217.CURRENCIES
 
 
+def test_a_set_of_currencies_is_suggested_in_sorted_order():
+    assert list(MoneyCurrencySerializer(currencies={"USD", "CAD", "AUD", "EUR"}).currencies) == [
+        "AUD",
+        "CAD",
+        "EUR",
+        "USD",
+    ]
+
+
 @pytest.mark.parametrize(
     ("currencies", "expected"),
     [
