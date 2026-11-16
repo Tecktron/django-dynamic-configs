@@ -17,8 +17,12 @@ modules Django loads early, such as an app's `apps.py`.
 
 ## Names
 
-A setting's name must match `^[A-Z][A-Z0-9_]*$`: a capital letter, then capital letters, digits and underscores
-(`SITE_NAME`, `MAX_UPLOAD_MB`, `FEATURE_2FA`). A name can't be changed once the setting exists.
+A setting's name must match `\A[A-Z][A-Z0-9_]*\Z`: a capital letter, then capital letters, digits and underscores
+(`SITE_NAME`, `MAX_UPLOAD_MB`, `FEATURE_2FA`), and be at most 255 characters. A name can't be changed once the
+setting exists.
+
+`update`, `delete` and `get_or_create` check the name before they query, and raise `ConfigValueError` for a bad one.
+`delete` of a bad name raises too, rather than returning `False`.
 
 ## `get`
 

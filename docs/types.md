@@ -147,7 +147,9 @@ DYNAMIC_CONFIGS = {
   `ColorSerializer(**options)`, or with no arguments when there's no `options`. The keys must be strings. A serializer
   that doesn't take an option, or refuses one, is reported by the system checks (the money types use it for
   `rounding`).
-- Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants).
+- Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants), and be at most 59
+  characters, so that the `list:` variant fits the 64-character `type` column. A longer key is refused (system check
+  `E001`).
 - A key that matches a built-in replaces that built-in.
 - A listable custom type gets a set variant only if its class is hashable (`__hash__` isn't `None`).
 - Mistakes are reported by the system checks at startup (see [System checks](installation.md#system-checks)).

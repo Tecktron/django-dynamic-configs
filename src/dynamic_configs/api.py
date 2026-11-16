@@ -153,6 +153,7 @@ def get_or_create(
     found, override = _overrides.lookup(name)
     if found:
         return override, False
+    _validate_name(name)
     try:
         config = Config.objects.get(name=name)
         created = False
@@ -186,9 +187,11 @@ def update(name: str, new_value: Any, *, allow_null: bool | None = None) -> None
     :param allow_null: None keeps the config's flag; True or False updates it in the same save
     :raises ConfigDoesNotExist: the config doesn't exist
     :raises ConfigTypeError: the value has the wrong type, or is None when None isn't allowed
-    :raises ConfigValueError: the serializer rejects the value, or the config's type isn't registered
+    :raises ConfigValueError: the name is invalid, the serializer rejects the value, or the config's type isn't registered
     """
-    with transaction.atomic():
+    _validate_name(name)
+    # The alias select_for_update runs on, so the lock and the transaction are on the same database.
+    with transaction.atomic(using=router.db_for_write(Config)):
         try:
             config = Config.objects.select_for_update().get(name=name)
         except Config.DoesNotExist:
@@ -209,7 +212,9 @@ def delete(name: str) -> bool:
     :param name: the config's name
     :returns: True if it was deleted, False if it didn't exist
     :rtype: bool
+    :raises ConfigValueError: the name is invalid
     """
+    _validate_name(name)
     # QuerySet.delete() sends post_delete for each row (a receiver is connected), so the cache is updated.
     deleted, _ = Config.objects.filter(name=name).delete()
     if deleted:

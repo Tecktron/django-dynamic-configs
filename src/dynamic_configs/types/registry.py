@@ -66,6 +66,17 @@ def load_custom_type(key: Any, entry: Any) -> ConfigType:
             f"{where}: type keys must start with a letter and contain only letters, digits and underscores.",
             "dynamic_configs.E001",
         )
+    # Lazy: the model module can't load before the app registry is ready.
+    from dynamic_configs.models import Config  # noqa: PLC0415
+
+    longest_prefix = max(len(LIST_PREFIX), len(SET_PREFIX))
+    max_length = Config._meta.get_field("type").max_length - longest_prefix
+    if len(key) > max_length:
+        raise TypeConfigError(
+            f"{where}: type keys can be at most {max_length} characters, so that the list and set variants fit "
+            "the type column.",
+            "dynamic_configs.E001",
+        )
     if not isinstance(entry, Mapping):
         raise TypeConfigError(f"{where} must be a dict.", "dynamic_configs.E001")
     unknown = sorted(repr(name) for name in set(entry) - _ENTRY_KEYS)

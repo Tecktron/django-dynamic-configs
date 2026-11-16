@@ -576,3 +576,25 @@ def test_reads_past_the_cache_refresh_it_from_the_primary(
     with django_capture_on_commit_callbacks(execute=True):
         read_past_the_cache()
     write_from_database.assert_called_once_with("SITE_NAME", "primary", gone=cache.ABSENT)
+
+
+def test_update_opens_its_transaction_on_the_routers_write_alias(mocker):
+    make("MAX_RETRIES", "int", "3")
+    mocker.patch("dynamic_configs.api.router.db_for_write", return_value="default")
+    atomic = mocker.spy(transaction, "atomic")
+    dynamic_configs.update("MAX_RETRIES", 5)
+    atomic.assert_any_call(using="default")
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda name: dynamic_configs.update(name, 1),
+        lambda name: dynamic_configs.delete(name),
+        lambda name: dynamic_configs.get_or_create(name, "int", 1),
+    ],
+    ids=["update", "delete", "get_or_create"],
+)
+def test_update_delete_and_get_or_create_check_the_name_first(call, django_assert_num_queries):
+    with django_assert_num_queries(0), pytest.raises(ConfigValueError, match="Invalid config name 'site name'"):
+        call("site name")

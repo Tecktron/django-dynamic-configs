@@ -99,3 +99,10 @@ MONEY = {"type": "decimal.Decimal", "serializer": "dynamic_configs.types.money.M
 def test_serializer_options_are_checked(settings, options, check_id):
     settings.DYNAMIC_CONFIGS = {"TYPES": {"money": {**MONEY, "options": options}}}
     assert ids(check_settings()) == ([check_id] if check_id else [])
+
+
+def test_a_type_key_too_long_for_its_list_variant_is_reported_as_a_bad_key(settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": {"a" * 60: COLOR}}
+    [message] = check_settings()
+    assert message.id == "dynamic_configs.E001"
+    assert "at most 59 characters" in message.msg

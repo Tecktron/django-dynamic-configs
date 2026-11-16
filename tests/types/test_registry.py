@@ -291,3 +291,14 @@ def test_a_serializer_that_needs_arguments_without_options_keeps_its_message():
     with pytest.raises(TypeConfigError, match="must be creatable with no arguments") as raised:
         load_custom_type("money", entry)
     assert raised.value.check_id == "dynamic_configs.E003"
+
+
+def test_a_custom_type_key_too_long_for_its_list_variant_is_refused():
+    assert load_custom_type("a" * 59, COLOR).key == "a" * 59
+    with pytest.raises(TypeConfigError, match="at most 59 characters") as error:
+        load_custom_type("a" * 60, COLOR)
+    assert error.value.check_id == "dynamic_configs.E001"
+    registry = build_registry({"a" * 60: COLOR, "a" * 59: COLOR}, strict=False)
+    assert "a" * 59 in registry
+    assert f"list:{'a' * 59}" in registry
+    assert "a" * 60 not in registry
