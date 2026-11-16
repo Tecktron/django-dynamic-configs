@@ -1,7 +1,8 @@
 name: Currencies
 
 # Checks SIX Group's ISO 4217 list once a month and opens a pull request when the suggested currencies changed.
-# A schedule and a manual run both use the file on the default branch.
+# A schedule uses the file on the default branch. A manual run uses the file on the branch it's started from, but
+# the workflow has to be on the default branch for GitHub to offer it.
 on:
   schedule:
     - cron: "17 6 1 * *"
@@ -22,11 +23,15 @@ jobs:
     if: github.repository == 'Tecktron/django-dynamic-configs'
     runs-on: ubuntu-latest
     steps:
+      # The write token stays out of .git/config, so the installs and tests below can't read it.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      # A fetch or parse error exits non-zero, which fails the job. (GitHub's bash runs with -e and -o pipefail.)
+      # A fetch or parse error exits non-zero, which fails the job: a step without a shell key runs bash -e, and
+      # nothing here pipes, so pipefail wouldn't change a result.
       - name: Fetch the list
         id: fetch
         run: |
@@ -51,21 +56,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Git gets the token only here, through gh's credential helper.
+          gh auth setup-git
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
           git switch -C update-currencies
           git add src/dynamic_configs/types/iso4217.py
           git commit -m "Update the ISO 4217 currency list" -m "$(cat "$RUNNER_TEMP/summary.md")"
           git push --force origin update-currencies
-          # A push to an open pull request's branch has already updated it.
-          if [ -n "$(gh pr list --head update-currencies --state open --json number --jq '.[].number')" ]; then
-            echo "::notice::Updated the open pull request"
-            exit 0
-          fi
           {
             cat "$RUNNER_TEMP/summary.md"
             echo
-            echo "CI doesn't start on a pull request opened by a workflow: close and reopen this pull request to run it."
+            echo "CI doesn't start on a pull request that a workflow opened or updated:"
+            echo "close and reopen this pull request to run it."
           } > "$RUNNER_TEMP/body.md"
+          # --head matches the branch name alone, so leave out a pull request from a fork's branch of the same name.
+          number=$(gh pr list --head update-currencies --state open --json number,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | .number')
+          if [ -n "$number" ]; then
+            # The push has updated it; refresh the summary it shows.
+            gh pr edit "$number" --body-file "$RUNNER_TEMP/body.md"
+            echo "::notice::Updated pull request #$number"
+            exit 0
+          fi
           gh pr create --head update-currencies --base main \
             --title "Update the ISO 4217 currency list" --body-file "$RUNNER_TEMP/body.md"

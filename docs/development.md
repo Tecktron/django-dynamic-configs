@@ -211,15 +211,17 @@ date. It runs on the 1st of each month at 06:17 UTC, and can be started by hand 
 `scripts/update_currencies.py`, which fetches SIX Group's List One. When the suggested currencies are unchanged, the run
 ends with a notice. When they changed, it runs `tox -e lint` and the type, form and script tests, commits the module as
 `github-actions[bot]` to the `update-currencies` branch (force-pushed, so a new update replaces one nobody merged), and
-opens a pull request that lists the added, removed and renamed currencies. If one is already open, the push updates it.
-A fetch or parse error fails the run. A fork's scheduled run skips.
+opens a pull request that lists the added, removed and renamed currencies. If one is already open, the push updates it
+and the workflow refreshes its summary. A fetch or parse error fails the run. A fork's scheduled run skips.
 
 - Once, in the repository's Settings, Actions, General, turn on "Allow GitHub Actions to create and approve pull
   requests"; without it the workflow can push the branch but not open the pull request.
-- CI doesn't start on a pull request that a workflow opened. Close and reopen it to run CI, then merge it as any other.
+- CI doesn't start on a pull request that a workflow opened, or on a push the workflow made to one. Close and reopen
+  the pull request to run CI, again after each update, then merge it as any other.
 - GitHub disables scheduled workflows in a public repository after 60 days without activity. If the monthly run stops
   appearing, re-enable it from the Actions tab.
-- A schedule and a manual run use the workflow file on the default branch, so the first real run comes after the
+- A schedule uses the workflow file on the default branch, and GitHub offers a manual run only once the workflow is on
+  the default branch (the run then uses the file on the branch you pick), so the first real run comes after the
   workflow is merged to `main`.
 
 To update the list by hand, run the script from the project's virtual environment, then review and commit the change:
