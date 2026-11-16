@@ -103,7 +103,10 @@ class MoneyCurrencyField(forms.MultiValueField):
         self.rounding = rounding
         self.currencies = iso4217.CURRENCIES if currencies is None else currencies
         amount = MoneyField(rounding=rounding)
-        kwargs.setdefault("widget", MoneyCurrencyWidget(amount_widget=amount.widget, currencies=self.currencies))
+        # The class's own widget is built the same way when it's the money widget or a subclass of it; any other
+        # widget class a subclass sets is left to Django, as is a widget passed in.
+        if "widget" not in kwargs and issubclass(self.widget, MoneyCurrencyWidget):
+            kwargs["widget"] = self.widget(amount_widget=amount.widget, currencies=self.currencies)
         super().__init__((amount, forms.CharField(min_length=3, max_length=3)), **kwargs)
 
     def compress(self, data_list: list[Any]) -> Money | None:

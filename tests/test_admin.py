@@ -314,6 +314,14 @@ def test_a_combined_field_with_a_different_number_of_inputs_is_left_alone():
     assert type(widget.widgets[0]) is forms.NumberInput
 
 
+def test_a_combined_fields_other_parts_keep_their_widgets():
+    widget = forms.MultiWidget([forms.Textarea(), forms.DateInput()])
+    field = forms.MultiValueField((forms.CharField(), forms.DateField()), widget=widget, require_all_fields=False)
+    ConfigAdminMixin._use_admin_widget(field)
+    assert type(field.widget.widgets[0]) is forms.Textarea
+    assert type(field.widget.widgets[1]) is forms.DateInput
+
+
 def post_datetime(admin_client, name, day, clock, zone):
     data = {"value_0": day, "value_1": clock, "value_2": zone, "description": "", "_save": "Save"}
     return admin_client.post(change_url(name), data)

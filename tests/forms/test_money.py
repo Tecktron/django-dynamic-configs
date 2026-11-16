@@ -214,7 +214,7 @@ def test_formfield_for_gives_no_currencies_to_the_money_field_or_another_form():
     assert isinstance(formfield_for(load_custom_type("money_currency", other)), forms.CharField)
 
 
-def test_formfield_for_a_serializer_without_currencies_leaves_the_fields_default(mocker):
+def test_formfield_for_a_serializer_without_currencies_leaves_the_fields_default():
     config_type = load_custom_type(
         "money_currency",
         {
@@ -225,3 +225,31 @@ def test_formfield_for_a_serializer_without_currencies_leaves_the_fields_default
     )
     del config_type.serializer.currencies
     assert formfield_for(config_type).currencies == iso4217.CURRENCIES
+
+
+class BoxedCurrencyWidget(MoneyCurrencyWidget):
+    """A project's own widget built on the money one."""
+
+
+class BoxedWidgetField(MoneyCurrencyField):
+    widget = BoxedCurrencyWidget
+
+
+class UnrelatedWidgetField(MoneyCurrencyField):
+    widget = forms.TextInput
+
+
+def test_a_subclass_widget_built_on_the_money_widget_gets_the_number_amount_and_the_datalist():
+    widget = BoxedWidgetField(currencies={"CAD": "Loonie"}).widget
+    assert type(widget) is BoxedCurrencyWidget
+    assert widget.widgets[0].input_type == "number"
+    assert '<option value="CAD">Loonie</option>' in widget.render("value", None, {"id": "id_value"})
+
+
+def test_a_subclass_widget_that_is_not_the_money_widget_is_left_to_django():
+    assert type(UnrelatedWidgetField().widget) is forms.TextInput
+
+
+def test_an_explicit_widget_wins_over_the_classs():
+    assert type(BoxedWidgetField(widget=forms.HiddenInput).widget) is forms.HiddenInput
+    assert type(MoneyCurrencyField(widget=forms.HiddenInput).widget) is forms.HiddenInput
