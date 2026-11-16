@@ -19,8 +19,9 @@ concurrency:
 
 jobs:
   update:
-    # A fork's schedule would only fail to push, so it skips.
-    if: github.repository == 'Tecktron/django-dynamic-configs'
+    # A fork's schedule would only fail to push, so it skips; a manual run from another branch would open a pull
+    # request carrying that branch's commits, so only main runs.
+    if: github.repository == 'Tecktron/django-dynamic-configs' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       # The write token stays out of .git/config, so the installs and tests below can't read it.

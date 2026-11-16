@@ -347,7 +347,7 @@ DYNAMIC_CONFIGS = {
   (the ISO 4217 maintenance agency's published list, the `SOURCE` constant): `PUBLISHED` (the list's date) and
   `CURRENCIES` (code to name, as ISO publishes it). Funds, precious metals, bond market units, `XTS` (testing) and
   `XXX` (no currency) are left out. The `currencies.yml` workflow runs the script on the 1st of each month, and opens
-  a pull request when the suggested list has changed (see Continuous integration).
+  a pull request when the suggested list has changed (see GitHub Actions, under Testing, coverage and CI).
 - **Amounts have 2 places, whatever the currency.** ISO 4217 gives some currencies 0 decimal places (JPY, KRW) and some
   3 (KWD, BHD). That is a known limit, and on purpose: a one-size-fits-most choice for an example whose job is to show
   how to extend the package by writing and registering your own types. A project that needs each currency's minor units
@@ -618,7 +618,9 @@ numbers whole,
   submits or the list editor adds the item. A value with an exponent (`1e3`) is left to the server, which refuses it.
 - **Decimals:** a `DecimalField` (`MoneyField` included) with Django's plain `NumberInput` gets `AdminDecimalInput`,
   marked `data-dynamic-configs-decimal`, with `admin.js`. Nothing is trimmed: money with rounding keeps
-  `step="0.01"` but takes more places, and the change form's `novalidate` lets them through to the server.
+  `step="0.01"` but takes more places, and the change form's `novalidate` lets them through to the server. The
+  number part of a combined field (a `MultiValueField` with one input per field), such as `money_currency`'s amount,
+  is marked the same way, as is a whole-number part; the combined field's other parts are left as they are.
 - **Steps:** on load the script drops a whole-number or decimal input's `value` attribute, keeping the value shown.
   With no `min`, the browser counts the arrows' steps from that attribute, so after the server refused an int's
   `1.7`, up went to `2.7`, and money's `1.234`, to `1.244`; now they count from multiples of the step (`2`, `1.24`).

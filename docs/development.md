@@ -212,12 +212,17 @@ date. It runs on the 1st of each month at 06:17 UTC, and can be started by hand 
 ends with a notice. When they changed, it runs `tox -e lint` and the type, form and script tests, commits the module as
 `github-actions[bot]` to the `update-currencies` branch (force-pushed, so a new update replaces one nobody merged), and
 opens a pull request that lists the added, removed and renamed currencies. If one is already open, the push updates it
-and the workflow refreshes its summary. A fetch or parse error fails the run. A fork's scheduled run skips.
+and the workflow refreshes its summary. A fetch or parse error fails the run. A fork's scheduled run skips, and so
+does a manual run from any branch but `main`.
 
 - Once, in the repository's Settings, Actions, General, turn on "Allow GitHub Actions to create and approve pull
   requests"; without it the workflow can push the branch but not open the pull request.
 - CI doesn't start on a pull request that a workflow opened, or on a push the workflow made to one. Close and reopen
   the pull request to run CI, again after each update, then merge it as any other.
+- Closing an update pull request without merging doesn't stop it: next month's run opens it again while SIX's list
+  still differs from the module.
+- If SIX reverts a change while an update pull request is open, the next run reports "unchanged" and leaves that pull
+  request alone; close it by hand.
 - GitHub disables scheduled workflows in a public repository after 60 days without activity. If the monthly run stops
   appearing, re-enable it from the Actions tab.
 - A schedule uses the workflow file on the default branch, and GitHub offers a manual run only once the workflow is on
