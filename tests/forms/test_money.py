@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 
 from dynamic_configs.forms.fields import formfield_for
 from dynamic_configs.forms.money import MoneyCurrencyField, MoneyCurrencyWidget, MoneyField
+from dynamic_configs.types import iso4217
 from dynamic_configs.types.money import Money, MoneySerializer
 from dynamic_configs.types.registry import load_custom_type
 
@@ -118,3 +119,109 @@ def test_the_currency_fields_amount_is_the_money_fields_number_input(rounding):
     amount = MoneyCurrencyField(rounding=rounding).widget.widgets[0]
     assert type(amount) is forms.NumberInput
     assert amount.attrs["step"] == "0.01"
+
+
+def render_currency(**kwargs):
+    attrs = kwargs.pop("attrs", {"id": "id_value"})
+    return MoneyCurrencyField(**kwargs).widget.render("value", None, attrs)
+
+
+def test_the_currency_input_points_at_a_datalist_of_suggestions_inside_the_span():
+    html = render_currency()
+    assert 'list="id_value_1_currencies"' in html
+    assert '<datalist id="id_value_1_currencies">' in html
+    assert '<option value="CAD">Canadian Dollar</option>' in html
+    assert html.count("<option") == len(iso4217.CURRENCIES)
+    assert html.startswith("<span>")
+    assert html.endswith("</datalist></span>")
+    # Only the currency input points at it.
+    [amount, currency] = html.split("<input")[1:]
+    assert "list=" not in amount
+    assert 'name="value_1"' in currency
+    assert 'list="id_value_1_currencies"' in currency
+
+
+def test_the_datalists_id_comes_from_the_name_without_an_id():
+    html = render_currency(attrs={})
+    assert 'list="value_1_currencies"' in html
+    assert '<datalist id="value_1_currencies">' in html
+
+
+def test_a_widget_with_no_currencies_has_no_datalist():
+    html = render_currency(currencies={})
+    assert "list=" not in html
+    assert "<datalist" not in html
+
+
+def test_a_label_is_escaped_and_an_empty_one_leaves_the_option_empty():
+    html = render_currency(currencies={"ABC": "<b>x</b>", "DEF": ""})
+    assert '<option value="ABC">&lt;b&gt;x&lt;/b&gt;</option>' in html
+    assert "<b>" not in html
+    assert '<option value="DEF"></option>' in html
+
+
+def test_the_widget_takes_its_own_currencies():
+    widget = MoneyCurrencyWidget(currencies={"CAD": "Loonie"})
+    assert '<option value="CAD">Loonie</option>' in widget.render("value", None, {"id": "id_value"})
+    assert "<datalist" in MoneyCurrencyWidget().render("value", None)
+
+
+def test_suggestions_do_not_restrict_the_currency_field():
+    assert MoneyCurrencyField(currencies={}).clean(["9.99", "xyz"]) == Money(Decimal("9.99"), "XYZ")
+    assert MoneyCurrencyField(currencies={"CAD": "Loonie"}).clean(["9.99", "xyz"]) == Money(Decimal("9.99"), "XYZ")
+
+
+def test_the_item_editors_widgets_get_context_names_each_datalist_after_its_input():
+    widget = MoneyCurrencyField().widget
+    context = widget.get_context("value__item", None, {"id": "id_value__item"})
+    assert context["widget"]["subwidgets"][1]["attrs"]["list"] == "id_value__item_1_currencies"
+    assert "list" not in context["widget"]["subwidgets"][0]["attrs"]
+
+
+class ProjectCurrencyField(MoneyCurrencyField):
+    """A project's own subclass."""
+
+
+@pytest.mark.parametrize("form", ["MoneyCurrencyField", "ProjectCurrencyField"])
+def test_formfield_for_gives_the_currency_field_the_serializers_currencies(form):
+    entry = {
+        "type": "dynamic_configs.types.money.Money",
+        "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
+        "form": f"tests.forms.test_money.{form}"
+        if form.startswith("Project")
+        else f"dynamic_configs.forms.money.{form}",
+    }
+    narrowed = formfield_for(load_custom_type("money_currency", {**entry, "options": {"currencies": ["CAD"]}}))
+    assert narrowed.currencies == {"CAD": "Canadian Dollar"}
+    empty = formfield_for(load_custom_type("money_currency", {**entry, "options": {"currencies": []}}))
+    assert empty.currencies == {}
+    assert formfield_for(load_custom_type("money_currency", entry)).currencies == iso4217.CURRENCIES
+
+
+def test_formfield_for_gives_no_currencies_to_the_money_field_or_another_form():
+    money = {
+        "type": "decimal.Decimal",
+        "serializer": "dynamic_configs.types.money.MoneySerializer",
+        "form": "dynamic_configs.forms.money.MoneyField",
+    }
+    assert not hasattr(formfield_for(load_custom_type("money", money)), "currencies")
+    other = {
+        "type": "dynamic_configs.types.money.Money",
+        "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
+        "form": "django.forms.CharField",
+        "options": {"currencies": ["CAD"]},
+    }
+    assert isinstance(formfield_for(load_custom_type("money_currency", other)), forms.CharField)
+
+
+def test_formfield_for_a_serializer_without_currencies_leaves_the_fields_default(mocker):
+    config_type = load_custom_type(
+        "money_currency",
+        {
+            "type": "dynamic_configs.types.money.Money",
+            "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
+            "form": "dynamic_configs.forms.money.MoneyCurrencyField",
+        },
+    )
+    del config_type.serializer.currencies
+    assert formfield_for(config_type).currencies == iso4217.CURRENCIES

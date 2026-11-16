@@ -8,6 +8,7 @@ reuses its amount handling.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from decimal import (
     ROUND_05UP,
@@ -26,6 +27,7 @@ from decimal import (
     localcontext,
 )
 
+from dynamic_configs.types import iso4217
 from dynamic_configs.types.serializers import BaseSerializer
 
 _CENTS = Decimal("0.01")
@@ -126,10 +128,43 @@ class MoneySerializer(BaseSerializer):
 
 
 class MoneyCurrencySerializer(MoneySerializer):
-    """An amount and a currency code, stored as ``9.99 CAD``; reuses ``MoneySerializer`` for the amount."""
+    """An amount and a currency code, stored as ``9.99 CAD``; reuses ``MoneySerializer`` for the amount.
+
+    ``currencies`` are the codes the admin suggests for the currency; they are suggestions, never a check.
+    """
 
     # ASCII only: upper-casing "ıso" (a dotless i) would give "ISO".
     _CODE_RE = re.compile(r"[A-Za-z]{3}", re.ASCII)
+    _SUGGESTED_RE = re.compile(r"[A-Z]{3}", re.ASCII)
+
+    def __init__(
+        self, rounding: str | None = None, currencies: Iterable[str] | Mapping[str, str] | None = None
+    ) -> None:
+        """Round as ``MoneySerializer`` does, and suggest ``currencies`` in the admin.
+
+        :param rounding: None, or one of decimal's ``ROUND_*`` constants
+        :param currencies: None for the ISO 4217 list; a list of codes, labelled from that list when it knows them; a
+            mapping of codes to labels, used as given; or empty for no suggestions
+        :raises ValueError: ``rounding`` is not valid, or ``currencies`` is a bare string, or has anything but codes
+            of 3 capital letters A-Z (with a string for each label, in a mapping)
+        """
+        super().__init__(rounding)
+        self.currencies = dict(iso4217.CURRENCIES) if currencies is None else self._suggestions(currencies)
+
+    @classmethod
+    def _suggestions(cls, currencies: Iterable[str] | Mapping[str, str]) -> dict[str, str]:
+        """Return ``currencies`` as a dict of code to label, in the order given."""
+        message = "currencies must be a list of 3-letter codes in capitals, or a mapping of codes to labels."
+        if isinstance(currencies, str) or not isinstance(currencies, Iterable):
+            raise ValueError(message)
+        codes = list(currencies)
+        if not all(isinstance(code, str) and cls._SUGGESTED_RE.fullmatch(code) for code in codes):
+            raise ValueError(message)
+        if isinstance(currencies, Mapping):
+            if not all(isinstance(label, str) for label in currencies.values()):
+                raise ValueError(message)
+            return dict(currencies)
+        return {code: iso4217.CURRENCIES.get(code, "") for code in codes}
 
     def serialize(self, value: Money) -> str:  # type: ignore[override]
         """Return the amount and currency, such as ``9.99 CAD``."""

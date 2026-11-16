@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from dynamic_configs.types import iso4217
 from dynamic_configs.types.money import (
     Money,
     MoneyCurrencySerializer,
@@ -195,3 +196,40 @@ def test_money_currency_without_rounding_refuses_three_places():
 def test_money_itself_still_refuses_three_places():
     with pytest.raises(ValueError, match="at most 2 decimal places"):
         Money(Decimal("9.946"), "CAD")
+
+
+def test_the_currency_serializer_suggests_the_iso_list_by_default():
+    assert MoneyCurrencySerializer().currencies == iso4217.CURRENCIES
+    assert MoneyCurrencySerializer(currencies=None).currencies == iso4217.CURRENCIES
+
+
+@pytest.mark.parametrize(
+    ("currencies", "expected"),
+    [
+        (["USD", "CAD"], {"USD": "US Dollar", "CAD": "Canadian Dollar"}),
+        (("CAD",), {"CAD": "Canadian Dollar"}),
+        (["ABC"], {"ABC": ""}),
+        ({"ABC": "Alphabet", "CAD": "Loonies"}, {"ABC": "Alphabet", "CAD": "Loonies"}),
+        ({"ABC": ""}, {"ABC": ""}),
+        ([], {}),
+        ({}, {}),
+    ],
+)
+def test_the_currency_serializer_normalizes_the_currencies_it_suggests(currencies, expected):
+    serializer = MoneyCurrencySerializer(currencies=currencies)
+    assert serializer.currencies == expected
+    assert list(serializer.currencies) == list(expected)
+
+
+@pytest.mark.parametrize(
+    "currencies", ["CAD", ["cad"], ["CA"], ["CADX"], ["C1D"], [1], [None], 5, {"cad": "x"}, {"CAD": 1}]
+)
+def test_the_currency_serializer_refuses_bad_currencies(currencies):
+    with pytest.raises(ValueError, match="currencies"):
+        MoneyCurrencySerializer(currencies=currencies)
+
+
+@pytest.mark.parametrize("currencies", [None, ["CAD"], []])
+def test_suggestions_never_restrict_what_the_currency_serializer_reads(currencies):
+    serializer = MoneyCurrencySerializer(currencies=currencies)
+    assert serializer.deserialize("9.99 xyz") == Money(Decimal("9.99"), "XYZ")

@@ -107,7 +107,8 @@ def formfield_for(
     :param item: whether the field edits one item of a list or set (the admin's item editor), which decides whether a
         typed string is stripped (``STRIP_STRINGS``, which covers only ``str`` and custom types without a ``form``)
     :param kwargs: options for the field, such as ``required``, ``label`` and ``help_text``; a ``rounding`` is added
-        when the type's serializer has one and its ``form`` is ``MoneyField``, ``MoneyCurrencyField`` or a subclass
+        when the type's serializer has one and its ``form`` is ``MoneyField``, ``MoneyCurrencyField`` or a subclass,
+        and so are its ``currencies`` when its ``form`` is ``MoneyCurrencyField`` or a subclass
     :returns: a ``TypedLineListField`` for list and set types; for a type without a ``form`` a ``SerializerField``;
         otherwise the type's ``form_class`` (a ``NullBooleanField`` instead of a ``BooleanField`` when ``allow_null``,
         and a ``StrField`` for the built-in ``str``)
@@ -139,6 +140,9 @@ def formfield_for(
         # The money fields let the extra places through to be rounded by the serializer, rather than refusing them
         # first. Any other form keeps its own validation: it doesn't know the keyword.
         kwargs["rounding"] = rounding
+    currencies = getattr(config_type.serializer, "currencies", None)
+    if currencies is not None and issubclass(form_class, MoneyCurrencyField):
+        kwargs["currencies"] = currencies
     field = form_class(**kwargs)
     if config_type.key == "str" and form_class is StrField:
         # Only the built-in str follows STRIP_STRINGS; every other type's own form field (a custom form, a duration,

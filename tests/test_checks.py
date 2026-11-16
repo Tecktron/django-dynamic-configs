@@ -85,6 +85,10 @@ def test_strip_strings_must_be_true_false_or_none(settings, value):
 
 
 MONEY = {"type": "decimal.Decimal", "serializer": "dynamic_configs.types.money.MoneySerializer"}
+MONEY_CURRENCY = {
+    "type": "dynamic_configs.types.money.Money",
+    "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
+}
 
 
 @pytest.mark.parametrize(
@@ -98,6 +102,22 @@ MONEY = {"type": "decimal.Decimal", "serializer": "dynamic_configs.types.money.M
 )
 def test_serializer_options_are_checked(settings, options, check_id):
     settings.DYNAMIC_CONFIGS = {"TYPES": {"money": {**MONEY, "options": options}}}
+    assert ids(check_settings()) == ([check_id] if check_id else [])
+
+
+@pytest.mark.parametrize(
+    ("currencies", "check_id"),
+    [
+        (["CAD"], None),
+        ({"CAD": "Loonie"}, None),
+        ([], None),
+        ("CAD", "dynamic_configs.E003"),
+        (["cad"], "dynamic_configs.E003"),
+    ],
+)
+def test_the_currencies_option_is_checked(settings, currencies, check_id):
+    entry = {**MONEY_CURRENCY, "options": {"currencies": currencies}}
+    settings.DYNAMIC_CONFIGS = {"TYPES": {"money_currency": entry}}
     assert ids(check_settings()) == ([check_id] if check_id else [])
 
 
