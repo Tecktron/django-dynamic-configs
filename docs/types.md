@@ -27,11 +27,11 @@ Durations are one type per unit, which is clearer for admins than a free-form du
 for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are written without a trailing `.0` (`"2"`, not
 `"2.0"`).
 
-A duration is kept to the microsecond, as a `timedelta` is. Text finer than that ("0.0000001" seconds) is refused:
-"A duration is kept to the microsecond; that one is finer." (The only fractions of a microsecond it reads are the
-text it wrote itself, such as `"3.0000115740740743"` days for 3 days and 1 second.) A value is stored only if its text reads back as exactly
-that value, so one the unit can't write exactly (the largest `timedelta`, or a very long duration with a fraction of a
-second, in `weeks`) is refused: "That duration can't be stored exactly in weeks."
+A duration is kept to the microsecond, as a `timedelta` is. Text finer than that ("0.0000001" seconds) is refused: "A
+duration is kept to the microsecond; that one is finer." (The only fractions of a microsecond it reads are the text it
+wrote itself, such as `"3.0000115740740743"` days for 3 days and 1 second.) A value is stored only if its text reads
+back as exactly that value, so one the unit can't write exactly (the largest `timedelta`, or a very long duration with a
+fraction of a second, in `weeks`) is refused: "That duration can't be stored exactly in weeks."
 
 A `str` must be a single line; use `text` for several lines. A `json` value must be an object or an array: a lone
 number or string is rejected ("Enter a JSON object or array."), and so are NaN and infinity, a number too large for a

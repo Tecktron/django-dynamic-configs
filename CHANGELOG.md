@@ -21,8 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `hours`, `days` and `weeks`.
 - List and set variants of every type except `json` (`list:<key>`, `set:<key>`).
 - Custom types declared in `DYNAMIC_CONFIGS["TYPES"]`: a class, a serializer, and optionally a form field, help text,
-  raw-mode help text, a sort key or compare function, and `options` (keyword arguments for the serializer). Nothing an admin enters is ever imported, evaluated or
-  executed.
+  raw-mode help text, a sort key or compare function, and `options` (keyword arguments for the serializer). Nothing an
+  admin enters is ever imported, evaluated or executed.
 - Cached reads through any Django cache, one entry per setting, refreshed when a save or delete commits; a missing
   setting is cached too.
 - System checks for the `DYNAMIC_CONFIGS` setting (`dynamic_configs.E001` to `E005`) and the admin

@@ -37,11 +37,11 @@ when they're enabled.
 `money` is an amount: its Python type is `Decimal`, so it needs no class of its own, only a serializer.
 
 The rule every amount follows lives in one function. **More than 2 decimal places is rejected, never rounded** (unless
-the type sets a [rounding](#rounding)). The test is by digits, not value: more than 2 digits after the decimal point
-is rejected even when the extra digits are zeros, so `9.990` and `9.999` are both rejected. For a `Decimal` from code this means an exponent below -2
-(`Decimal("9.990").as_tuple().exponent == -3`). Amounts are always stored and shown with exactly 2 places: `10` is
-stored as `"10.00"`. Negative amounts are allowed, but zero has no sign: `-0`, or a negative amount that rounds to
-zero, is stored as `"0.00"`.
+the type sets a [rounding](#rounding)). The test is by digits, not value: more than 2 digits after the decimal point is
+rejected even when the extra digits are zeros, so `9.990` and `9.999` are both rejected. For a `Decimal` from code this
+means an exponent below -2 (`Decimal("9.990").as_tuple().exponent == -3`). Amounts are always stored and shown with
+exactly 2 places: `10` is stored as `"10.00"`. Negative amounts are allowed, but zero has no sign: `-0`, or a negative
+amount that rounds to zero, is stored as `"0.00"`.
 
 ```{literalinclude} ../src/dynamic_configs/types/money.py
 :language: python
@@ -94,10 +94,10 @@ DYNAMIC_CONFIGS = {
 ```
 
 With that, `9.946` is stored as `"9.95"`, whether it comes from the admin, a list's raw mode or code
-(`update("PRICE", Decimal("9.946"))`). The package's money fields (and subclasses of them) then accept more than 2 places
-in the admin and the serializer rounds. Another `form` keeps its own validation, so a 2-place field there still refuses
-`9.946`; the serializer still rounds whatever text reaches it. Without `rounding` (or with `None`), 3 places are refused as before. The rounding is set per type, so you can
-register two types with different rules.
+(`update("PRICE", Decimal("9.946"))`). The package's money fields (and subclasses of them) then accept more than 2
+places in the admin and the serializer rounds. Another `form` keeps its own validation, so a 2-place field there still
+refuses `9.946`; the serializer still rounds whatever text reaches it. Without `rounding` (or with `None`), 3 places are
+refused as before. The rounding is set per type, so you can register two types with different rules.
 
 `money_currency` takes the same option and rounds the text it reads. `Money(...)` in code still refuses 3 places, so
 give it an amount that is already rounded.
