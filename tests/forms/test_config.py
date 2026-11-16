@@ -334,3 +334,13 @@ def test_an_unchanged_null_gets_the_empty_value_rules_when_allow_null_is_turned_
     form = change_form(make("OTHER", "int", None, allow_null=True), allow_null="")
     assert form.is_valid() is False
     assert form.errors["value"] == ["This field is required."]
+
+
+def test_a_disabled_str_field_is_never_changed():
+    # Django's own rule, which StrField keeps: a disabled field's data is ignored.
+    field = change_form_for(make("NOTE", "str", " padded "))(instance=make("OTHER", "str", " x ")).fields["value"]
+    field.disabled = True
+    assert field.has_changed(" x ", "something else") is False
+    field.disabled = False
+    assert field.has_changed(" x ", " x ") is False
+    assert field.has_changed(" x ", "x") is True

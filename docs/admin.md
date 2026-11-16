@@ -61,7 +61,9 @@ opens, with the value field empty and a notice under it:
 > The stored value can't be read: Enter a whole number, such as 42. It's shown below; enter a new value to replace it.
 
 The stored text follows in a `<pre>`, exactly as it is. Saving with the value field left empty is refused with "Enter a
-value to replace the unreadable one.", and the stored text stays; enter a new value to replace it. This covers a list
+value to replace the unreadable one.", and the stored text stays; enter a new value to replace it. The replacement must be a real
+value: leaving the field empty (or on "Unknown", for a boolean) is the same as the page's empty field, so it's refused.
+If you want it empty, save a value first, then clear it in a second save. This covers a list
 or set too, when its stored text isn't a JSON array of strings. One that is (but has an item that doesn't read) opens
 in the list editor with its items, so you can remove or fix the bad one.
 

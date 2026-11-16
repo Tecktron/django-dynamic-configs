@@ -133,9 +133,12 @@ class ZonedDateTimeField(forms.MultiValueField):
         """Return whether the date, time and zone differ from what the widget showed for ``initial``.
 
         Compared as shown, not as parsed: the time input shows whole seconds, so a stored fraction of a second isn't
-        a change the admin made. Anything else typed is compared as Django does.
+        a change the admin made, and an empty value shows only the zone. Anything else typed is compared as Django does.
         """
-        if isinstance(initial, datetime) and isinstance(data, list) and len(data) == len(self.widget.widgets):
+        if self.disabled:
+            return False
+        # No initial value too: the widget still shows its zone, which the page posts back.
+        if (initial is None or isinstance(initial, datetime)) and isinstance(data, list) and len(data) == 3:
             shown = [
                 self._shown(widget, part)
                 for part, widget in zip(self.widget.decompress(initial), self.widget.widgets, strict=True)

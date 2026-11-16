@@ -8,7 +8,6 @@ unregister ``ConfigAdmin`` and register ``ConfigAdminMixin`` combined with their
 
 from __future__ import annotations
 
-import functools
 import json
 from typing import Any, cast
 
@@ -349,8 +348,15 @@ class ConfigAdminMixin:
         if change:
             super().save_model(request, obj, form, change)  # type: ignore[misc]
             return
-        # Django's save updates a row that has the primary key before it inserts, so it would overwrite one.
-        obj.save = functools.partial(obj.save, force_insert=True)  # type: ignore[method-assign]
+        # Django's save updates a row that has the primary key before it inserts, so it would overwrite one. Only the
+        # first save is forced: the wrapper removes itself, so a post_save receiver that saves again updates as usual.
+        original = obj.save
+
+        def insert_once(*args: Any, **kwargs: Any) -> None:
+            vars(obj).pop("save", None)
+            original(*args, force_insert=True, **kwargs)
+
+        obj.save = insert_once  # type: ignore[method-assign]
         using = router.db_for_write(self.model)  # type: ignore[attr-defined]
         try:
             with transaction.atomic(using=using):
@@ -359,6 +365,8 @@ class ConfigAdminMixin:
             if not self.model._default_manager.using(using).filter(pk=obj.pk).exists():  # type: ignore[attr-defined]
                 raise
             raise self._NameTaken from error
+        finally:
+            vars(obj).pop("save", None)
 
     def change_view(
         self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: dict[str, Any] | None = None

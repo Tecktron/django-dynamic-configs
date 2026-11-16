@@ -11,6 +11,7 @@ from django.contrib.admin import AdminSite
 from django.contrib.staticfiles import finders
 from django.core import checks
 from django.db import IntegrityError
+from django.db.models.signals import post_save
 from django.test import Client
 
 from dynamic_configs.admin import ConfigAdmin, ConfigAdminMixin, register_admin
@@ -622,8 +623,18 @@ def test_the_notice_shows_for_every_kind_of_field(admin_client, type_key, stored
     content = admin_client.get(change_url("BROKEN")).content.decode()
     assert "The stored value can't be read: " in content
     assert stored_notice(content, stored)
-    # Refused whether or not the config allows null.
     assert save_untouched(admin_client, "BROKEN").status_code == 200
+    assert Config.objects.get(name="BROKEN").value == stored
+
+
+@pytest.mark.parametrize(("type_key", "stored"), UNREADABLE + [("days", "soon"), ("money_currency", "lots")])
+def test_an_unreadable_value_is_refused_when_the_config_allows_null_too(admin_client, settings, type_key, stored):
+    # Left as the page showed it (empty, a zone chosen), the value is unchanged: refused, not turned into None.
+    settings.DYNAMIC_CONFIGS = {"TYPES": MONEY_TYPES}
+    make("BROKEN", type_key, stored, allow_null=True)
+    response = save_untouched(admin_client, "BROKEN", allow_null="on")
+    assert response.status_code == 200
+    assert "Enter a value to replace the unreadable one." in response.content.decode()
     assert Config.objects.get(name="BROKEN").value == stored
 
 
@@ -718,3 +729,25 @@ def test_an_add_that_fails_for_another_reason_raises(admin_client, mocker):
     with pytest.raises(IntegrityError):
         admin_client.post(f"{URL}add/?type=int", {"name": "NEW_ONE", "value": "9", "description": "", "_save": "Save"})
     assert not Config.objects.filter(name="NEW_ONE").exists()
+
+
+def test_a_receiver_that_saves_again_doesnt_break_an_add(admin_client):
+    # The insert is forced for the first save only: a post_save receiver's own save updates the row as usual.
+    seen = []
+
+    def resave(sender, instance, created, **kwargs):
+        seen.append("save" in vars(instance))
+        if created:
+            instance.description = "Set by a receiver"
+            instance.save()
+
+    post_save.connect(resave, sender=Config)
+    try:
+        response = admin_client.post(
+            f"{URL}add/?type=int", {"name": "MAX_RETRIES", "value": "9", "description": "", "_save": "Save"}
+        )
+    finally:
+        post_save.disconnect(resave, sender=Config)
+    assert response.status_code == 302
+    assert Config.objects.get(name="MAX_RETRIES").description == "Set by a receiver"
+    assert seen == [False, False]

@@ -30,6 +30,8 @@ class StrField(forms.CharField):
 
     def has_changed(self, initial: Any, data: Any) -> bool:
         """Compare the text shown with what was submitted before it's stripped, so untouched text stays as stored."""
+        if self.disabled:
+            return False
         return str(initial if initial is not None else "") != str(data if data is not None else "")
 
 
