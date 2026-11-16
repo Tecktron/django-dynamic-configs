@@ -31,7 +31,9 @@ def test_listing():
   One instance can be open in several tasks at once; each task's block ends on its own.
 - It decorates functions, coroutine functions, generator functions and async generator functions. A decorated
   generator runs under the overrides each time it resumes, so they hold while it's iterated, not only while it's
-  created. The code that iterates it doesn't see them between items.
+  created. The code that iterates it doesn't see them between items. A block the generator opens itself holds across
+  its `yield`s until it ends, and the code iterating it sees that block meanwhile, as in any generator, so
+  `@contextmanager` functions and pytest yield fixtures work as usual.
 
 ### On a class
 

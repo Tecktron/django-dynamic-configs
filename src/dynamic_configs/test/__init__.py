@@ -19,7 +19,7 @@ class override_configs:  # noqa: N801 - lowercase like Django's override_setting
     don't leak between threads or asyncio tasks. One instance can be open in several tasks at once.
 
     A decorated generator function or async generator function runs under the overrides each time it resumes, while
-    its caller's code between items doesn't.
+    its caller's code between items doesn't. Blocks it opens itself hold across its ``yield``s, as in any generator.
 
     Decorating a class applies the overrides to its ``test*`` methods, inherited ones included, to the setup and
     teardown hooks of unittest, Django and pytest (``setUp``, ``asyncSetUp``, ``setUpClass``, ``setUpTestData``,
@@ -77,31 +77,43 @@ class override_configs:  # noqa: N801 - lowercase like Django's override_setting
 
         return wrapper
 
-    @classmethod
+    @staticmethod
     def _wrap_generator(
-        cls, target: Callable[..., Iterator[Any]], values_for: Callable[[tuple[Any, ...]], dict[str, Any]]
+        target: Callable[..., Iterator[Any]], values_for: Callable[[tuple[Any, ...]], dict[str, Any]]
     ) -> Callable[..., Iterator[Any]]:
         """Wrap a generator function so its code runs under the overrides each time it resumes.
 
         The overrides apply step by step, not across ``yield``: the caller's code between items runs without them.
-        What the caller sends, throws or closes is passed on, as ``yield from`` would.
+        Blocks the generator opens itself behave as in any generator: they hold across its ``yield``s until they end,
+        and its caller sees them meanwhile, as ``@contextmanager`` functions and yield fixtures expect. So the
+        decorator's layer is switched in under them for each step, and out again after it. What the caller sends,
+        throws or closes is passed on, as ``yield from`` would.
         """
 
         @functools.wraps(target)
         def generator_wrapper(*args: Any, **kwargs: Any) -> Iterator[Any]:
             generator = target(*args, **kwargs)
+            own = _overrides.make_layer(values_for(args))
+            above: tuple[_overrides.Layer, ...] = ()
+
+            def step(resume: Callable[..., Any], *sent: Any) -> Any:
+                nonlocal above
+                _overrides.attach(own, above)
+                try:
+                    return resume(*sent)
+                finally:
+                    above = _overrides.detach(own)
+
             resume, sent = generator.send, None
             while True:
-                with cls(**values_for(args)):
-                    try:
-                        item = resume(sent)
-                    except StopIteration as stop:
-                        return stop.value
+                try:
+                    item = step(resume, sent)
+                except StopIteration as stop:
+                    return stop.value
                 try:
                     sent = yield item
                 except GeneratorExit:
-                    with cls(**values_for(args)):
-                        generator.close()
+                    step(generator.close)
                     raise
                 except BaseException as error:
                     resume, sent = generator.throw, error
@@ -110,9 +122,9 @@ class override_configs:  # noqa: N801 - lowercase like Django's override_setting
 
         return generator_wrapper
 
-    @classmethod
+    @staticmethod
     def _wrap_async_generator(
-        cls, target: Callable[..., AsyncIterator[Any]], values_for: Callable[[tuple[Any, ...]], dict[str, Any]]
+        target: Callable[..., AsyncIterator[Any]], values_for: Callable[[tuple[Any, ...]], dict[str, Any]]
     ) -> Callable[..., AsyncIterator[Any]]:
         """Wrap an async generator function so its code runs under the overrides each time it resumes.
 
@@ -122,18 +134,27 @@ class override_configs:  # noqa: N801 - lowercase like Django's override_setting
         @functools.wraps(target)
         async def async_generator_wrapper(*args: Any, **kwargs: Any) -> AsyncIterator[Any]:
             generator = target(*args, **kwargs)
+            own = _overrides.make_layer(values_for(args))
+            above: tuple[_overrides.Layer, ...] = ()
+
+            async def step(resume: Callable[..., Any], *sent: Any) -> Any:
+                nonlocal above
+                _overrides.attach(own, above)
+                try:
+                    return await resume(*sent)
+                finally:
+                    above = _overrides.detach(own)
+
             resume, sent = generator.asend, None
             while True:
-                with cls(**values_for(args)):
-                    try:
-                        item = await resume(sent)
-                    except StopAsyncIteration:
-                        return
+                try:
+                    item = await step(resume, sent)
+                except StopAsyncIteration:
+                    return
                 try:
                     sent = yield item
                 except GeneratorExit:
-                    with cls(**values_for(args)):
-                        await generator.aclose()
+                    await step(generator.aclose)
                     raise
                 except BaseException as error:
                     resume, sent = generator.athrow, error

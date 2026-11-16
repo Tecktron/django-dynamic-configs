@@ -55,3 +55,15 @@ class TestSetInADecoratedClass:
         config_overrides.set(SITE_NAME="Set")
         assert dynamic_configs.get("SITE_NAME") == "Set"
         assert dynamic_configs.get("MAX_RETRIES") == 1
+
+
+def test_set_inside_a_decorated_generator_lasts_after_it(config_overrides):
+    @override_configs(SITE_NAME="Decorator")
+    def generator():
+        config_overrides.set(SITE_NAME="Set", PAGE_SIZE=10)
+        yield
+        # The latest wins, over the decorator's values too.
+        yield _overrides.lookup("SITE_NAME")
+
+    assert list(generator()) == [None, (True, "Set")]
+    assert dict(_overrides.current()) == {"SITE_NAME": "Set", "PAGE_SIZE": 10}

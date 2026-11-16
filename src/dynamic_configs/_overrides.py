@@ -5,7 +5,8 @@ thread and asyncio task sees its own, and ``sync_to_async`` carries them into th
 
 They're kept as layers, the latest last, and the latest layer naming a config wins. ``push`` adds a layer that ``pop``
 takes away again (a ``with`` block). ``pin`` adds one that outlasts the blocks open when it's added (the pytest
-fixture's ``set()``, which lasts for the rest of the test).
+fixture's ``set()``, which lasts for the rest of the test). ``attach`` and ``detach`` switch one layer in and out (a
+decorated generator's, while its code runs), keeping the layers above it.
 """
 
 from __future__ import annotations
@@ -45,9 +46,14 @@ def lookup(name: str) -> tuple[bool, Any]:
     return False, None
 
 
+def make_layer(values: Mapping[str, Any], *, pinned: bool = False) -> Layer:
+    """Return a layer holding a read-only copy of ``values``."""
+    return Layer(MappingProxyType(dict(values)), pinned)
+
+
 def push(values: Mapping[str, Any]) -> Token[tuple[Layer, ...]]:
     """Layer ``values`` over the active overrides; return the token that ``pop`` needs to undo it."""
-    return _layers.set((*_layers.get(), Layer(MappingProxyType(dict(values)), pinned=False)))
+    return _layers.set((*_layers.get(), make_layer(values)))
 
 
 def pop(token: Token[tuple[Layer, ...]]) -> None:
@@ -63,7 +69,26 @@ def pop(token: Token[tuple[Layer, ...]]) -> None:
 
 def pin(values: Mapping[str, Any]) -> None:
     """Layer ``values`` over the active overrides, to stay when the blocks open now end."""
-    _layers.set((*_layers.get(), Layer(MappingProxyType(dict(values)), pinned=True)))
+    _layers.set((*_layers.get(), make_layer(values, pinned=True)))
+
+
+def attach(layer: Layer, under: tuple[Layer, ...]) -> None:
+    """Make ``layer`` active again, just under the first of ``under`` still active, or on top if none is.
+
+    With ``detach``, this switches one layer in and out while the layers added above it stay where they are.
+    """
+    layers = _layers.get()
+    first = under[0] if under else None
+    position = next((index for index, active in enumerate(layers) if active is first), len(layers))
+    _layers.set((*layers[:position], layer, *layers[position:]))
+
+
+def detach(layer: Layer) -> tuple[Layer, ...]:
+    """Take ``layer`` out of the active layers; return the ones that were above it, for ``attach``."""
+    layers = _layers.get()
+    position = next((index for index, active in enumerate(layers) if active is layer), len(layers))
+    _layers.set((*layers[:position], *layers[position + 1 :]))
+    return layers[position + 1 :]
 
 
 def snapshot() -> tuple[Layer, ...]:

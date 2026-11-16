@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import unittest
+from contextlib import contextmanager
 
 import pytest
 from django.test import TestCase
@@ -320,6 +321,95 @@ def test_decorated_generators_async_generators_cleanups_and_asyncsetup_see_overr
         "asyncTearDown": (True, "Async case"),
         "async cleanup": (True, "Async case"),
     }
+
+
+def _lookups():
+    return tuple(_overrides.lookup(name) for name in ("SITE_NAME", "PAGE_SIZE", "MAX_RETRIES"))
+
+
+def test_a_block_inside_a_decorated_generator_holds_across_its_yields():
+    # Fix round: the wrapper's per-step reset dropped the block after the first yield.
+    def body():
+        with override_configs(SITE_NAME="Inner", PAGE_SIZE=5):
+            yield _lookups()
+            yield _lookups()
+        yield _lookups()
+
+    def run(generator_function):
+        seen, between = [], []
+        for item in generator_function():
+            seen.append(item)
+            between.append(dict(_overrides.current()))
+        return seen, between
+
+    seen, between = run(override_configs(SITE_NAME="Outer", MAX_RETRIES=1)(body))
+    assert seen == [
+        ((True, "Inner"), (True, 5), (True, 1)),
+        ((True, "Inner"), (True, 5), (True, 1)),
+        ((True, "Outer"), (False, None), (True, 1)),
+    ]
+    # Between items the caller sees what an undecorated generator shows it: the generator's own open block, and none
+    # of the decorator's values.
+    assert between == run(body)[1] == [{"SITE_NAME": "Inner", "PAGE_SIZE": 5}] * 2 + [{}]
+    assert dict(_overrides.current()) == {}
+
+
+def test_a_block_inside_a_decorated_async_generator_holds_across_its_yields():
+    async def body():
+        with override_configs(SITE_NAME="Inner", PAGE_SIZE=5):
+            await asyncio.sleep(0)
+            yield _lookups()
+            await asyncio.sleep(0)
+            yield _lookups()
+        yield _lookups()
+
+    async def run(generator_function):
+        seen, between = [], []
+        async for item in generator_function():
+            seen.append(item)
+            between.append(dict(_overrides.current()))
+        return seen, between, dict(_overrides.current())
+
+    seen, between, after = asyncio.run(run(override_configs(SITE_NAME="Outer", MAX_RETRIES=1)(body)))
+    assert seen == [
+        ((True, "Inner"), (True, 5), (True, 1)),
+        ((True, "Inner"), (True, 5), (True, 1)),
+        ((True, "Outer"), (False, None), (True, 1)),
+    ]
+    assert between == asyncio.run(run(body))[1] == [{"SITE_NAME": "Inner", "PAGE_SIZE": 5}] * 2 + [{}]
+    assert after == {}
+
+
+def test_a_decorated_context_manager_function_keeps_its_block_for_the_with_body():
+    seen = {}
+
+    @contextmanager
+    @override_configs(SITE_NAME="Outer")
+    def scenario():
+        with override_configs(PAGE_SIZE=5):
+            yield
+            seen["teardown"] = _lookups()
+
+    with scenario():
+        seen["with body"] = _lookups()
+    assert seen == {
+        "with body": ((False, None), (True, 5), (False, None)),
+        "teardown": ((True, "Outer"), (True, 5), (False, None)),
+    }
+    assert dict(_overrides.current()) == {}
+
+
+def test_an_abandoned_decorated_generator_leaves_nothing_behind():
+    @override_configs(SITE_NAME="Outer")
+    def generator():
+        with override_configs(PAGE_SIZE=5):
+            yield
+
+    items = generator()
+    next(items)
+    del items  # closed at once, which ends its block
+    assert dict(_overrides.current()) == {}
+    assert override_configs._TOKENS.get({}) == {}
 
 
 def test_decorated_generators_pass_on_send_throw_close_and_return():
