@@ -20,7 +20,8 @@ descriptions, and filter by type.
 Adding takes two steps, so the value can use its type's own input:
 
 1. Choose the type (every registered type, list and set variants included) and click **Save**. With the admin
-   script, choosing a type moves on without the click.
+   script, choosing a type with the mouse moves on without the click. From the keyboard, the arrow keys and typing
+   only change the choice, and Enter moves on.
 2. Enter the name, the value, whether it may be empty (**Allow null**) and an optional description, and save. The
    type is shown read-only. A boolean gets a yes/no/unknown choice here, since whether the setting allows None isn't
    known until it's saved.
@@ -41,6 +42,10 @@ An `int` takes a whole number. With the admin script, a decimal typed into its i
 its whole part, `1.7` to `1` and `-1.7` to `-1`, when you leave the input, step it with the arrows, or press Enter, and
 the arrows always count in whole numbers. Without the script, the server refuses a decimal with "Enter a whole
 number.", except one ending in zeros, such as `1.0`, which it reads as `1`.
+
+A decimal input with a step, such as money's `0.01`, counts its arrows from multiples of that step, even after the
+server refuses a value: up from a refused `1.234` gives `1.24`. Nothing is trimmed: money with rounding takes `9.946`,
+and the server rounds it to `9.95`.
 
 ## Empty values
 

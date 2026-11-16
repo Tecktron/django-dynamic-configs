@@ -29,7 +29,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   (`dynamic_configs.W001` and `E006`).
 - The admin, built on stock admin pages so admin skins apply: a two-step add page, each type's own form field, a JSON
   editor (formatting, a validity note, colours and a whitespace view), a list editor (an item editor, a raw mode for
-  pasting, and sorting), and whole-number inputs that trim a typed decimal to its whole part.
+  pasting, and sorting), whole-number inputs that trim a typed decimal to its whole part, and number inputs whose
+  arrows count from multiples of their step.
 - Test helpers that need neither the database nor the cache: `dynamic_configs.test.override_configs`, and a pytest
   plugin with the `config_overrides` fixture.
 - Example custom types, not registered by default: `money` (an amount with at most 2 decimal places) and

@@ -258,6 +258,19 @@ def test_numbers_that_take_decimals_arent_marked(admin_client, type_key, value):
     assert "data-dynamic-configs-int" not in admin_client.get(change_url("AMOUNT")).content.decode()
 
 
+def test_decimals_are_marked_for_the_admin_script(admin_client):
+    make("PRICE", "decimal", "1.50")
+    content = admin_client.get(change_url("PRICE")).content.decode()
+    assert re.search(r'<input type="number" name="value" value="1.50"[^>]* data-dynamic-configs-decimal', content)
+    assert "dynamic_configs/admin.js" in content
+
+
+@pytest.mark.parametrize(("type_key", "value"), [("int", "3"), ("float", "1.5"), ("minutes", "1.5")])
+def test_numbers_that_arent_decimals_arent_marked_as_decimals(admin_client, type_key, value):
+    make("AMOUNT", type_key, value)
+    assert "data-dynamic-configs-decimal" not in admin_client.get(change_url("AMOUNT")).content.decode()
+
+
 def post_datetime(admin_client, name, day, clock, zone):
     data = {"value_0": day, "value_1": clock, "value_2": zone, "description": "", "_save": "Save"}
     return admin_client.post(change_url(name), data)

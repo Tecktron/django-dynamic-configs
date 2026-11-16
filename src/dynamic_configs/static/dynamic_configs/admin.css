@@ -150,6 +150,13 @@
     gap: 4px;
 }
 
+/* The item's help sits under its input. Django 5.2 indents an aligned form's help by the label's width, to line it up
+   under a field's input; the item editor is already in that column. (Django 6 doesn't indent it.) */
+form .aligned .dynamic-configs-list-item .help {
+    margin-left: 0;
+    padding-left: 0;
+}
+
 .dynamic-configs-list-items {
     min-width: 20em;
     max-width: 100%;

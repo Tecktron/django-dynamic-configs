@@ -551,7 +551,10 @@ numbers whole,
 - **Add page:** two steps, so the value can use its type's own field. The first step asks only for the type (a
   select of registered types, including list and set variants); Save moves to the second step at
   `add/?type=<key>`, which shows the name, the type (read-only), the value in its type's form field, `allow_null` and
-  the description, as on the change page. With the admin script, choosing a type moves on without clicking Save. An
+  the description, as on the change page. With the admin script, choosing a type with the mouse moves on without
+  clicking Save. From the keyboard, the arrows and typing only change the choice (on a closed select most browsers
+  fire `change` at each one), and Enter moves on: a `keydown` on the select marks keyboard use, so its `change`
+  doesn't submit, and a `pointerdown` clears the mark. Save stays for the page without the script. An
   unknown `?type=` shows the first step again, and other query parameters (a popup's, say) are kept. A boolean gets
   the yes/no/unknown choice on this page, since whether the config allows None isn't known until it's saved.
 - **Change page:** name and type are read-only; the value uses its type's form field (checkbox, date picker, the list
@@ -586,9 +589,14 @@ numbers whole,
   with `admin.js`. The script trims a decimal to its whole part (`1.7` to `1`, `-1.7` to `-1`, `-0.5` to `0`) as text,
   so a whole part too long for a JavaScript number isn't rounded: on `change`, which the browser fires on leaving the
   input and right after each step of its arrows and spin buttons, and on Enter, in the capture phase, before the form
-  submits or the list editor adds the item. On load it drops the input's `value` attribute, keeping the value shown:
-  the browser counts steps from that attribute, so after the server refused `1.7`, up went to `2.7`. A value with an
-  exponent (`1e3`) is left to the server, which refuses it.
+  submits or the list editor adds the item. A value with an exponent (`1e3`) is left to the server, which refuses it.
+- **Decimals:** a `DecimalField` (`MoneyField` included) with Django's plain `NumberInput` gets `AdminDecimalInput`,
+  marked `data-dynamic-configs-decimal`, with `admin.js`. Nothing is trimmed: money with rounding keeps
+  `step="0.01"` but takes more places, and the change form's `novalidate` lets them through to the server.
+- **Steps:** on load the script drops a whole-number or decimal input's `value` attribute, keeping the value shown.
+  With no `min`, the browser counts the arrows' steps from that attribute, so after the server refused an int's
+  `1.7`, up went to `2.7`, and money's `1.234`, to `1.244`; now they count from multiples of the step (`2`, `1.24`).
+  The server's "unchanged" check compares posted data, which is the value shown, so it isn't affected.
 - **JSON editor:** the `json` type's textarea (`AdminJSONTextarea`) gets `json_editor.js` and `admin.css`:
   - A **Format** link re-indents the value, two spaces per level, and on invalid JSON, JSON nested too deeply or a
     number too large, changes nothing and moves the cursor to the problem. It has the button role, so Enter and Space
@@ -672,7 +680,8 @@ numbers whole,
     while the item editor holds an unfinished change, a selected item edited but not updated or a new value typed
     but not added: "You have an unsaved change to an item: click Update or Clear." (Applying it silently could save
     an item halfway through being changed; dropping it would lose work.) Raw mode won't open then either, for the same
-    reason, and shows the same warning.
+    reason, and shows the same warning. Saving while an Add or Update is waiting for the server warns too, since the
+    item isn't in the list yet; the warning goes when the answer finishes the change.
   - **The check URL** is `<admin>/dynamic_configs/config/list-item/<type key>/`, a view on `ConfigAdminMixin`. It's
     keyed by the list or set type, not the config, so the add page can use it before the config exists. It sits
     behind the admin's login and CSRF check, needs add or change permission on configs, takes only POSTs, answers
@@ -802,7 +811,7 @@ src/dynamic_configs/
                         AdminJSONTextarea, AdminListEditorWidget
     apps.py
     static/dynamic_configs/
-        admin.js        the admin's optional script (type step, time zones)
+        admin.js        the admin's optional script (type step, time zones, number steps)
         json_editor.js  the admin's JSON editor
         list_editor.js  the admin's list editor
         admin.css       the editors' layout, and the JSON editor's colours
