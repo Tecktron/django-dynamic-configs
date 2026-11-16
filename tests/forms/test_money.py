@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 
 from dynamic_configs.forms.fields import formfield_for
 from dynamic_configs.forms.money import MoneyCurrencyField, MoneyCurrencyWidget, MoneyField
-from dynamic_configs.types.money import Money
+from dynamic_configs.types.money import Money, MoneySerializer
 from dynamic_configs.types.registry import load_custom_type
 
 
@@ -81,3 +81,32 @@ def test_formfield_for_gives_the_field_the_serializers_rounding(key, serializer,
     with pytest.raises(ValidationError):
         plain.clean(amount)
     assert rounding.clean(amount) is not None
+
+
+def test_another_form_gets_no_rounding_keyword_and_keeps_its_own_validation():
+    entry = {
+        "type": "decimal.Decimal",
+        "serializer": "dynamic_configs.types.money.MoneySerializer",
+        "form": "django.forms.DecimalField",
+        "options": {"rounding": "ROUND_UP"},
+    }
+    field = formfield_for(load_custom_type("money", entry), decimal_places=2)
+    with pytest.raises(ValidationError):
+        field.clean("9.946")
+
+
+class ProjectMoneyField(MoneyField):
+    """A project's own subclass."""
+
+
+def test_a_subclass_of_the_money_field_gets_the_rounding():
+    entry = {
+        "type": "decimal.Decimal",
+        "serializer": "dynamic_configs.types.money.MoneySerializer",
+        "form": "tests.forms.test_money.ProjectMoneyField",
+        "options": {"rounding": "ROUND_HALF_UP"},
+    }
+    field = formfield_for(load_custom_type("money", entry))
+    assert isinstance(field, ProjectMoneyField)
+    assert field.clean("9.946") == Decimal("9.946")
+    assert MoneySerializer(rounding="ROUND_HALF_UP").serialize(field.clean("9.946")) == "9.95"

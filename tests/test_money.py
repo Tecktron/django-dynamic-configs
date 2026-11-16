@@ -139,3 +139,13 @@ def test_a_type_without_rounding_refuses_three_places_in_the_admin(admin_client,
     assert response.status_code == 200
     assert "at most 2 decimal places" in response.content.decode()
     assert not Config.objects.filter(name="PRICE").exists()
+
+
+def test_the_admin_renders_a_rounding_type_with_another_form(settings, admin_client):
+    settings.DYNAMIC_CONFIGS = {
+        "TYPES": {
+            "money": {**MONEY_TYPES["money"], "form": "django.forms.DecimalField", "options": {"rounding": "ROUND_UP"}}
+        }
+    }
+    dynamic_configs.get_or_create("PRICE", "money", Decimal("1"))
+    assert admin_client.get("/admin/dynamic_configs/config/PRICE/change/").status_code == 200

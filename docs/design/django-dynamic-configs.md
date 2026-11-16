@@ -251,7 +251,8 @@ DYNAMIC_CONFIGS = {
   keys is E001; a serializer that raises `TypeError` or `ValueError` on creation (an unknown option, a refused value)
   is E003, naming the serializer and the error, never the options' values. The form field's keyword arguments come
   from `formfield_for`, which also passes `rounding=` when the type's serializer has a `rounding` attribute that
-  isn't None.
+  isn't None and the type's `form` is `MoneyField`, `MoneyCurrencyField` or a subclass of either. Any other form
+  gets no `rounding` and keeps its own validation.
 - Without `form`, the admin uses `SerializerField(serializer)`: a text input that calls `deserialize` to clean and
   `serialize` to display.
 - A `form` field is instantiated with `required=False`, `label` and `help_text`. The admin form applies the

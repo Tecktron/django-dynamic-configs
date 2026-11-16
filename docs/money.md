@@ -93,8 +93,9 @@ DYNAMIC_CONFIGS = {
 ```
 
 With that, `9.946` is stored as `"9.95"`, whether it comes from the admin, a list's raw mode or code
-(`update("PRICE", Decimal("9.946"))`). The admin's amount input then accepts more than 2 places and the serializer
-rounds. Without `rounding` (or with `None`), 3 places are refused as before. The rounding is set per type, so you can
+(`update("PRICE", Decimal("9.946"))`). The package's money fields (and subclasses of them) then accept more than 2 places
+in the admin and the serializer rounds. Another `form` keeps its own validation, so a 2-place field there still refuses
+`9.946`; the serializer still rounds whatever text reaches it. Without `rounding` (or with `None`), 3 places are refused as before. The rounding is set per type, so you can
 register two types with different rules.
 
 `money_currency` takes the same option and rounds the text it reads. `Money(...)` in code still refuses 3 places, so

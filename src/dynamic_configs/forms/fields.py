@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from dynamic_configs.conf import get_settings
 from dynamic_configs.constants import SET_HELP
 from dynamic_configs.forms.list import TypedLineListField
+from dynamic_configs.forms.money import MoneyCurrencyField, MoneyField
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.serializers import (
     BaseSerializer,
@@ -96,7 +97,7 @@ def formfield_for(
     :param item: whether the field edits one item of a list or set (the admin's item editor), which decides whether a
         typed string is stripped (``STRIP_STRINGS``, which covers only ``str`` and custom types without a ``form``)
     :param kwargs: options for the field, such as ``required``, ``label`` and ``help_text``; a ``rounding`` is added
-        when the type's serializer has one, so a ``form`` for such a type must accept it
+        when the type's serializer has one and its ``form`` is ``MoneyField``, ``MoneyCurrencyField`` or a subclass
     :returns: a ``TypedLineListField`` for list and set types, the type's ``form_class``, or a ``SerializerField``
     :rtype: forms.Field
     """
@@ -120,9 +121,9 @@ def formfield_for(
         # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
         form_class = forms.NullBooleanField
     rounding = getattr(config_type.serializer, "rounding", None)
-    if rounding is not None:
-        # A serializer that rounds (the money types) tells its form field, so the field lets the extra places
-        # through to be rounded by the serializer, rather than refusing them first.
+    if rounding is not None and issubclass(form_class, (MoneyField, MoneyCurrencyField)):
+        # The money fields let the extra places through to be rounded by the serializer, rather than refusing them
+        # first. Any other form keeps its own validation: it doesn't know the keyword.
         kwargs["rounding"] = rounding
     field = form_class(**kwargs)
     if config_type.key == "str" and form_class is forms.CharField:
