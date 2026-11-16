@@ -8,7 +8,7 @@ from typing import Any
 from django import forms
 
 from dynamic_configs.forms.fields import SerializerField
-from dynamic_configs.types.serializers import JSON_MAX_DEPTH, JSONSerializer
+from dynamic_configs.types.serializers import JSONSerializer
 
 
 class JSONTextarea(forms.Textarea):
@@ -22,7 +22,7 @@ class JSONTextarea(forms.Textarea):
         super().__init__(
             {
                 "data-dynamic-configs-json": True,
-                "data-dynamic-configs-json-max-depth": JSON_MAX_DEPTH,
+                "data-dynamic-configs-json-max-depth": JSONSerializer.JSON_MAX_DEPTH,
                 "spellcheck": "false",
                 **(attrs or {}),
             }

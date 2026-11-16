@@ -41,14 +41,7 @@ from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.registry import LIST_PREFIX, SET_PREFIX, get_registry
 
-_PREVIEW_LENGTH = 80
-_FIELDS = ("name", "type", "value", "allow_null", "description")
-_LIST_ITEM_URL = "dynamic_configs_config_list_item"
-_LIST_EDITOR_SCRIPT = "dynamic_configs/list_editor.js"
 _STYLESHEET = "dynamic_configs/admin.css"
-_UNREADABLE = "The request couldn't be read. Reload the page and try again."
-# ModelAdmin options ConfigAdminMixin's methods replace (see its docstring).
-_IGNORED_OPTIONS = ("fields", "fieldsets", "readonly_fields")
 
 
 class AdminZonedDateTimeWidget(ZonedDateTimeWidget):
@@ -94,6 +87,8 @@ class AdminListEditorWidget(ListWidget):
     it, as ``raw_help`` goes with the textarea, so each shows only while its input does.
     """
 
+    _LIST_EDITOR_SCRIPT = "dynamic_configs/list_editor.js"
+
     def __init__(
         self,
         attrs: dict[str, Any] | None = None,
@@ -114,7 +109,7 @@ class AdminListEditorWidget(ListWidget):
     @property
     def media(self) -> forms.Media:
         """The item editor's own scripts first (the date picker, say), then the list editor's script and stylesheet."""
-        return self.item_field.widget.media + forms.Media(js=[_LIST_EDITOR_SCRIPT], css={"all": [_STYLESHEET]})
+        return self.item_field.widget.media + forms.Media(js=[self._LIST_EDITOR_SCRIPT], css={"all": [_STYLESHEET]})
 
     def render(self, name: str, value: Any, attrs: dict[str, Any] | None = None, renderer: Any = None) -> SafeString:
         """Render the raw textarea and hidden inputs, and the item editor, marked for the editor script."""
@@ -135,65 +130,6 @@ class AdminListEditorWidget(ListWidget):
         )
 
 
-# Django's plain widgets (and the zoned datetime widget) mapped to the admin's versions (date picker, split
-# date/time, styled textarea). Matched by exact type, so a type's own widget is never replaced, even one that
-# subclasses Textarea (as code editors do).
-_ADMIN_WIDGETS: dict[type[forms.Widget], type[forms.Widget]] = {
-    forms.DateInput: admin_widgets.AdminDateWidget,
-    forms.SplitDateTimeWidget: admin_widgets.AdminSplitDateTime,
-    ZonedDateTimeWidget: AdminZonedDateTimeWidget,
-    forms.Textarea: admin_widgets.AdminTextareaWidget,
-    JSONTextarea: AdminJSONTextarea,
-}
-
-
-def _use_admin_widget(field: forms.Field) -> None:
-    """Swap ``field``'s widget for the admin's version when it's one of Django's plain widgets, keeping its attrs.
-
-    A number input is swapped only for a whole-number field: float and decimal fields use the same input (and Django
-    makes them subclasses of ``IntegerField``).
-    """
-    widget_class = _ADMIN_WIDGETS.get(type(field.widget))
-    if (
-        type(field.widget) is forms.NumberInput
-        and isinstance(field, forms.IntegerField)
-        and not isinstance(field, (forms.FloatField, forms.DecimalField))
-    ):
-        widget_class = AdminIntegerInput
-    if widget_class is not None:
-        field.widget = widget_class(attrs=field.widget.attrs)
-
-
-def _chosen_type(request: HttpRequest) -> ConfigType | None:
-    """Return the type chosen in the add page's first step (``?type=`` in the address), or None."""
-    return get_registry().get(request.GET.get("type", ""))
-
-
-def _texts(raw: str | None) -> list[str]:
-    """Return the JSON array of strings the list editor sent; raise ValidationError when it isn't one."""
-    try:
-        texts = json.loads(raw or "")
-    except (ValueError, RecursionError):
-        # RecursionError: JSON nested too deeply, which Python's reader raises rather than a ValueError.
-        texts = None
-    if not isinstance(texts, list) or not all(isinstance(text, str) for text in texts):
-        raise ValidationError(_UNREADABLE)
-    return texts
-
-
-def _position(raw: str | None) -> int | None:
-    """Return the item's index the list editor sent, or None for a new item (empty or missing).
-
-    Only 1 to 9 ASCII digits are an index: ``int()`` refuses some digits (``"²"``) and very long strings.
-    Raise ValidationError for anything else.
-    """
-    if not raw:
-        return None
-    if not (raw.isascii() and raw.isdigit() and len(raw) <= 9):
-        raise ValidationError(_UNREADABLE)
-    return int(raw)
-
-
 class ConfigAdminMixin:
     """The config admin's behaviour; combine it with ``admin.ModelAdmin`` or a skin's ``ModelAdmin``.
 
@@ -203,15 +139,79 @@ class ConfigAdminMixin:
     ``dynamic_configs.W001`` warns when one is set. To change them, override those methods and call ``super()``.
     """
 
+    _PREVIEW_LENGTH = 80
+    _FIELDS = ("name", "type", "value", "allow_null", "description")
+    _LIST_ITEM_URL = "dynamic_configs_config_list_item"
+    _UNREADABLE = "The request couldn't be read. Reload the page and try again."
+    # ModelAdmin options this mixin's methods replace (see the class docstring).
+    _IGNORED_OPTIONS = ("fields", "fieldsets", "readonly_fields")
+    # Django's plain widgets (and the zoned datetime widget) mapped to the admin's versions (date picker, split
+    # date/time, styled textarea). Matched by exact type, so a type's own widget is never replaced, even one that
+    # subclasses Textarea (as code editors do).
+    _ADMIN_WIDGETS: dict[type[forms.Widget], type[forms.Widget]] = {
+        forms.DateInput: admin_widgets.AdminDateWidget,
+        forms.SplitDateTimeWidget: admin_widgets.AdminSplitDateTime,
+        ZonedDateTimeWidget: AdminZonedDateTimeWidget,
+        forms.Textarea: admin_widgets.AdminTextareaWidget,
+        JSONTextarea: AdminJSONTextarea,
+    }
+
     list_display = ("name", "type_label", "value_preview", "description", "modified_on")
     list_filter = ("type",)
     search_fields = ("name", "description")
     ordering = ("name",)
 
+    @classmethod
+    def _use_admin_widget(cls, field: forms.Field) -> None:
+        """Swap ``field``'s widget for the admin's version when it's one of Django's plain widgets, keeping its attrs.
+
+        A number input is swapped only for a whole-number field: float and decimal fields use the same input (and
+        Django makes them subclasses of ``IntegerField``).
+        """
+        widget_class = cls._ADMIN_WIDGETS.get(type(field.widget))
+        if (
+            type(field.widget) is forms.NumberInput
+            and isinstance(field, forms.IntegerField)
+            and not isinstance(field, (forms.FloatField, forms.DecimalField))
+        ):
+            widget_class = AdminIntegerInput
+        if widget_class is not None:
+            field.widget = widget_class(attrs=field.widget.attrs)
+
+    @staticmethod
+    def _chosen_type(request: HttpRequest) -> ConfigType | None:
+        """Return the type chosen in the add page's first step (``?type=`` in the address), or None."""
+        return get_registry().get(request.GET.get("type", ""))
+
+    @classmethod
+    def _texts(cls, raw: str | None) -> list[str]:
+        """Return the JSON array of strings the list editor sent; raise ValidationError when it isn't one."""
+        try:
+            texts = json.loads(raw or "")
+        except (ValueError, RecursionError):
+            # RecursionError: JSON nested too deeply, which Python's reader raises rather than a ValueError.
+            texts = None
+        if not isinstance(texts, list) or not all(isinstance(text, str) for text in texts):
+            raise ValidationError(cls._UNREADABLE)
+        return texts
+
+    @classmethod
+    def _position(cls, raw: str | None) -> int | None:
+        """Return the item's index the list editor sent, or None for a new item (empty or missing).
+
+        Only 1 to 9 ASCII digits are an index: ``int()`` refuses some digits (``"²"``) and very long strings.
+        Raise ValidationError for anything else.
+        """
+        if not raw:
+            return None
+        if not (raw.isascii() and raw.isdigit() and len(raw) <= 9):
+            raise ValidationError(cls._UNREADABLE)
+        return int(raw)
+
     def check(self, **kwargs: Any) -> list[checks.CheckMessage]:
         """Run the admin's checks, and warn about each option the mixin ignores because it sets it itself."""
         found = list(super().check(**kwargs))  # type: ignore[misc]
-        for option in _IGNORED_OPTIONS:
+        for option in self._IGNORED_OPTIONS:
             # Django's defaults for these are empty (None or ()).
             if getattr(self, option):
                 found.append(
@@ -226,14 +226,14 @@ class ConfigAdminMixin:
 
     def get_fieldsets(self, request: HttpRequest, obj: Config | None = None) -> list[tuple[Any, dict[str, Any]]]:
         """Show the type alone on the add page's first step, and the same fields on every other page."""
-        if obj is None and _chosen_type(request) is None:
+        if obj is None and self._chosen_type(request) is None:
             return [(None, {"fields": ("type",)})]
-        return [(None, {"fields": _FIELDS})]
+        return [(None, {"fields": self._FIELDS})]
 
     def get_readonly_fields(self, request: HttpRequest, obj: Config | None = None) -> tuple[str, ...]:
         """Lock the type once chosen, the name once created, and the value when its type isn't registered."""
         if obj is None:
-            return () if _chosen_type(request) is None else ("type",)
+            return () if self._chosen_type(request) is None else ("type",)
         if get_registry().get(obj.type) is None:
             return ("name", "type", "value")
         return ("name", "type")
@@ -243,12 +243,12 @@ class ConfigAdminMixin:
         if obj is not None:
             kwargs["form"] = change_form_for(obj)
         else:
-            config_type = _chosen_type(request)
+            config_type = self._chosen_type(request)
             kwargs["form"] = ConfigTypeForm if config_type is None else add_form_for(config_type)
         form = super().get_form(request, obj, change, **kwargs)  # type: ignore[misc]
         if "value" in form.base_fields:
             field = form.base_fields["value"]
-            _use_admin_widget(field)
+            self._use_admin_widget(field)
             if isinstance(field, TypedLineListField):
                 self._use_list_editor(field)
         return form
@@ -256,12 +256,12 @@ class ConfigAdminMixin:
     def _use_list_editor(self, field: TypedLineListField) -> None:
         """Give a list or set value the list editor, pointed at this admin's check URL."""
         key = f"{SET_PREFIX if field.unique else LIST_PREFIX}{field.item_type.key}"
-        _use_admin_widget(field.item_field)
+        self._use_admin_widget(field.item_field)
         field.widget = AdminListEditorWidget(
             attrs=field.widget.attrs,
             raw_help=cast(ListWidget, field.widget).raw_help,
             item_field=field.item_field,
-            check_url=reverse(f"{self.admin_site.name}:{_LIST_ITEM_URL}", args=[key]),  # type: ignore[attr-defined]
+            check_url=reverse(f"{self.admin_site.name}:{self._LIST_ITEM_URL}", args=[key]),  # type: ignore[attr-defined]
             # Sets are unordered, so they have no Sort (nor Up and Down).
             sortable=not field.unique and field.item_type.sortable,
             unique=field.unique,
@@ -271,7 +271,7 @@ class ConfigAdminMixin:
         self, request: HttpRequest, form_url: str = "", extra_context: dict[str, Any] | None = None
     ) -> HttpResponse:
         """Ask for the type first, then show the add page with that type's value field (``?type=`` in the address)."""
-        if _chosen_type(request) is not None:
+        if self._chosen_type(request) is not None:
             # Post the second step back to its own query. Left empty, Django points the form at the list's preserved
             # filters alone (after a search, say), which drops type= and sends the save back to the first step.
             form_url = form_url or f"?{request.GET.urlencode()}"
@@ -316,7 +316,7 @@ class ConfigAdminMixin:
         Config names are UPPER_SNAKE_CASE, so ``list-item`` can't be a config's address.
         """
         view = self.admin_site.admin_view(self.list_item_view)  # type: ignore[attr-defined]
-        return [path("list-item/<str:type_key>/", view, name=_LIST_ITEM_URL), *super().get_urls()]  # type: ignore[misc]
+        return [path("list-item/<str:type_key>/", view, name=self._LIST_ITEM_URL), *super().get_urls()]  # type: ignore[misc]
 
     def list_item_view(self, request: HttpRequest, type_key: str) -> HttpResponse:
         """Answer the list editor: check an item, load one into the editor, check raw lines, or sort. Never saves.
@@ -334,7 +334,7 @@ class ConfigAdminMixin:
         if config_type is None or config_type.container is None:
             raise Http404("No list or set type has that key.")
         field = cast(TypedLineListField, formfield_for(config_type))
-        _use_admin_widget(field.item_field)
+        self._use_admin_widget(field.item_field)
         post = request.POST
         name = post.get("name", "")
         try:
@@ -345,17 +345,17 @@ class ConfigAdminMixin:
                             post,
                             request.FILES,
                             name,
-                            others=_texts(post.get("items")),
-                            position=_position(post.get("position")),
+                            others=self._texts(post.get("items")),
+                            position=self._position(post.get("position")),
                         )
                     }
                 case "load":
                     reply = {"values": field.editor_values(post.get("text", ""), name)}
                 case "lines":
-                    reply = {"texts": field.texts_from_lines(_texts(post.get("lines")))}
+                    reply = {"texts": field.texts_from_lines(self._texts(post.get("lines")))}
                 case "sort":
                     descending = post.get("direction") == "descending"
-                    reply = {"texts": field.sorted_texts(_texts(post.get("items")), descending=descending)}
+                    reply = {"texts": field.sorted_texts(self._texts(post.get("items")), descending=descending)}
                 case _:
                     return HttpResponseBadRequest("Unknown action.")
         except ValidationError as error:
@@ -380,7 +380,7 @@ class ConfigAdminMixin:
             # Not a JSON array of strings (a hand-edited row, say): show the stored text as it is.
             if texts is not None:
                 text = ", ".join(texts)
-        return Truncator(text).chars(_PREVIEW_LENGTH)
+        return Truncator(text).chars(self._PREVIEW_LENGTH)
 
 
 class ConfigAdmin(ConfigAdminMixin, admin.ModelAdmin):

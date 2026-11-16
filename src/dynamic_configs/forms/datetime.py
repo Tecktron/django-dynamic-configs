@@ -50,16 +50,16 @@ def _offset_label(offset: timedelta) -> str:
     return f"{'-' if total < 0 else '+'}{hours}:{minutes:02d}"
 
 
-def _offered(zone: str) -> bool:
-    """Return whether the zone select offers ``zone``."""
-    return zone in {name for name, _ in zone_choices()}
-
-
 class ZonedDateTimeWidget(forms.MultiWidget):
     """A date input, a time input and a time zone select; subclasses swap in other date and time widgets."""
 
     date_widget: type[forms.Widget] = forms.DateInput
     time_widget: type[forms.Widget] = forms.TimeInput
+
+    @staticmethod
+    def _offered(zone: str) -> bool:
+        """Return whether the zone select offers ``zone``."""
+        return zone in {name for name, _ in zone_choices()}
 
     def __init__(self, attrs: dict[str, Any] | None = None) -> None:
         """Label each part, since the three share the field's one label."""
@@ -78,7 +78,7 @@ class ZonedDateTimeWidget(forms.MultiWidget):
         """
         context = super().get_context(name, value, attrs)
         zone = timezone.get_default_timezone_name()
-        if _offered(zone):
+        if self._offered(zone):
             context["widget"]["subwidgets"][2]["attrs"]["data-server-zone"] = zone
         return context
 
@@ -88,7 +88,7 @@ class ZonedDateTimeWidget(forms.MultiWidget):
         UTC stands in when the select doesn't offer the current zone, or the value can't be moved into it.
         """
         zone = timezone.get_current_timezone_name()
-        if not _offered(zone):
+        if not self._offered(zone):
             # A fixed offset (as per-user offset middleware activates) isn't a choice: nothing would be selected, the
             # browser would submit UTC, and saving untouched would move the value.
             zone = "UTC"

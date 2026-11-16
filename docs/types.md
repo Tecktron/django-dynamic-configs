@@ -31,7 +31,7 @@ A `str` must be a single line; use `text` for several lines. A `json` value must
 number or string is rejected ("Enter a JSON object or array."), and so are NaN and infinity. The admin shows a
 `json` value pretty-printed (`indent=2`) in the [JSON editor](admin.md#the-json-editor).
 
-A `json` value may nest at most 128 levels deep (`dynamic_configs.types.serializers.JSON_MAX_DEPTH`). Each object or
+A `json` value may nest at most 128 levels deep (`JSONSerializer.JSON_MAX_DEPTH`). Each object or
 array is one level, so `[[1]]` is 2 levels deep, and brackets inside strings don't count. A deeper value is refused
 when it's saved ("The value can't be stored as JSON: it's nested too deeply (the limit is 128 levels)."), and the admin
 says the same about deeper text ("The JSON is nested too deeply: the limit is 128 levels."). A deeper stored value,

@@ -18,13 +18,6 @@ from dynamic_configs.types.serializers import (
     WeeksSerializer,
 )
 
-_DURATION_SERIALIZERS = {
-    "seconds": SecondsSerializer,
-    "minutes": MinutesSerializer,
-    "hours": HoursSerializer,
-    "days": DaysSerializer,
-    "weeks": WeeksSerializer,
-}
 _BOOLEAN_HELP = "Checked means true."
 _NULL_BOOLEAN_HELP = "Unknown leaves the setting empty, which needs Allow null checked."
 
@@ -60,11 +53,19 @@ class SerializerField(forms.CharField):
 class DurationUnitField(SerializerField):
     """A duration entered as a plain number of one unit (``seconds``, ``minutes``, ``hours``, ``days``, ``weeks``)."""
 
+    _DURATION_SERIALIZERS = {
+        "seconds": SecondsSerializer,
+        "minutes": MinutesSerializer,
+        "hours": HoursSerializer,
+        "days": DaysSerializer,
+        "weeks": WeeksSerializer,
+    }
+
     def __init__(self, unit: str, **kwargs: Any) -> None:
         """Read and show the duration as a number of ``unit``."""
         self.unit = unit
         kwargs.setdefault("widget", forms.TextInput(attrs={"inputmode": "decimal"}))
-        super().__init__(_DURATION_SERIALIZERS[unit](), **kwargs)
+        super().__init__(self._DURATION_SERIALIZERS[unit](), **kwargs)
 
 
 def strips_typed_strings(*, item: bool) -> bool:

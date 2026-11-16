@@ -20,19 +20,8 @@ from django.utils.safestring import SafeString
 from dynamic_configs.exceptions import ConfigError, ConfigValueError
 from dynamic_configs.types.base import ConfigType
 
-# The widget's hidden inputs are named after the field with these suffixes: the items' stored texts as a JSON array,
-# and which form the server reads ("list", or "raw" for the textarea).
-ITEMS_SUFFIX = "__items"
-MODE_SUFFIX = "__mode"
 # The admin's item editor's inputs are named after the field with this suffix.
 ITEM_SUFFIX = "__item"
-LOCKED_NOTE = (
-    "This list has an item with a line break, which one item per line can't show, so editing it needs JavaScript."
-)
-EMPTY_ITEM_NOTE = (
-    "This list is one empty item, which one item per line would show as no items, so editing it needs JavaScript."
-)
-UNREADABLE = "The list couldn't be read. Reload the page and try again."
 RAW_HELP = "One item per line."
 # A set's help, true whichever way its items are entered.
 SET_HELP = "No repeats."
@@ -63,31 +52,6 @@ class UnreadableItems(str):
     __slots__ = ()
 
 
-def has_line_break(text: str) -> bool:
-    """Return whether ``text`` contains a line break, which one item per line can't show."""
-    return "\n" in text or "\r" in text
-
-
-def locked_note(texts: Sequence[str] | None) -> str | None:
-    """Return why one item per line can't show ``texts`` exactly, or None when it can (or there are no texts)."""
-    if texts is None:
-        return None
-    if any(has_line_break(text) for text in texts):
-        return LOCKED_NOTE
-    if list(texts) == [""]:
-        # An empty textarea reads back as no items.
-        return EMPTY_ITEM_NOTE
-    return None
-
-
-def split_lines(text: str) -> list[str]:
-    r"""Split ``text`` at its line breaks (``\r\n``, ``\r`` or ``\n``), as a textarea and the editor script do.
-
-    Not ``str.splitlines``, which also splits at characters a textarea shows within a line (U+2028, say).
-    """
-    return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-
-
 class ListWidget(forms.Textarea):
     """A textarea of items, one per line, with hidden inputs holding the items' stored texts and the mode.
 
@@ -97,6 +61,34 @@ class ListWidget(forms.Textarea):
 
     ``raw_help`` is shown with the textarea, and hidden with it: what to type on each line.
     """
+
+    # The widget's hidden inputs are named after the field with these suffixes: the items' stored texts as a JSON array,
+    # and which form the server reads ("list", or "raw" for the textarea).
+    ITEMS_SUFFIX = "__items"
+    MODE_SUFFIX = "__mode"
+    LOCKED_NOTE = (
+        "This list has an item with a line break, which one item per line can't show, so editing it needs JavaScript."
+    )
+    EMPTY_ITEM_NOTE = (
+        "This list is one empty item, which one item per line would show as no items, so editing it needs JavaScript."
+    )
+
+    @staticmethod
+    def has_line_break(text: str) -> bool:
+        """Return whether ``text`` contains a line break, which one item per line can't show."""
+        return "\n" in text or "\r" in text
+
+    @classmethod
+    def locked_note(cls, texts: Sequence[str] | None) -> str | None:
+        """Return why one item per line can't show ``texts`` exactly, or None when it can (or there are no texts)."""
+        if texts is None:
+            return None
+        if any(cls.has_line_break(text) for text in texts):
+            return cls.LOCKED_NOTE
+        if list(texts) == [""]:
+            # An empty textarea reads back as no items.
+            return cls.EMPTY_ITEM_NOTE
+        return None
 
     def __init__(self, attrs: dict[str, Any] | None = None, *, raw_help: str = RAW_HELP) -> None:
         """Show ``raw_help`` with the textarea."""
@@ -112,7 +104,7 @@ class ListWidget(forms.Textarea):
     def render(self, name: str, value: Any, attrs: dict[str, Any] | None = None, renderer: Any = None) -> SafeString:
         """Render the textarea and its help, the hidden inputs, and a note when the list can't be edited as text."""
         texts = value if isinstance(value, StoredTexts) else None
-        note = locked_note(texts)
+        note = self.locked_note(texts)
         locked = note is not None
         if locked:
             attrs = {**(attrs or {}), "readonly": True}
@@ -122,17 +114,17 @@ class ListWidget(forms.Textarea):
             super().render(name, value, attrs, renderer),
             self.raw_help,
             # null when the page shows text that isn't a list yet: the editor script then starts in raw mode.
-            hidden.render(f"{name}{ITEMS_SUFFIX}", json.dumps(texts), renderer=renderer),
-            hidden.render(f"{name}{MODE_SUFFIX}", "list" if locked else "raw", renderer=renderer),
+            hidden.render(f"{name}{self.ITEMS_SUFFIX}", json.dumps(texts), renderer=renderer),
+            hidden.render(f"{name}{self.MODE_SUFFIX}", "list" if locked else "raw", renderer=renderer),
             format_html('<p class="help dynamic-configs-list-locked">{}</p>', note) if locked else "",
         )
 
     def value_from_datadict(self, data: Any, files: Any, name: str) -> Any:
         """Return the stored texts in list mode, otherwise the textarea's text."""
-        if data.get(f"{name}{MODE_SUFFIX}") != "list":
+        if data.get(f"{name}{self.MODE_SUFFIX}") != "list":
             return super().value_from_datadict(data, files, name)
         try:
-            texts = json.loads(data.get(f"{name}{ITEMS_SUFFIX}", ""))
+            texts = json.loads(data.get(f"{name}{self.ITEMS_SUFFIX}", ""))
         except (ValueError, RecursionError):
             # RecursionError: JSON nested too deeply, which Python's reader raises rather than a ValueError.
             return UnreadableItems()
@@ -148,6 +140,16 @@ class LineListField(forms.CharField):
     """
 
     widget = ListWidget
+
+    UNREADABLE = "The list couldn't be read. Reload the page and try again."
+
+    @staticmethod
+    def split_lines(text: str) -> list[str]:
+        r"""Split ``text`` at its line breaks (``\r\n``, ``\r`` or ``\n``), as a textarea and the editor script do.
+
+        Not ``str.splitlines``, which also splits at characters a textarea shows within a line (U+2028, say).
+        """
+        return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
     def __init__(self, **kwargs: Any) -> None:
         """Keep the text as typed; each line is prepared on its own (``line_text``)."""
@@ -199,13 +201,13 @@ class LineListField(forms.CharField):
         :raises ValidationError: the data can't be read, or items are invalid (one message each)
         """
         if isinstance(value, UnreadableItems):
-            raise ValidationError(UNREADABLE)
+            raise ValidationError(self.UNREADABLE)
         if isinstance(value, StoredTexts):
             numbered = [("Item", number, text) for number, text in enumerate(value, start=1)]
         else:
             text = super().to_python(value)
             # Every line is an item, blank ones included; only an empty text is no items.
-            lines = split_lines(text) if text else []
+            lines = self.split_lines(text) if text else []
             numbered = [("Line", number, self.line_text(line)) for number, line in enumerate(lines, start=1)]
         items: list[tuple[str, int, Any]] = []
         errors: list[str] = []

@@ -11,8 +11,6 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
-_AMOUNT_RE = re.compile(r"-?\d+(\.\d+)?")
-_CURRENCY_RE = re.compile(r"[A-Z]{3}")
 _CENTS = Decimal("0.01")
 
 
@@ -43,11 +41,13 @@ class Money:
     amount: Decimal
     currency: str
 
+    _CURRENCY_RE = re.compile(r"[A-Z]{3}")
+
     def __post_init__(self) -> None:
         """Validate both parts and keep the amount with exactly 2 decimal places."""
         if not isinstance(self.amount, Decimal):
             raise ValueError("Money's amount must be a Decimal.")
-        if not isinstance(self.currency, str) or not _CURRENCY_RE.fullmatch(self.currency):
+        if not isinstance(self.currency, str) or not self._CURRENCY_RE.fullmatch(self.currency):
             raise ValueError("A currency must be a 3-letter code in capitals, such as CAD.")
         # Frozen dataclass: assign through object to normalize the amount.
         object.__setattr__(self, "amount", check_amount(self.amount))
@@ -69,6 +69,8 @@ def by_currency_then_amount(money: Money) -> tuple[str, Decimal]:
 class MoneySerializer:
     """An amount of money: plain decimal text with at most 2 decimal places, stored with exactly 2 (``10.00``)."""
 
+    _AMOUNT_RE = re.compile(r"-?\d+(\.\d+)?")
+
     def serialize(self, value: Decimal) -> str:
         """Return the amount with exactly 2 decimal places."""
         return str(check_amount(value))
@@ -76,7 +78,7 @@ class MoneySerializer:
     def deserialize(self, text: str) -> Decimal:
         """Return the amount written in ``text``; exponents, separators and signs other than ``-`` are rejected."""
         stripped = text.strip()
-        if not _AMOUNT_RE.fullmatch(stripped):
+        if not self._AMOUNT_RE.fullmatch(stripped):
             raise ValueError("Enter an amount such as 9.99.")
         return check_amount(Decimal(stripped))
 

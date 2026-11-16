@@ -11,6 +11,7 @@ from dynamic_configs.types.serializers import (
     DateTimeSerializer,
     DaysSerializer,
     DecimalSerializer,
+    DurationSerializer,
     FloatSerializer,
     HoursSerializer,
     IntSerializer,
@@ -22,14 +23,12 @@ from dynamic_configs.types.serializers import (
     StrSerializer,
     TextSerializer,
     WeeksSerializer,
-    format_number,
-    normalize_datetime,
 )
 
 
 @pytest.mark.parametrize(("number", "text"), [(2.0, "2"), (1.5, "1.5"), (-3.0, "-3")])
 def test_format_number_drops_a_trailing_point_zero(number, text):
-    assert format_number(number) == text
+    assert DurationSerializer.format_number(number) == text
 
 
 def test_str_round_trips_a_single_line():
@@ -144,24 +143,28 @@ UTC = dt_timezone.utc
 
 def test_naive_datetimes_are_read_in_the_site_time_zone():
     # 17:00 in New York on 2026-11-02 is EST (UTC-5), so 22:00 UTC.
-    assert normalize_datetime(datetime(2026, 11, 2, 17, 0)) == datetime(2026, 11, 2, 22, 0, tzinfo=UTC)
+    assert DateTimeSerializer.normalize_datetime(datetime(2026, 11, 2, 17, 0)) == datetime(
+        2026, 11, 2, 22, 0, tzinfo=UTC
+    )
 
 
 def test_aware_datetimes_keep_their_instant_and_become_utc():
     value = datetime(2026, 11, 2, 17, 0, tzinfo=dt_timezone(timedelta(hours=1)))
-    normalized = normalize_datetime(value)
+    normalized = DateTimeSerializer.normalize_datetime(value)
     assert normalized == value
     assert normalized.tzinfo is UTC
 
 
 def test_without_use_tz_aware_datetimes_become_naive_site_time(settings):
     settings.USE_TZ = False
-    assert normalize_datetime(datetime(2026, 11, 2, 22, 0, tzinfo=UTC)) == datetime(2026, 11, 2, 17, 0)
+    assert DateTimeSerializer.normalize_datetime(datetime(2026, 11, 2, 22, 0, tzinfo=UTC)) == datetime(
+        2026, 11, 2, 17, 0
+    )
 
 
 def test_without_use_tz_naive_datetimes_stay_as_they_are(settings):
     settings.USE_TZ = False
-    assert normalize_datetime(datetime(2026, 11, 2, 17, 0)) == datetime(2026, 11, 2, 17, 0)
+    assert DateTimeSerializer.normalize_datetime(datetime(2026, 11, 2, 17, 0)) == datetime(2026, 11, 2, 17, 0)
 
 
 def test_datetimes_are_stored_in_utc():
@@ -366,7 +369,7 @@ def test_sets_reject_duplicates_after_parsing():
     ("number", "text"), [(5e-05, "0.00005"), (1e16, "10000000000000000"), (-2.5e-07, "-0.00000025")]
 )
 def test_format_number_never_uses_exponent_notation(number, text):
-    assert format_number(number) == text
+    assert DurationSerializer.format_number(number) == text
 
 
 @pytest.mark.parametrize(

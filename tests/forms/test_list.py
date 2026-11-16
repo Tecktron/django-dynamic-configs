@@ -7,15 +7,11 @@ from django.core.exceptions import ValidationError
 from django.http import QueryDict
 
 from dynamic_configs.forms.list import (
-    EMPTY_ITEM_NOTE,
-    ITEMS_SUFFIX,
-    MODE_SUFFIX,
     LineListField,
     ListWidget,
     StoredTexts,
     TypedLineListField,
     UnreadableItems,
-    split_lines,
 )
 from dynamic_configs.types.registry import build_registry
 
@@ -151,7 +147,7 @@ def test_a_trailing_line_break_is_an_empty_last_item():
 
 def test_lines_split_only_at_line_breaks():
     # Review focus: Windows line endings split, U+2028 (which str.splitlines splits at) doesn't.
-    assert split_lines("a\r\nb\rc\nd e") == ["a", "b", "c", "d e"]
+    assert LineListField.split_lines("a\r\nb\rc\nd e") == ["a", "b", "c", "d e"]
     assert typed("str").clean("a\r\nb") == ["a", "b"]
 
 
@@ -216,7 +212,9 @@ def test_no_value_is_no_items(empty):
 def test_the_widget_reads_the_textarea_unless_the_mode_says_list():
     widget = ListWidget()
     assert widget.value_from_datadict(query(value="a\nb"), {}, "value") == "a\nb"
-    data = query(value="ignored", **{f"value{MODE_SUFFIX}": "list", f"value{ITEMS_SUFFIX}": '["a", ""]'})
+    data = query(
+        value="ignored", **{f"value{ListWidget.MODE_SUFFIX}": "list", f"value{ListWidget.ITEMS_SUFFIX}": '["a", ""]'}
+    )
     read = widget.value_from_datadict(data, {}, "value")
     assert isinstance(read, StoredTexts)
     assert read == ["a", ""]
@@ -226,9 +224,9 @@ def test_the_widget_reads_the_textarea_unless_the_mode_says_list():
 # which aren't strings, on a large one.
 @pytest.mark.parametrize("items", ["not json", '{"a": 1}', '["a", 2]', "[" * 100000 + "]" * 100000, None])
 def test_list_mode_data_that_isnt_an_array_of_strings_is_unreadable(items):
-    data = query(**{f"value{MODE_SUFFIX}": "list"})
+    data = query(**{f"value{ListWidget.MODE_SUFFIX}": "list"})
     if items is not None:
-        data[f"value{ITEMS_SUFFIX}"] = items
+        data[f"value{ListWidget.ITEMS_SUFFIX}"] = items
     assert isinstance(ListWidget().value_from_datadict(data, {}, "value"), UnreadableItems)
 
 
@@ -287,7 +285,7 @@ def test_a_list_of_one_empty_item_is_read_only_and_saved_as_a_list():
     html = ListWidget().render("value", StoredTexts([""]))
     assert "readonly" in html
     assert 'name="value__mode" value="list"' in html
-    assert EMPTY_ITEM_NOTE in html
+    assert ListWidget.EMPTY_ITEM_NOTE in html
     assert "line break" not in html
 
 

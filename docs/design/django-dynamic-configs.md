@@ -105,7 +105,7 @@ Durations are per-unit types, which are clearer for admins than a free-form dura
 for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are written without a trailing `.0` (`"2"`, not
 `"2.0"`).
 
-A `json` value nests at most 128 levels deep (`JSON_MAX_DEPTH` in `types/serializers.py`; each object or array is a
+A `json` value nests at most 128 levels deep (`JSONSerializer.JSON_MAX_DEPTH` in `types/serializers.py`; each object or array is a
 level, so `[[1]]` is 2). Saving refuses a deeper value ("The value can't be stored as JSON: it's nested too deeply (the
 limit is 128 levels)."), and reading refuses deeper text ("The JSON is nested too deeply: the limit is 128 levels."),
 so a hand-edited row that deep is unreadable like any other. Both are checked before Python's `json` runs: reading

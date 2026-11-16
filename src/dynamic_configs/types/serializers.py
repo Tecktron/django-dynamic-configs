@@ -18,23 +18,6 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
-_INT_RE = re.compile(r"-?\d+")
-_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
-# HH:MM with optional seconds; fractions of 3 or 6 digits (all Python 3.10 accepts); optional Z or ±HH:MM offset.
-_DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{3}(\d{3})?)?)?(Z|[+-]\d{2}:\d{2})?")
-_PLAIN_NUMBER_RE = re.compile(r"-?\d+(\.\d+)?")
-_TRUE_WORDS = frozenset({"true", "1", "yes", "on"})
-_FALSE_WORDS = frozenset({"false", "0", "no", "off"})
-
-
-def format_number(number: float) -> str:
-    """Return ``number`` as plain decimal text: no exponent notation, and no trailing ``.0`` for whole numbers."""
-    if number.is_integer():
-        return str(int(number))
-    # repr() gives the shortest text that round-trips, but switches to exponent notation for very small or large
-    # numbers ("5e-05"), which the plain-number parsers reject; Decimal re-formats it exactly in plain notation.
-    return format(Decimal(repr(number)), "f")
-
 
 def _require_finite(number: float | Decimal) -> None:
     """Raise ValueError for NaN and infinity, which can't be meaningful settings."""
@@ -43,7 +26,23 @@ def _require_finite(number: float | Decimal) -> None:
         raise ValueError("A number must be finite (not NaN or infinity).")
 
 
-class StrSerializer:
+class BaseSerializer:
+    """Converts a value to the text stored in the database and back; subclass it to write a serializer.
+
+    Raising ``ValueError`` from either method rejects a value, with a message written for admins that never includes
+    the value itself.
+    """
+
+    def serialize(self, value: Any) -> str:
+        """Return the text to store for ``value``."""
+        raise NotImplementedError
+
+    def deserialize(self, text: str) -> Any:
+        """Return the value stored as ``text``."""
+        raise NotImplementedError
+
+
+class StrSerializer(BaseSerializer):
     """A single line of text, stored as is."""
 
     def serialize(self, value: str) -> str:
@@ -57,7 +56,7 @@ class StrSerializer:
         return self.serialize(text)
 
 
-class TextSerializer:
+class TextSerializer(BaseSerializer):
     """Text that may span several lines, stored as is."""
 
     def serialize(self, value: str) -> str:
@@ -69,8 +68,10 @@ class TextSerializer:
         return text
 
 
-class IntSerializer:
+class IntSerializer(BaseSerializer):
     """A whole number. Parsing is strict: no decimal point, sign prefix ``+`` or digit separators."""
+
+    _INT_RE = re.compile(r"-?\d+")
 
     def serialize(self, value: int) -> str:
         """Return ``value`` in decimal digits."""
@@ -79,7 +80,7 @@ class IntSerializer:
     def deserialize(self, text: str) -> int:
         """Return the whole number written in ``text``."""
         stripped = text.strip()
-        if not _INT_RE.fullmatch(stripped):
+        if not self._INT_RE.fullmatch(stripped):
             raise ValueError("Enter a whole number, such as 42.")
         try:
             return int(stripped)
@@ -89,7 +90,7 @@ class IntSerializer:
             raise ValueError("That whole number has too many digits.") from None
 
 
-class FloatSerializer:
+class FloatSerializer(BaseSerializer):
     """A finite floating-point number, stored with ``repr`` so it round-trips exactly."""
 
     def serialize(self, value: float) -> str:
@@ -107,7 +108,7 @@ class FloatSerializer:
         return number
 
 
-class DecimalSerializer:
+class DecimalSerializer(BaseSerializer):
     """A finite decimal number, stored exactly as written (``19.990`` keeps its trailing zero)."""
 
     def serialize(self, value: Decimal) -> str:
@@ -125,8 +126,11 @@ class DecimalSerializer:
         return number
 
 
-class BoolSerializer:
+class BoolSerializer(BaseSerializer):
     """A boolean, stored as ``true`` or ``false``; parsing also accepts yes/no, on/off and 1/0 in any case."""
+
+    _TRUE_WORDS = frozenset({"true", "1", "yes", "on"})
+    _FALSE_WORDS = frozenset({"false", "0", "no", "off"})
 
     def serialize(self, value: bool) -> str:
         """Return ``"true"`` or ``"false"``."""
@@ -135,15 +139,17 @@ class BoolSerializer:
     def deserialize(self, text: str) -> bool:
         """Return the boolean written in ``text``."""
         word = text.strip().lower()
-        if word in _TRUE_WORDS:
+        if word in self._TRUE_WORDS:
             return True
-        if word in _FALSE_WORDS:
+        if word in self._FALSE_WORDS:
             return False
         raise ValueError("Enter true or false (yes/no, on/off and 1/0 also work).")
 
 
-class DateSerializer:
+class DateSerializer(BaseSerializer):
     """A date, stored as ISO 8601 (``YYYY-MM-DD``)."""
+
+    _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
     def serialize(self, value: date) -> str:
         """Return ``value`` as ``YYYY-MM-DD``."""
@@ -154,7 +160,7 @@ class DateSerializer:
         # Check the shape first: newer Pythons' fromisoformat also accepts forms such as 20261102, and the accepted
         # input shouldn't depend on the Python version.
         stripped = text.strip()
-        if not _DATE_RE.fullmatch(stripped):
+        if not self._DATE_RE.fullmatch(stripped):
             raise ValueError("Enter a date as YYYY-MM-DD.")
         try:
             return date.fromisoformat(stripped)
@@ -162,43 +168,46 @@ class DateSerializer:
             raise ValueError("Enter a real date, such as 2026-11-02.") from None
 
 
-def normalize_datetime(value: datetime) -> datetime:
-    """Apply Django's time zone settings to ``value``.
-
-    With ``USE_TZ`` on, a naive datetime is read in ``TIME_ZONE`` (ambiguous or missing local times around a daylight
-    saving change follow ``zoneinfo``'s ``fold=0`` rule) and the result is converted to UTC. With ``USE_TZ`` off, an
-    aware datetime is converted to ``TIME_ZONE`` and made naive, Django's own convention for that mode.
-
-    :param value: a naive or aware datetime
-    :returns: an aware UTC datetime (``USE_TZ`` on) or a naive datetime in ``TIME_ZONE`` (``USE_TZ`` off)
-    :rtype: datetime
-    :raises ValueError: the converted datetime would fall outside the range ``datetime`` supports
-    """
-    site_zone = timezone.get_default_timezone()
-    try:
-        if settings.USE_TZ:
-            if timezone.is_naive(value):
-                value = timezone.make_aware(value, site_zone)
-            return value.astimezone(dt_timezone.utc)
-        if timezone.is_aware(value):
-            value = timezone.make_naive(value, site_zone)
-    except OverflowError:
-        # Converting near year 1 or 9999 can leave the range datetime supports (e.g. 9999-12-31 23:59 in New York).
-        raise ValueError("That date and time is out of range once converted to UTC.") from None
-    return value
-
-
-class DateTimeSerializer:
+class DateTimeSerializer(BaseSerializer):
     """A date and time, stored as ISO 8601 after ``normalize_datetime`` (in UTC when ``USE_TZ`` is on)."""
+
+    # HH:MM with optional seconds; fractions of 3 or 6 digits (all Python 3.10 accepts); optional Z or ±HH:MM offset.
+    _DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{3}(\d{3})?)?)?(Z|[+-]\d{2}:\d{2})?")
+
+    @staticmethod
+    def normalize_datetime(value: datetime) -> datetime:
+        """Apply Django's time zone settings to ``value``.
+
+        With ``USE_TZ`` on, a naive datetime is read in ``TIME_ZONE`` (ambiguous or missing local times around a daylight
+        saving change follow ``zoneinfo``'s ``fold=0`` rule) and the result is converted to UTC. With ``USE_TZ`` off, an
+        aware datetime is converted to ``TIME_ZONE`` and made naive, Django's own convention for that mode.
+
+        :param value: a naive or aware datetime
+        :returns: an aware UTC datetime (``USE_TZ`` on) or a naive datetime in ``TIME_ZONE`` (``USE_TZ`` off)
+        :rtype: datetime
+        :raises ValueError: the converted datetime would fall outside the range ``datetime`` supports
+        """
+        site_zone = timezone.get_default_timezone()
+        try:
+            if settings.USE_TZ:
+                if timezone.is_naive(value):
+                    value = timezone.make_aware(value, site_zone)
+                return value.astimezone(dt_timezone.utc)
+            if timezone.is_aware(value):
+                value = timezone.make_naive(value, site_zone)
+        except OverflowError:
+            # Converting near year 1 or 9999 can leave the range datetime supports (e.g. 9999-12-31 23:59 in New York).
+            raise ValueError("That date and time is out of range once converted to UTC.") from None
+        return value
 
     def serialize(self, value: datetime) -> str:
         """Return ``value`` normalized and in ISO 8601."""
-        return normalize_datetime(value).isoformat()
+        return self.normalize_datetime(value).isoformat()
 
     def deserialize(self, text: str) -> datetime:
         """Return the datetime written in ``text``, normalized; a missing offset means the site's time zone."""
         stripped = text.strip()
-        if not _DATETIME_RE.fullmatch(stripped):
+        if not self._DATETIME_RE.fullmatch(stripped):
             raise ValueError("Enter a date and time as YYYY-MM-DD HH:MM, optionally with seconds and a UTC offset.")
         if stripped.endswith("Z"):
             # Python 3.10's fromisoformat doesn't accept "Z".
@@ -207,22 +216,33 @@ class DateTimeSerializer:
             value = datetime.fromisoformat(stripped)
         except ValueError:
             raise ValueError("Enter a real date and time.") from None
-        return normalize_datetime(value)
+        return self.normalize_datetime(value)
 
 
-class DurationSerializer:
+class DurationSerializer(BaseSerializer):
     """Base for per-unit durations, stored as a plain number of ``unit`` (a ``timedelta`` keyword)."""
 
     unit: str
 
+    _PLAIN_NUMBER_RE = re.compile(r"-?\d+(\.\d+)?")
+
+    @staticmethod
+    def format_number(number: float) -> str:
+        """Return ``number`` as plain decimal text: no exponent notation, and no trailing ``.0`` for whole numbers."""
+        if number.is_integer():
+            return str(int(number))
+        # repr() gives the shortest text that round-trips, but switches to exponent notation for very small or large
+        # numbers ("5e-05"), which the plain-number parsers reject; Decimal re-formats it exactly in plain notation.
+        return format(Decimal(repr(number)), "f")
+
     def serialize(self, value: timedelta) -> str:
         """Return ``value`` as a number of this serializer's unit."""
-        return format_number(value / timedelta(**{self.unit: 1}))
+        return self.format_number(value / timedelta(**{self.unit: 1}))
 
     def deserialize(self, text: str) -> timedelta:
         """Return a timedelta of the number of units written in ``text``."""
         stripped = text.strip()
-        if not _PLAIN_NUMBER_RE.fullmatch(stripped):
+        if not self._PLAIN_NUMBER_RE.fullmatch(stripped):
             raise ValueError(f"Enter a number of {self.unit}, such as 1.5.")
         try:
             return timedelta(**{self.unit: float(stripped)})
@@ -260,71 +280,68 @@ class WeeksSerializer(DurationSerializer):
     unit = "weeks"
 
 
-def _reject_json_constant(name: str) -> Any:
-    """Refuse NaN and Infinity, which ``json.loads`` would otherwise accept."""
-    raise ValueError(f"JSON can't contain {name}.")
-
-
-#: The deepest a ``json`` value may nest: each object or array is one level, so ``[[1]]`` is 2 levels deep.
-#: Python's JSON reader and writer recurse once per level, and how deep they get before failing depends on the stack
-#: of the thread doing it (thousands of levels in a main thread, a few hundred in a thread with a small stack), so
-#: this fixed limit makes the same values work on every Python, machine and thread.
-JSON_MAX_DEPTH = 128
-
-_TOO_DEEP_TO_READ = f"The JSON is nested too deeply: the limit is {JSON_MAX_DEPTH} levels."
-_TOO_DEEP_TO_WRITE = (
-    f"The value can't be stored as JSON: it's nested too deeply (the limit is {JSON_MAX_DEPTH} levels)."
-)
-# A whole string (an unterminated one runs to the end of the text), so brackets inside strings aren't counted; or a
-# bracket.
-_JSON_STRING_OR_BRACKET_RE = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]', re.DOTALL)
-
-
-def _text_nested_too_deeply(text: str) -> bool:
-    """Return whether the JSON written in ``text`` nests deeper than ``JSON_MAX_DEPTH``, without parsing it."""
-    depth = 0
-    for match in _JSON_STRING_OR_BRACKET_RE.finditer(text):
-        first = match.group()[0]
-        if first in "[{":
-            depth += 1
-            if depth > JSON_MAX_DEPTH:
-                return True
-        elif first in "]}":
-            depth = max(depth - 1, 0)
-    return False
-
-
-def _value_nested_too_deeply(value: Any) -> bool:
-    """Return whether ``value`` nests deeper than ``JSON_MAX_DEPTH``.
-
-    A to-do list rather than recursion, so checking can't itself run out of stack. A container met again inside itself
-    is skipped: ``json.dumps`` reports that value as containing itself.
-    """
-    pending: list[tuple[Any, int]] = [(value, 1)]
-    on_path: set[int] = set()
-    while pending:
-        item, depth = pending.pop()
-        if depth == 0:
-            # The marker for leaving a container (item is its id): it's no longer around what follows.
-            on_path.discard(item)
-            continue
-        if not isinstance(item, (dict, list, tuple)) or id(item) in on_path:
-            continue
-        if depth > JSON_MAX_DEPTH:
-            return True
-        on_path.add(id(item))
-        pending.append((id(item), 0))
-        pending.extend((child, depth + 1) for child in (item.values() if isinstance(item, dict) else item))
-    return False
-
-
-class JSONSerializer:
+class JSONSerializer(BaseSerializer):
     """A JSON object or array, nested at most ``JSON_MAX_DEPTH`` levels deep."""
+
+    @staticmethod
+    def _reject_json_constant(name: str) -> Any:
+        """Refuse NaN and Infinity, which ``json.loads`` would otherwise accept."""
+        raise ValueError(f"JSON can't contain {name}.")
+
+    #: The deepest a ``json`` value may nest: each object or array is one level, so ``[[1]]`` is 2 levels deep.
+    #: Python's JSON reader and writer recurse once per level, and how deep they get before failing depends on the stack
+    #: of the thread doing it (thousands of levels in a main thread, a few hundred in a thread with a small stack), so
+    #: this fixed limit makes the same values work on every Python, machine and thread.
+    JSON_MAX_DEPTH = 128
+
+    _TOO_DEEP_TO_READ = f"The JSON is nested too deeply: the limit is {JSON_MAX_DEPTH} levels."
+    _TOO_DEEP_TO_WRITE = (
+        f"The value can't be stored as JSON: it's nested too deeply (the limit is {JSON_MAX_DEPTH} levels)."
+    )
+    # A whole string (an unterminated one runs to the end of the text), so brackets inside strings aren't counted; or a
+    # bracket.
+    _JSON_STRING_OR_BRACKET_RE = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]', re.DOTALL)
+
+    def _text_nested_too_deeply(self, text: str) -> bool:
+        """Return whether the JSON written in ``text`` nests deeper than ``JSON_MAX_DEPTH``, without parsing it."""
+        depth = 0
+        for match in self._JSON_STRING_OR_BRACKET_RE.finditer(text):
+            first = match.group()[0]
+            if first in "[{":
+                depth += 1
+                if depth > self.JSON_MAX_DEPTH:
+                    return True
+            elif first in "]}":
+                depth = max(depth - 1, 0)
+        return False
+
+    def _value_nested_too_deeply(self, value: Any) -> bool:
+        """Return whether ``value`` nests deeper than ``JSON_MAX_DEPTH``.
+
+        A to-do list rather than recursion, so checking can't itself run out of stack. A container met again inside itself
+        is skipped: ``json.dumps`` reports that value as containing itself.
+        """
+        pending: list[tuple[Any, int]] = [(value, 1)]
+        on_path: set[int] = set()
+        while pending:
+            item, depth = pending.pop()
+            if depth == 0:
+                # The marker for leaving a container (item is its id): it's no longer around what follows.
+                on_path.discard(item)
+                continue
+            if not isinstance(item, (dict, list, tuple)) or id(item) in on_path:
+                continue
+            if depth > self.JSON_MAX_DEPTH:
+                return True
+            on_path.add(id(item))
+            pending.append((id(item), 0))
+            pending.extend((child, depth + 1) for child in (item.values() if isinstance(item, dict) else item))
+        return False
 
     def serialize(self, value: dict[str, Any] | list[Any]) -> str:
         """Return ``value`` as JSON text."""
-        if _value_nested_too_deeply(value):
-            raise ValueError(_TOO_DEEP_TO_WRITE)
+        if self._value_nested_too_deeply(value):
+            raise ValueError(self._TOO_DEEP_TO_WRITE)
         try:
             return json.dumps(value, ensure_ascii=False, allow_nan=False)
         except TypeError as error:
@@ -332,7 +349,7 @@ class JSONSerializer:
             raise ValueError(f"The value can't be stored as JSON: {error}") from error
         except RecursionError as error:
             # Not expected within the limit; kept in case a thread's stack is smaller still.
-            raise ValueError(_TOO_DEEP_TO_WRITE) from error
+            raise ValueError(self._TOO_DEEP_TO_WRITE) from error
         except ValueError as error:
             # json's message here ends with the number it rejected, and messages never include the value.
             raise ValueError(
@@ -341,21 +358,21 @@ class JSONSerializer:
 
     def deserialize(self, text: str) -> dict[str, Any] | list[Any]:
         """Return the object or array written in ``text``."""
-        if _text_nested_too_deeply(text):
-            raise ValueError(_TOO_DEEP_TO_READ)
+        if self._text_nested_too_deeply(text):
+            raise ValueError(self._TOO_DEEP_TO_READ)
         try:
-            value = json.loads(text, parse_constant=_reject_json_constant)
+            value = json.loads(text, parse_constant=self._reject_json_constant)
         except ValueError:
             raise ValueError("Enter valid JSON.") from None
         except RecursionError:
             # Not expected within the limit; kept in case a thread's stack is smaller still.
-            raise ValueError(_TOO_DEEP_TO_READ) from None
+            raise ValueError(self._TOO_DEEP_TO_READ) from None
         if not isinstance(value, (dict, list)):
             raise ValueError("Enter a JSON object or array.")
         return value
 
 
-class ListSerializer:
+class ListSerializer(BaseSerializer):
     """A list, stored as a JSON array of each item's text (from the item type's serializer)."""
 
     def __init__(self, item_serializer: Any) -> None:

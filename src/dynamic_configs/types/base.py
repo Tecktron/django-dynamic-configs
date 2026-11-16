@@ -10,9 +10,6 @@ from typing import Any, Literal, Protocol
 
 from dynamic_configs.exceptions import ConfigTypeError, ConfigValueError
 
-# bool is a subclass of int in Python, so True would otherwise pass as a number.
-_NUMBER_TYPES = (int, float, Decimal)
-
 
 class Serializer(Protocol):
     """Converts a value to the text stored in the database and back, raising ValueError when it isn't allowed."""
@@ -31,6 +28,9 @@ class ConfigType:
     List and set variants have ``container`` set to ``"list"`` or ``"set"`` and ``item_type`` set to the type of
     their items.
     """
+
+    # bool is a subclass of int in Python, so True would otherwise pass as a number.
+    _NUMBER_TYPES = (int, float, Decimal)
 
     key: str
     label: str
@@ -121,7 +121,7 @@ class ConfigType:
     def _coerce_scalar(self, value: Any) -> Any:
         """Apply the type check to a single value."""
         expected = self.python_type
-        if isinstance(value, bool) and expected in _NUMBER_TYPES:
+        if isinstance(value, bool) and expected in self._NUMBER_TYPES:
             raise self._wrong_type(value)
         if expected is date and isinstance(value, datetime):
             raise self._wrong_type(value)
