@@ -1,3 +1,4 @@
+import decimal
 from decimal import Decimal
 
 import pytest
@@ -101,3 +102,24 @@ def test_money_with_currency_sorts_by_currency_then_amount():
     assert sorted(values, key=by_currency_then_amount) == expected
     # As the design document's entry enables it.
     assert load_custom_type("money_currency", MONEY_CURRENCY).sort(values) == expected
+
+
+def test_money_ignores_the_threads_decimal_context():
+    with decimal.localcontext(decimal.Context(prec=2, traps=[])):
+        assert MoneySerializer().serialize(Decimal("1234.56")) == "1234.56"
+        assert MoneyCurrencySerializer().serialize(Money(Decimal("1234.56"), "USD")) == "1234.56 USD"
+        assert check_amount(Decimal("0.01")) == Decimal("0.01")
+
+
+def test_an_amount_too_large_is_refused_not_written_as_nan_whatever_the_threads_context():
+    with decimal.localcontext(decimal.Context(prec=28, traps=[])):
+        with pytest.raises(ValueError, match="too large"):
+            MoneySerializer().serialize(Decimal("1E+40"))
+
+
+def test_currency_must_be_three_ascii_letters():
+    with pytest.raises(ValueError):
+        Money(Decimal("1"), "ıso")
+    with pytest.raises(ValueError, match="currency"):
+        MoneyCurrencySerializer().deserialize("1 ıso")
+    assert MoneyCurrencySerializer().deserialize("1 usd") == Money(Decimal("1"), "USD")

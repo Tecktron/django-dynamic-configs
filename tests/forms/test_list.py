@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
@@ -228,6 +229,13 @@ def test_list_mode_data_that_isnt_an_array_of_strings_is_unreadable(items):
     if items is not None:
         data[f"value{ListWidget.ITEMS_SUFFIX}"] = items
     assert isinstance(ListWidget().value_from_datadict(data, {}, "value"), UnreadableItems)
+
+
+def test_posted_list_items_with_nesting_are_unreadable_without_being_parsed(mocker):
+    loads = mocker.spy(json, "loads")
+    data = query(**{f"value{ListWidget.MODE_SUFFIX}": "list", f"value{ListWidget.ITEMS_SUFFIX}": "[" * 100_000})
+    assert isinstance(ListWidget().value_from_datadict(data, {}, "value"), UnreadableItems)
+    assert loads.call_count == 0
 
 
 def test_the_widget_shows_items_one_per_line_and_says_raw():

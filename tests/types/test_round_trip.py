@@ -1,7 +1,7 @@
 """Every built-in type reads back what it wrote: ``from_text(to_text(value)) == value`` for edge values.
 
-A case a later task fixes is marked ``xfail(strict=True)`` with the task named, so fixing it turns the mark into a
-failure that says to remove it.
+A value that can't be stored is refused when written (``to_text`` raises ``ConfigValueError``), never stored to be
+unreadable later.
 """
 
 import sys
@@ -11,16 +11,12 @@ from decimal import Decimal
 
 import pytest
 
+from dynamic_configs.exceptions import ConfigValueError
 from dynamic_configs.types.registry import get_registry
 
 UTC = dt_timezone.utc
 LONG_TEXT = "long text, " * 2000
 NON_ASCII = "héllo ☃ 日本語 😀"
-
-
-def task_3(value, reason):
-    """Mark a case that Task 3 fixes."""
-    return pytest.param(value, id=reason, marks=pytest.mark.xfail(strict=True, reason=f"Task 3: {reason}"))
 
 
 def check_round_trip(key, value):
@@ -153,22 +149,24 @@ def test_durations(key, value):
 
 
 @pytest.mark.parametrize(
-    ("key", "value"),
-    [
-        pytest.param(
-            key, timedelta.max, id=f"timedelta-max-{key}", marks=pytest.mark.xfail(strict=True, reason="Task 3")
-        )
-        for key in DURATION_KEYS
-    ]
-    + [pytest.param(key, timedelta.min, id=f"timedelta-min-{key}") for key in DURATION_KEYS[:-1]]
-    + [
-        pytest.param(
-            "weeks", timedelta.min, id="timedelta-min-weeks", marks=pytest.mark.xfail(strict=True, reason="Task 3")
-        )
-    ],
+    ("key", "value"), [pytest.param(key, timedelta.min, id=f"timedelta-min-{key}") for key in DURATION_KEYS[:-1]]
 )
 def test_duration_extremes(key, value):
     check_round_trip(key, value)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [pytest.param(key, timedelta.max, id=f"timedelta-max-{key}") for key in DURATION_KEYS]
+    + [pytest.param("weeks", timedelta.min, id="timedelta-min-weeks")]
+    + [
+        pytest.param(key, timedelta(days=10**8, microseconds=1), id=f"huge-with-a-microsecond-{key}")
+        for key in DURATION_KEYS
+    ],
+)
+def test_a_duration_that_cant_be_read_back_exactly_is_refused(key, value):
+    with pytest.raises(ConfigValueError, match=f"That duration can't be stored exactly in {key}."):
+        get_registry().get(key).to_text(value)
 
 
 @pytest.mark.parametrize(
@@ -180,13 +178,23 @@ def test_duration_extremes(key, value):
         pytest.param({"text": NON_ASCII}, id="non-ascii"),
         pytest.param([LONG_TEXT], id="long-text"),
         pytest.param([2**63, -(2**63) - 1], id="ints-beyond-64-bits"),
-        task_3({1: "a"}, "non-string-key"),
-        task_3([10**5000], "huge-int"),
-        task_3([1e400], "float-overflowing-to-infinity"),
     ],
 )
 def test_json(value):
     check_round_trip("json", value)
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        pytest.param({1: "a"}, "keys must be text", id="non-string-key"),
+        pytest.param([10**5000], "too many digits", id="huge-int"),
+        pytest.param([1e400], "NaN or infinity", id="float-overflowing-to-infinity"),
+    ],
+)
+def test_json_that_cant_be_stored_is_refused(value, message):
+    with pytest.raises(ConfigValueError, match=message):
+        get_registry().get("json").to_text(value)
 
 
 LISTS = [

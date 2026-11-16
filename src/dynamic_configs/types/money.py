@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_EVEN, Context, Decimal, DivisionByZero, InvalidOperation, Overflow, localcontext
 
 from dynamic_configs.types.serializers import BaseSerializer
 
 _CENTS = Decimal("0.01")
+# Spelled out, not the thread's context: low precision refuses small amounts, and untrapped errors give NaN.
+_CONTEXT = Context(prec=28, rounding=ROUND_HALF_EVEN, traps=[InvalidOperation, DivisionByZero, Overflow])
 
 
 def check_amount(amount: Decimal) -> Decimal:
@@ -28,7 +30,8 @@ def check_amount(amount: Decimal) -> Decimal:
     if amount.as_tuple().exponent < -2:  # type: ignore[operator]
         raise ValueError("An amount can have at most 2 decimal places.")
     try:
-        return amount.quantize(_CENTS)
+        with localcontext(_CONTEXT):
+            return amount.quantize(_CENTS)
     except InvalidOperation:
         raise ValueError("That amount is too large.") from None
 
@@ -88,6 +91,9 @@ class MoneySerializer(BaseSerializer):
 class MoneyCurrencySerializer(MoneySerializer):
     """An amount and a currency code, stored as ``9.99 CAD``; reuses ``MoneySerializer`` for the amount."""
 
+    # ASCII only: upper-casing "ıso" (a dotless i) would give "ISO".
+    _CODE_RE = re.compile(r"[A-Za-z]{3}", re.ASCII)
+
     def serialize(self, value: Money) -> str:  # type: ignore[override]
         """Return the amount and currency, such as ``9.99 CAD``."""
         return f"{super().serialize(value.amount)} {value.currency}"
@@ -97,4 +103,6 @@ class MoneyCurrencySerializer(MoneySerializer):
         parts = text.split()
         if len(parts) != 2:
             raise ValueError("Enter an amount and a currency code, such as 9.99 CAD.")
+        if not self._CODE_RE.fullmatch(parts[1]):
+            raise ValueError("A currency must be a 3-letter code, such as CAD.")
         return Money(super().deserialize(parts[0]), parts[1].upper())

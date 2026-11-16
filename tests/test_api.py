@@ -1,4 +1,5 @@
 import logging
+import threading
 from datetime import datetime
 from datetime import timezone as dt_timezone
 from enum import Enum
@@ -338,6 +339,21 @@ def test_a_value_too_deeply_nested_to_read_returns_the_default(caplog):
     make("DEEP", "json", "[" * 129 + "]" * 129)
     assert dynamic_configs.get("DEEP", default=[]) == []
     assert caplog.records[0].levelno == logging.ERROR
+
+
+def test_a_deeply_nested_list_returns_the_default_in_a_thread_with_a_small_stack():
+    # Reading it used to overflow a 256 KB stack (a segfault on Python 3.12). It comes from the cache, so the thread
+    # needs no database connection.
+    cache.write("DEEP", ("list:str", "[" * 100_000 + "]" * 100_000))
+    found = []
+    previous = threading.stack_size(256 * 1024)
+    try:
+        thread = threading.Thread(target=lambda: found.append(dynamic_configs.get("DEEP", ["default"])))
+        thread.start()
+        thread.join()
+    finally:
+        threading.stack_size(previous)
+    assert found == [["default"]]
 
 
 def test_a_broken_custom_type_does_not_stop_other_configs_being_read(settings):

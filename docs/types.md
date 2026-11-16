@@ -27,9 +27,17 @@ Durations are one type per unit, which is clearer for admins than a free-form du
 for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are written without a trailing `.0` (`"2"`, not
 `"2.0"`).
 
+A duration is kept to the microsecond, as a `timedelta` is. Text finer than that ("0.0000001" seconds) is refused:
+"A duration is kept to the microsecond; that one is finer." A value is stored only if its text reads back as exactly
+that value, so one the unit can't write exactly (the largest `timedelta`, or a very long duration with a fraction of a
+second, in `weeks`) is refused: "That duration can't be stored exactly in weeks."
+
 A `str` must be a single line; use `text` for several lines. A `json` value must be an object or an array: a lone
-number or string is rejected ("Enter a JSON object or array."), and so are NaN and infinity. The admin shows a
-`json` value pretty-printed (`indent=2`) in the [JSON editor](admin.md#the-json-editor).
+number or string is rejected ("Enter a JSON object or array."), and so are NaN and infinity, a number too large for a
+float (`1e400`) and a whole number with more digits than Python reads (4,300 by default). Object keys must be text:
+`{2025: 0.2}` is refused ("The value can't be stored as JSON: object keys must be text, not int."), since JSON would
+rewrite the key as `"2025"` and could merge two keys. The admin shows a `json` value pretty-printed (`indent=2`) in
+the [JSON editor](admin.md#the-json-editor).
 
 A `json` value may nest at most 128 levels deep (`dynamic_configs.constants.JSON_MAX_DEPTH`). Each object or
 array is one level, so `[[1]]` is 2 levels deep, and brackets inside strings don't count. A deeper value is refused
@@ -94,6 +102,8 @@ is also hashable, it gets a set variant too, keyed `set:<key>` and labelled `Set
 - **Stored text:** a JSON array of each item's stored text, such as `["1", "2"]` for `list:int`. Set types keep the
   order the items were first entered, so the admin page doesn't reshuffle them. Custom types get the same treatment
   through their own serializer.
+  The text is a flat array, so nesting in it ("[[...") is refused before it's parsed ("The list can't be read: an item
+  is itself a list or object.").
 - **Duplicates:** a set type rejects duplicates rather than dropping them, compared after parsing, so `1` and `01`
   are the same item in a `set:int`.
 - **Admin input:** the [list editor](admin.md#the-list-editor).

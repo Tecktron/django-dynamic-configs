@@ -123,8 +123,14 @@ contains itself still gets its own message. Python's `json` recurses once per le
 runs out, so without a fixed limit the depth that works depends on where the code runs. Measured on Python 3.14.4: 605
 levels in a thread with a 128 KB stack, 3,336 with 512 KB, 6,977 with 1 MB, 57,949 in an 8 MB main thread, and no
 limit with an unlimited stack. 128 is the limit Rust's serde_json uses (.NET uses 64, Ruby 100), and RFC 8259 §9
-allows parsers to set one. Lists use their own parsing, which already treats anything but a flat array of strings as
-unreadable.
+allows parsers to set one. A list's stored text is a flat array of strings, so `ListSerializer`, the list editor's
+posted items and the admin's item endpoint refuse nesting (`JSONSerializer.nests_deeper_than(text, 1)`) before
+`json.loads` runs. Object keys must be text, since `json.dumps` would rewrite `{2025: 0.2}` as `{"2025": 0.2}` and could
+merge two keys; a number too large for a float (`1e400`) or a whole number over Python's digit limit is refused with its
+own message.
+
+A duration is kept to the microsecond. Its serializer reads its own text back and refuses a value that wouldn't read
+back exactly ("That duration can't be stored exactly in weeks."), and refuses text finer than a microsecond.
 
 Every type, built-in or custom, has a short `help_text` (for example "YYYY-MM-DD" for `date`, "one number of hours,
 e.g. 1.5" for `hours`). The admin shows help that describes the input on screen:

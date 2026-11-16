@@ -143,6 +143,15 @@ def test_a_request_that_cant_be_read_is_an_error(admin_client, items):
     }
 
 
+def test_a_request_with_nested_items_is_refused_without_being_parsed(admin_client, mocker):
+    loads = mocker.spy(json, "loads")
+    items = "[" * 100_000
+    reply = answer(admin_client, "list:int", "sort", items=items, direction="ascending")
+    assert reply == {"errors": ["The request couldn't be read. Reload the page and try again."]}
+    # The test client parses the reply with json.loads too; only the posted text matters.
+    assert items not in [call.args[0] for call in loads.call_args_list]
+
+
 @pytest.mark.parametrize("position", ["²", "9" * 5000, "-1", "x", "1" * 10])
 def test_a_position_that_cant_be_read_is_an_error(admin_client, position):
     assert answer(admin_client, "list:int", "check", value__item="7", items="[]", position=position) == {

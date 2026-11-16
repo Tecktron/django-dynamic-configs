@@ -19,6 +19,7 @@ from django.utils.safestring import SafeString
 
 from dynamic_configs.exceptions import ConfigError, ConfigValueError
 from dynamic_configs.types.base import ConfigType
+from dynamic_configs.types.serializers import JSONSerializer
 
 RAW_HELP = "One item per line."
 
@@ -119,10 +120,13 @@ class ListWidget(forms.Textarea):
         """Return the stored texts in list mode, otherwise the textarea's text."""
         if data.get(f"{name}{self.MODE_SUFFIX}") != "list":
             return super().value_from_datadict(data, files, name)
+        raw = data.get(f"{name}{self.ITEMS_SUFFIX}", "")
+        # A flat array of strings: refuse nesting before json.loads, which can run out of stack on it.
+        if JSONSerializer.nests_deeper_than(raw, 1):
+            return UnreadableItems()
         try:
-            texts = json.loads(data.get(f"{name}{self.ITEMS_SUFFIX}", ""))
-        except (ValueError, RecursionError):
-            # RecursionError: JSON nested too deeply, which Python's reader raises rather than a ValueError.
+            texts = json.loads(raw)
+        except ValueError:
             return UnreadableItems()
         if not isinstance(texts, list) or not all(isinstance(text, str) for text in texts):
             return UnreadableItems()

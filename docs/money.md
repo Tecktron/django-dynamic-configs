@@ -47,7 +47,9 @@ stored as `"10.00"`. Negative amounts are allowed.
 :pyobject: check_amount
 ```
 
-The serializer applies the rule in both directions. `deserialize` accepts only plain decimal text
+The rule doesn't depend on the thread's `decimal` context: `check_amount` works in a fixed one (28 digits, errors
+raised), so a small amount isn't refused, and an amount too large is an error rather than `NaN`. The serializer applies
+the rule in both directions. `deserialize` accepts only plain decimal text
 (`^-?\d+(\.\d+)?$` after stripping whitespace), so `1e3`, `1,000`, `+5`, `NaN` and `Infinity` are rejected, and
 `serialize` applies the same rule to values from code, so `update("PRICE", Decimal("9.999"))` raises
 `ConfigValueError`:
@@ -82,7 +84,8 @@ and raises `ValueError`, so an invalid `Money` can't be created. `str(Money(...)
 ```
 
 `MoneyCurrencySerializer` **subclasses `MoneySerializer`** and reuses its amount parsing and formatting, adding the
-currency code. Stored text is `"9.99 CAD"`; on input the code is uppercased, so `"9.99 cad"` is accepted:
+currency code. Stored text is `"9.99 CAD"`; on input the code is uppercased, so `"9.99 cad"` is accepted. Only the
+letters A to Z count, so a look-alike such as a dotless "ı" is refused:
 
 ```{literalinclude} ../src/dynamic_configs/types/money.py
 :language: python

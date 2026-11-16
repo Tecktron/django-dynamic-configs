@@ -408,3 +408,85 @@ def test_the_base_serializer_leaves_both_methods_to_its_subclasses():
         BaseSerializer().serialize("x")
     with pytest.raises(NotImplementedError):
         BaseSerializer().deserialize("x")
+
+
+# ---- Serializer edges (Plan 5, Task 3) ----
+
+
+@pytest.mark.parametrize(
+    "serializer", [SecondsSerializer(), MinutesSerializer(), HoursSerializer(), DaysSerializer(), WeeksSerializer()]
+)
+def test_a_duration_that_wouldnt_read_back_exactly_is_refused(serializer):
+    with pytest.raises(ValueError, match="exactly"):
+        serializer.serialize(timedelta.max)
+
+
+def test_weeks_refuses_a_value_it_would_change():
+    with pytest.raises(ValueError, match="exactly"):
+        WeeksSerializer().serialize(timedelta(days=10**8, microseconds=1))
+
+
+def test_a_duration_finer_than_a_microsecond_is_refused():
+    with pytest.raises(ValueError, match="microsecond"):
+        SecondsSerializer().deserialize("0.0000001")
+
+
+def test_a_duration_with_more_digits_than_python_reads_is_too_large():
+    with pytest.raises(ValueError, match="too large"):
+        SecondsSerializer().deserialize("9" * 5000)
+
+
+def test_a_duration_of_a_whole_number_of_microseconds_is_read_exactly():
+    assert SecondsSerializer().deserialize("0.000001") == timedelta(microseconds=1)
+    assert SecondsSerializer().deserialize("86399999999999.999999") == timedelta.max
+
+
+def test_json_object_keys_must_be_text():
+    with pytest.raises(ValueError, match="keys") as error:
+        JSONSerializer().serialize({2025: 0.2})
+    assert "2025" not in str(error.value)
+    assert "int" in str(error.value)
+
+
+def test_json_object_keys_are_checked_at_every_level():
+    with pytest.raises(ValueError, match="keys"):
+        JSONSerializer().serialize([{"a": {1: "b"}}])
+
+
+def test_json_number_too_large_for_a_float_is_refused():
+    with pytest.raises(ValueError, match="too large"):
+        JSONSerializer().deserialize("[1e400]")
+
+
+def test_json_whole_number_with_too_many_digits_says_so():
+    with pytest.raises(ValueError, match="too many digits"):
+        JSONSerializer().serialize({"n": 10**5000})
+    with pytest.raises(ValueError, match="too many digits"):
+        JSONSerializer().deserialize('{"n": ' + "1" * 5000 + "}")
+
+
+def test_an_int_with_too_many_digits_says_so_when_written():
+    with pytest.raises(ValueError, match="too many digits"):
+        IntSerializer().serialize(10**5000)
+
+
+@pytest.mark.parametrize(
+    ("text", "depth", "result"),
+    [
+        ("[]", 1, False),
+        ("[[]]", 1, True),
+        ('["[[[", "]]]"]', 1, False),
+        ('{"a": [1]}', 1, True),
+        ("[[]]", 2, False),
+        ("[" * 100_000, 1, True),
+    ],
+)
+def test_nests_deeper_than_counts_brackets_outside_strings(text, depth, result):
+    assert JSONSerializer.nests_deeper_than(text, depth) is result
+
+
+def test_list_text_with_nesting_is_refused_before_parsing(mocker):
+    loads = mocker.spy(serializers.json, "loads")
+    with pytest.raises(ValueError, match="an item is itself a list or object"):
+        ListSerializer(StrSerializer()).deserialize("[" * 100_000)
+    assert loads.call_count == 0

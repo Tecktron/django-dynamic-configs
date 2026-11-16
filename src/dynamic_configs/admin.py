@@ -41,6 +41,7 @@ from dynamic_configs.forms.list import ListWidget, TypedLineListField, stored_te
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.registry import get_registry
+from dynamic_configs.types.serializers import JSONSerializer
 
 _STYLESHEET = "dynamic_configs/admin.css"
 
@@ -189,11 +190,13 @@ class ConfigAdminMixin:
     @classmethod
     def _texts(cls, raw: str | None) -> list[str]:
         """Return the JSON array of strings the list editor sent; raise ValidationError when it isn't one."""
-        try:
-            texts = json.loads(raw or "")
-        except (ValueError, RecursionError):
-            # RecursionError: JSON nested too deeply, which Python's reader raises rather than a ValueError.
-            texts = None
+        texts = None
+        # A flat array of strings: refuse nesting before json.loads, which can run out of stack on it.
+        if not JSONSerializer.nests_deeper_than(raw or "", 1):
+            try:
+                texts = json.loads(raw or "")
+            except ValueError:
+                pass
         if not isinstance(texts, list) or not all(isinstance(text, str) for text in texts):
             raise ValidationError(cls._UNREADABLE)
         return texts

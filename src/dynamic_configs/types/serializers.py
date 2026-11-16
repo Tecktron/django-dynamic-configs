@@ -13,6 +13,7 @@ import re
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 from typing import Any
 
 from django.conf import settings
@@ -79,7 +80,11 @@ class IntSerializer(BaseSerializer):
     def serialize(self, value: int) -> str:
         """Return ``value`` in decimal digits."""
         # int() first: an int subclass (an Enum, say) may have a str() that isn't its number.
-        return str(int(value))
+        try:
+            return str(int(value))
+        except ValueError:
+            # Python refuses more digits than sys.get_int_max_str_digits() allows; its message names Python internals.
+            raise ValueError("That whole number has too many digits.") from None
 
     def deserialize(self, text: str) -> int:
         """Return the whole number written in ``text``."""
@@ -243,17 +248,46 @@ class DurationSerializer(BaseSerializer):
         # numbers ("5e-05"), which the plain-number parsers reject; Decimal re-formats it exactly in plain notation.
         return format(Decimal(repr(number)), "f")
 
+    @property
+    def _microseconds_per_unit(self) -> int:
+        """The number of microseconds in one of this serializer's unit."""
+        return timedelta(**{self.unit: 1}) // timedelta(microseconds=1)
+
     def serialize(self, value: timedelta) -> str:
-        """Return ``value`` as a number of this serializer's unit."""
-        return self.format_number(value / timedelta(**{self.unit: 1}))
+        """Return ``value`` as a number of this serializer's unit.
+
+        :raises ValueError: the text wouldn't read back as ``value`` (a float keeps about 16 digits, so a very large
+            duration with a fraction of a second can't be written exactly)
+        """
+        text = self.format_number(value / timedelta(**{self.unit: 1}))
+        try:
+            exact = self.deserialize(text) == value
+        except ValueError:
+            exact = False
+        if not exact:
+            raise ValueError(f"That duration can't be stored exactly in {self.unit}.")
+        return text
 
     def deserialize(self, text: str) -> timedelta:
-        """Return a timedelta of the number of units written in ``text``."""
+        """Return a timedelta of the number of units written in ``text``, to the microsecond.
+
+        :raises ValueError: the text isn't a plain number, is finer than a microsecond, or is too large
+        """
         stripped = text.strip()
         if not self._PLAIN_NUMBER_RE.fullmatch(stripped):
             raise ValueError(f"Enter a number of {self.unit}, such as 1.5.")
         try:
-            return timedelta(**{self.unit: float(stripped)})
+            exact = Fraction(stripped) * self._microseconds_per_unit
+        except ValueError:
+            # More digits than Python reads (sys.get_int_max_str_digits()); far past what a timedelta holds.
+            raise ValueError(f"That many {self.unit} is too large.") from None
+        microseconds = round(exact)
+        # Text written from a float (serialize's) is off by up to a float's rounding error, about 1 part in 10**15; any
+        # more than that is a fraction of a microsecond that would be lost.
+        if abs(exact - microseconds) > abs(exact) / 10**15:
+            raise ValueError("A duration is kept to the microsecond; that one is finer.")
+        try:
+            return timedelta(microseconds=microseconds)
         except OverflowError:
             raise ValueError(f"That many {self.unit} is too large.") from None
 
@@ -289,36 +323,59 @@ class WeeksSerializer(DurationSerializer):
 
 
 class JSONSerializer(BaseSerializer):
-    """A JSON object or array, nested at most ``constants.JSON_MAX_DEPTH`` levels deep."""
-
-    @staticmethod
-    def _reject_json_constant(name: str) -> Any:
-        """Refuse NaN and Infinity, which ``json.loads`` would otherwise accept."""
-        raise ValueError(f"JSON can't contain {name}.")
+    """A JSON object or array, nested at most ``constants.JSON_MAX_DEPTH`` levels deep, with text keys."""
 
     _TOO_DEEP_TO_READ = f"The JSON is nested too deeply: the limit is {constants.JSON_MAX_DEPTH} levels."
     _TOO_DEEP_TO_WRITE = (
         f"The value can't be stored as JSON: it's nested too deeply (the limit is {constants.JSON_MAX_DEPTH} levels)."
     )
+    _TOO_MANY_DIGITS_TO_READ = "A whole number in the JSON has too many digits."
+    _TOO_MANY_DIGITS_TO_WRITE = "The value can't be stored as JSON: a whole number in it has too many digits."
     # A whole string (an unterminated one runs to the end of the text), so brackets inside strings aren't counted; or a
     # bracket.
     _JSON_STRING_OR_BRACKET_RE = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]', re.DOTALL)
 
-    def _text_nested_too_deeply(self, text: str) -> bool:
-        """Return whether the JSON written in ``text`` nests deeper than ``constants.JSON_MAX_DEPTH``, without parsing it."""
-        depth = 0
-        for match in self._JSON_STRING_OR_BRACKET_RE.finditer(text):
+    @staticmethod
+    def _reject_json_constant(name: str) -> Any:
+        """Refuse NaN and Infinity, which ``json.loads`` would otherwise accept."""
+        raise json.JSONDecodeError(f"JSON can't contain {name}.", "", 0)
+
+    @classmethod
+    def _parse_int(cls, digits: str) -> int:
+        """Read a whole number, saying so when it has more digits than Python reads."""
+        try:
+            return int(digits)
+        except ValueError:
+            raise ValueError(cls._TOO_MANY_DIGITS_TO_READ) from None
+
+    @staticmethod
+    def _parse_float(number: str) -> float:
+        """Read a number with a fraction or exponent, refusing one too large for a float (``1e400`` reads as infinity)."""
+        value = float(number)
+        if not math.isfinite(value):
+            raise ValueError("A number in the JSON is too large for a float.")
+        return value
+
+    @classmethod
+    def nests_deeper_than(cls, text: str, depth: int) -> bool:
+        """Return whether the JSON written in ``text`` nests deeper than ``depth`` levels, without parsing it.
+
+        Each object or array is one level, so ``[[1]]`` is 2 levels deep. Brackets inside strings don't count. It
+        doesn't recurse, so it can't run out of stack however deep the text goes.
+        """
+        level = 0
+        for match in cls._JSON_STRING_OR_BRACKET_RE.finditer(text):
             first = match.group()[0]
             if first in "[{":
-                depth += 1
-                if depth > constants.JSON_MAX_DEPTH:
+                level += 1
+                if level > depth:
                     return True
             elif first in "]}":
-                depth = max(depth - 1, 0)
+                level = max(level - 1, 0)
         return False
 
-    def _value_nested_too_deeply(self, value: Any) -> bool:
-        """Return whether ``value`` nests deeper than ``constants.JSON_MAX_DEPTH``.
+    def _check_shape(self, value: Any) -> None:
+        """Raise ValueError when ``value`` nests deeper than ``constants.JSON_MAX_DEPTH`` or has a key that isn't text.
 
         A to-do list rather than recursion, so checking can't itself run out of stack. A container met again inside itself
         is skipped: ``json.dumps`` reports that value as containing itself.
@@ -334,16 +391,21 @@ class JSONSerializer(BaseSerializer):
             if not isinstance(item, (dict, list, tuple)) or id(item) in on_path:
                 continue
             if depth > constants.JSON_MAX_DEPTH:
-                return True
+                raise ValueError(self._TOO_DEEP_TO_WRITE)
+            if isinstance(item, dict):
+                for key in item:
+                    if not isinstance(key, str):
+                        # json would rewrite the key as text, and could merge two keys; name its type, not the key.
+                        raise ValueError(
+                            f"The value can't be stored as JSON: object keys must be text, not {type(key).__name__}."
+                        )
             on_path.add(id(item))
             pending.append((id(item), 0))
             pending.extend((child, depth + 1) for child in (item.values() if isinstance(item, dict) else item))
-        return False
 
     def serialize(self, value: dict[str, Any] | list[Any]) -> str:
         """Return ``value`` as JSON text."""
-        if self._value_nested_too_deeply(value):
-            raise ValueError(self._TOO_DEEP_TO_WRITE)
+        self._check_shape(value)
         try:
             return json.dumps(value, ensure_ascii=False, allow_nan=False)
         except TypeError as error:
@@ -353,6 +415,9 @@ class JSONSerializer(BaseSerializer):
             # Not expected within the limit; kept in case a thread's stack is smaller still.
             raise ValueError(self._TOO_DEEP_TO_WRITE) from error
         except ValueError as error:
+            if str(error).startswith("Exceeds the limit"):
+                # Python's int-digits limit; its message names Python internals.
+                raise ValueError(self._TOO_MANY_DIGITS_TO_WRITE) from None
             # json's message here ends with the number it rejected, and messages never include the value.
             raise ValueError(
                 "The value can't be stored as JSON: it contains NaN or infinity, or contains itself."
@@ -360,11 +425,16 @@ class JSONSerializer(BaseSerializer):
 
     def deserialize(self, text: str) -> dict[str, Any] | list[Any]:
         """Return the object or array written in ``text``."""
-        if self._text_nested_too_deeply(text):
+        if self.nests_deeper_than(text, constants.JSON_MAX_DEPTH):
             raise ValueError(self._TOO_DEEP_TO_READ)
         try:
-            value = json.loads(text, parse_constant=self._reject_json_constant)
-        except ValueError:
+            value = json.loads(
+                text,
+                parse_int=self._parse_int,
+                parse_float=self._parse_float,
+                parse_constant=self._reject_json_constant,
+            )
+        except json.JSONDecodeError:
             raise ValueError("Enter valid JSON.") from None
         except RecursionError:
             # Not expected within the limit; kept in case a thread's stack is smaller still.
@@ -388,6 +458,9 @@ class ListSerializer(BaseSerializer):
 
     def deserialize(self, text: str) -> list[Any]:
         """Return the items stored in ``text``, in order."""
+        # The text is a flat array of strings, so refuse nesting before json.loads, which can run out of stack on it.
+        if JSONSerializer.nests_deeper_than(text, 1):
+            raise ValueError("The list can't be read: an item is itself a list or object.")
         try:
             raw = json.loads(text)
         except ValueError:
