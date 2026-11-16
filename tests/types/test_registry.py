@@ -12,6 +12,7 @@ from dynamic_configs.types.registry import (
     reset_registry,
     set_variant,
 )
+from dynamic_configs.types.serializers import BaseSerializer
 from tests.custom_types import Color, ColorField, ColorSerializer
 
 COLOR = {
@@ -32,6 +33,13 @@ def test_custom_types_are_loaded_from_dotted_paths():
     assert color.form_class is ColorField
     assert (color.label, color.help_text, color.listable) == ("Color", "A hex color, e.g. #1a2b3c.", True)
     assert color.raw_help_text == "A hex color typed with its #, e.g. #1a2b3c."
+
+
+def test_a_serializer_not_inheriting_base_still_loads():
+    assert not issubclass(ColorSerializer, BaseSerializer)
+    color = load_custom_type("color", PLAIN)
+    assert isinstance(color.serializer, ColorSerializer)
+    assert color.from_text(color.to_text(Color("#1a2b3c"))) == Color("#1a2b3c")
 
 
 def test_label_help_text_form_and_listable_are_optional():

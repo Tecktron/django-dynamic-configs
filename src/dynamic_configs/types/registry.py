@@ -15,7 +15,7 @@ from django.dispatch import receiver
 from django.utils.module_loading import import_string
 
 from dynamic_configs.conf import get_settings
-from dynamic_configs.forms.list import SET_HELP
+from dynamic_configs.constants import LIST_PREFIX, SET_HELP, SET_PREFIX
 from dynamic_configs.log import log
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.builtin import BUILTIN_TYPES
@@ -23,8 +23,6 @@ from dynamic_configs.types.serializers import ListSerializer, SetSerializer
 
 logger = logging.getLogger(__name__)
 
-LIST_PREFIX = "list:"
-SET_PREFIX = "set:"
 # No ":" allowed, because it marks list and set variants.
 TYPE_KEY_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 _ENTRY_KEYS = frozenset(

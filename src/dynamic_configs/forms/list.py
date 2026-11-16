@@ -20,11 +20,7 @@ from django.utils.safestring import SafeString
 from dynamic_configs.exceptions import ConfigError, ConfigValueError
 from dynamic_configs.types.base import ConfigType
 
-# The admin's item editor's inputs are named after the field with this suffix.
-ITEM_SUFFIX = "__item"
 RAW_HELP = "One item per line."
-# A set's help, true whichever way its items are entered.
-SET_HELP = "No repeats."
 
 
 class StoredTexts(list):  # type: ignore[type-arg]

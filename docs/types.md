@@ -31,7 +31,7 @@ A `str` must be a single line; use `text` for several lines. A `json` value must
 number or string is rejected ("Enter a JSON object or array."), and so are NaN and infinity. The admin shows a
 `json` value pretty-printed (`indent=2`) in the [JSON editor](admin.md#the-json-editor).
 
-A `json` value may nest at most 128 levels deep (`JSONSerializer.JSON_MAX_DEPTH`). Each object or
+A `json` value may nest at most 128 levels deep (`dynamic_configs.constants.JSON_MAX_DEPTH`). Each object or
 array is one level, so `[[1]]` is 2 levels deep, and brackets inside strings don't count. A deeper value is refused
 when it's saved ("The value can't be stored as JSON: it's nested too deeply (the limit is 128 levels)."), and the admin
 says the same about deeper text ("The JSON is nested too deeply: the limit is 128 levels."). A deeper stored value,
@@ -140,13 +140,21 @@ DYNAMIC_CONFIGS = {
 
 ### The serializer
 
-A serializer is a class with two methods. It's created once, with no arguments, when the types are loaded.
+A serializer turns a value into the text stored in the database and back. Write one by subclassing
+`dynamic_configs.types.serializers.BaseSerializer` and overriding its two methods. It's created once, with no
+arguments, when the types are loaded.
 
 ```python
-class ColorSerializer:
+from dynamic_configs.types.serializers import BaseSerializer
+
+
+class ColorSerializer(BaseSerializer):
     def serialize(self, value: Color) -> str: ...  # raises ValueError when the value is invalid
     def deserialize(self, text: str) -> Color: ...  # raises ValueError when the text is invalid
 ```
+
+A class with these two methods that doesn't inherit `BaseSerializer` is still accepted, but inheriting it is the way to
+write one.
 
 Raising `ValueError` is how a serializer rejects a value, in both directions:
 

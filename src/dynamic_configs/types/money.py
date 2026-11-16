@@ -11,6 +11,8 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
+from dynamic_configs.types.serializers import BaseSerializer
+
 _CENTS = Decimal("0.01")
 
 
@@ -66,7 +68,7 @@ def by_currency_then_amount(money: Money) -> tuple[str, Decimal]:
     return (money.currency, money.amount)
 
 
-class MoneySerializer:
+class MoneySerializer(BaseSerializer):
     """An amount of money: plain decimal text with at most 2 decimal places, stored with exactly 2 (``10.00``)."""
 
     _AMOUNT_RE = re.compile(r"-?\d+(\.\d+)?")

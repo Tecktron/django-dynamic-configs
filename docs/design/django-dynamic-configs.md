@@ -46,12 +46,15 @@ adding a custom type would get a spurious migration. The admin form and the API 
 
 ## Types
 
-### Serializer protocol
+### Serializer interface
 
-A serializer is a class with two methods. It is instantiated once, with no arguments, when the registry is built.
+A serializer is a subclass of `BaseSerializer` (`types/serializers.py`) that overrides its two methods. It is
+instantiated once, with no arguments, when the registry is built. The registry also accepts any class with callable
+`serialize` and `deserialize`, so a serializer that doesn't inherit `BaseSerializer` still works; inheriting it is the
+way to write one.
 
 ```python
-class ColorSerializer:
+class ColorSerializer(BaseSerializer):
     def serialize(self, value: Color) -> str: ...  # raises ValueError when the value is invalid
     def deserialize(self, text: str) -> Color: ...  # raises ValueError when the text is invalid
 ```
@@ -105,7 +108,7 @@ Durations are per-unit types, which are clearer for admins than a free-form dura
 for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are written without a trailing `.0` (`"2"`, not
 `"2.0"`).
 
-A `json` value nests at most 128 levels deep (`JSONSerializer.JSON_MAX_DEPTH` in `types/serializers.py`; each object or array is a
+A `json` value nests at most 128 levels deep (`dynamic_configs.constants.JSON_MAX_DEPTH`; each object or array is a
 level, so `[[1]]` is 2). Saving refuses a deeper value ("The value can't be stored as JSON: it's nested too deeply (the
 limit is 128 levels)."), and reading refuses deeper text ("The JSON is nested too deeply: the limit is 128 levels."),
 so a hand-edited row that deep is unreadable like any other. Both are checked before Python's `json` runs: reading
@@ -686,6 +689,8 @@ src/dynamic_configs/
     cache.py            cache access and the missing marker
     conf.py             DYNAMIC_CONFIGS with defaults
     checks.py           system checks
+    constants.py        constants more than one module uses (JSON_MAX_DEPTH, SET_HELP, ADMIN_SCRIPT, list and set key
+                        prefixes)
     exceptions.py
     log.py              logging helper with the re-entrancy guard
     _overrides.py       overrides for the current context (read by the API, set by the test helpers)

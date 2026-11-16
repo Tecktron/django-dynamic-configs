@@ -7,6 +7,7 @@ from typing import Any
 
 from django import forms
 
+from dynamic_configs import constants
 from dynamic_configs.forms.fields import SerializerField
 from dynamic_configs.types.serializers import JSONSerializer
 
@@ -14,7 +15,7 @@ from dynamic_configs.types.serializers import JSONSerializer
 class JSONTextarea(forms.Textarea):
     """A textarea for JSON, marked for the admin's editor (``AdminJSONTextarea``), with spell-checking off.
 
-    The editor reads the nesting limit (``JSON_MAX_DEPTH``) from ``data-dynamic-configs-json-max-depth``.
+    The editor reads the nesting limit (``constants.JSON_MAX_DEPTH``) from ``data-dynamic-configs-json-max-depth``.
     """
 
     def __init__(self, attrs: dict[str, Any] | None = None) -> None:
@@ -22,7 +23,7 @@ class JSONTextarea(forms.Textarea):
         super().__init__(
             {
                 "data-dynamic-configs-json": True,
-                "data-dynamic-configs-json-max-depth": JSONSerializer.JSON_MAX_DEPTH,
+                "data-dynamic-configs-json-max-depth": constants.JSON_MAX_DEPTH,
                 "spellcheck": "false",
                 **(attrs or {}),
             }

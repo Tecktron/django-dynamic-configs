@@ -32,14 +32,15 @@ from django.utils.safestring import SafeString
 from django.utils.text import Truncator
 
 from dynamic_configs.conf import get_settings
-from dynamic_configs.forms.config import ADMIN_SCRIPT, ConfigTypeForm, add_form_for, change_form_for
+from dynamic_configs.constants import ADMIN_SCRIPT, LIST_PREFIX, SET_PREFIX
+from dynamic_configs.forms.config import ConfigTypeForm, add_form_for, change_form_for
 from dynamic_configs.forms.datetime import ZonedDateTimeWidget
 from dynamic_configs.forms.fields import formfield_for
 from dynamic_configs.forms.json import JSONTextarea
-from dynamic_configs.forms.list import ITEM_SUFFIX, ListWidget, TypedLineListField, stored_texts
+from dynamic_configs.forms.list import ListWidget, TypedLineListField, stored_texts
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
-from dynamic_configs.types.registry import LIST_PREFIX, SET_PREFIX, get_registry
+from dynamic_configs.types.registry import get_registry
 
 _STYLESHEET = "dynamic_configs/admin.css"
 
@@ -88,6 +89,8 @@ class AdminListEditorWidget(ListWidget):
     """
 
     _LIST_EDITOR_SCRIPT = "dynamic_configs/list_editor.js"
+    # The item editor's inputs are named after the field with this suffix.
+    ITEM_SUFFIX = "__item"
 
     def __init__(
         self,
@@ -114,7 +117,7 @@ class AdminListEditorWidget(ListWidget):
     def render(self, name: str, value: Any, attrs: dict[str, Any] | None = None, renderer: Any = None) -> SafeString:
         """Render the raw textarea and hidden inputs, and the item editor, marked for the editor script."""
         editor = self.item_field.widget.render(
-            f"{name}{ITEM_SUFFIX}", None, {"id": f"id_{name}{ITEM_SUFFIX}"}, renderer
+            f"{name}{self.ITEM_SUFFIX}", None, {"id": f"id_{name}{self.ITEM_SUFFIX}"}, renderer
         )
         help_text = self.item_field.help_text
         return format_html(

@@ -18,6 +18,8 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
+from dynamic_configs import constants
+
 
 def _require_finite(number: float | Decimal) -> None:
     """Raise ValueError for NaN and infinity, which can't be meaningful settings."""
@@ -281,42 +283,36 @@ class WeeksSerializer(DurationSerializer):
 
 
 class JSONSerializer(BaseSerializer):
-    """A JSON object or array, nested at most ``JSON_MAX_DEPTH`` levels deep."""
+    """A JSON object or array, nested at most ``constants.JSON_MAX_DEPTH`` levels deep."""
 
     @staticmethod
     def _reject_json_constant(name: str) -> Any:
         """Refuse NaN and Infinity, which ``json.loads`` would otherwise accept."""
         raise ValueError(f"JSON can't contain {name}.")
 
-    #: The deepest a ``json`` value may nest: each object or array is one level, so ``[[1]]`` is 2 levels deep.
-    #: Python's JSON reader and writer recurse once per level, and how deep they get before failing depends on the stack
-    #: of the thread doing it (thousands of levels in a main thread, a few hundred in a thread with a small stack), so
-    #: this fixed limit makes the same values work on every Python, machine and thread.
-    JSON_MAX_DEPTH = 128
-
-    _TOO_DEEP_TO_READ = f"The JSON is nested too deeply: the limit is {JSON_MAX_DEPTH} levels."
+    _TOO_DEEP_TO_READ = f"The JSON is nested too deeply: the limit is {constants.JSON_MAX_DEPTH} levels."
     _TOO_DEEP_TO_WRITE = (
-        f"The value can't be stored as JSON: it's nested too deeply (the limit is {JSON_MAX_DEPTH} levels)."
+        f"The value can't be stored as JSON: it's nested too deeply (the limit is {constants.JSON_MAX_DEPTH} levels)."
     )
     # A whole string (an unterminated one runs to the end of the text), so brackets inside strings aren't counted; or a
     # bracket.
     _JSON_STRING_OR_BRACKET_RE = re.compile(r'"(?:[^"\\]|\\.)*"?|[\[\]{}]', re.DOTALL)
 
     def _text_nested_too_deeply(self, text: str) -> bool:
-        """Return whether the JSON written in ``text`` nests deeper than ``JSON_MAX_DEPTH``, without parsing it."""
+        """Return whether the JSON written in ``text`` nests deeper than ``constants.JSON_MAX_DEPTH``, without parsing it."""
         depth = 0
         for match in self._JSON_STRING_OR_BRACKET_RE.finditer(text):
             first = match.group()[0]
             if first in "[{":
                 depth += 1
-                if depth > self.JSON_MAX_DEPTH:
+                if depth > constants.JSON_MAX_DEPTH:
                     return True
             elif first in "]}":
                 depth = max(depth - 1, 0)
         return False
 
     def _value_nested_too_deeply(self, value: Any) -> bool:
-        """Return whether ``value`` nests deeper than ``JSON_MAX_DEPTH``.
+        """Return whether ``value`` nests deeper than ``constants.JSON_MAX_DEPTH``.
 
         A to-do list rather than recursion, so checking can't itself run out of stack. A container met again inside itself
         is skipped: ``json.dumps`` reports that value as containing itself.
@@ -331,7 +327,7 @@ class JSONSerializer(BaseSerializer):
                 continue
             if not isinstance(item, (dict, list, tuple)) or id(item) in on_path:
                 continue
-            if depth > self.JSON_MAX_DEPTH:
+            if depth > constants.JSON_MAX_DEPTH:
                 return True
             on_path.add(id(item))
             pending.append((id(item), 0))
@@ -377,6 +373,7 @@ class ListSerializer(BaseSerializer):
 
     def __init__(self, item_serializer: Any) -> None:
         """Use ``item_serializer`` for each item."""
+        super().__init__()
         self.item_serializer = item_serializer
 
     def serialize(self, value: list[Any]) -> str:

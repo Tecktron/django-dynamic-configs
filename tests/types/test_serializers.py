@@ -5,7 +5,10 @@ from decimal import Decimal
 import pytest
 
 from dynamic_configs.types import serializers
+from dynamic_configs.types.money import MoneyCurrencySerializer, MoneySerializer
+from dynamic_configs.types.registry import build_registry
 from dynamic_configs.types.serializers import (
+    BaseSerializer,
     BoolSerializer,
     DateSerializer,
     DateTimeSerializer,
@@ -389,3 +392,19 @@ def test_datetimes_beyond_the_utc_range_are_rejected_not_crashed():
         DateTimeSerializer().deserialize("9999-12-31 23:59")
     with pytest.raises(ValueError, match="out of range"):
         DateTimeSerializer().serialize(datetime(9999, 12, 31, 23, 59))
+
+
+def test_every_builtin_serializer_is_a_base_serializer():
+    types = list(build_registry({}))
+    assert {config_type.container for config_type in types} == {None, "list", "set"}
+    for config_type in types:
+        assert isinstance(config_type.serializer, BaseSerializer), config_type.key
+    assert issubclass(MoneySerializer, BaseSerializer)
+    assert issubclass(MoneyCurrencySerializer, BaseSerializer)
+
+
+def test_the_base_serializer_leaves_both_methods_to_its_subclasses():
+    with pytest.raises(NotImplementedError):
+        BaseSerializer().serialize("x")
+    with pytest.raises(NotImplementedError):
+        BaseSerializer().deserialize("x")

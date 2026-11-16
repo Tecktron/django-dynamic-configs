@@ -14,6 +14,7 @@ from typing import Any
 from django import forms
 from django.core.exceptions import ValidationError
 
+from dynamic_configs.constants import ADMIN_SCRIPT
 from dynamic_configs.exceptions import ConfigError
 from dynamic_configs.forms.fields import formfield_for
 from dynamic_configs.forms.list import stored_texts
@@ -21,9 +22,6 @@ from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.registry import get_registry
 from dynamic_configs.types.serializers import ListSerializer
-
-# The admin's optional script (static/dynamic_configs/admin.js): every page works without it.
-ADMIN_SCRIPT = "dynamic_configs/admin.js"
 
 
 class _ConfigForm(forms.ModelForm):

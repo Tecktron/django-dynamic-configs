@@ -8,9 +8,11 @@ from django import forms
 from django.core.exceptions import ValidationError
 
 from dynamic_configs.conf import get_settings
-from dynamic_configs.forms.list import SET_HELP, TypedLineListField
-from dynamic_configs.types.base import ConfigType, Serializer
+from dynamic_configs.constants import SET_HELP
+from dynamic_configs.forms.list import TypedLineListField
+from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.serializers import (
+    BaseSerializer,
     DaysSerializer,
     HoursSerializer,
     MinutesSerializer,
@@ -28,7 +30,7 @@ class SerializerField(forms.CharField):
     This is the admin field for custom types that don't name a ``form``.
     """
 
-    def __init__(self, serializer: Serializer, **kwargs: Any) -> None:
+    def __init__(self, serializer: BaseSerializer, **kwargs: Any) -> None:
         """Use ``serializer`` to read and show the value."""
         self.serializer = serializer
         super().__init__(**kwargs)

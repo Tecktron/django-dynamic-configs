@@ -6,19 +6,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 from dynamic_configs.exceptions import ConfigTypeError, ConfigValueError
-
-
-class Serializer(Protocol):
-    """Converts a value to the text stored in the database and back, raising ValueError when it isn't allowed."""
-
-    def serialize(self, value: Any) -> str:
-        """Return the text to store for ``value``."""
-
-    def deserialize(self, text: str) -> Any:
-        """Return the value stored as ``text``."""
+from dynamic_configs.types.serializers import BaseSerializer
 
 
 @dataclass(frozen=True)
@@ -35,7 +26,7 @@ class ConfigType:
     key: str
     label: str
     python_type: type | tuple[type, ...]
-    serializer: Serializer
+    serializer: BaseSerializer
     help_text: str = ""
     listable: bool = True
     # Help for typing one item as text (a list's raw mode), when the type's input isn't typed as one line; "" uses
