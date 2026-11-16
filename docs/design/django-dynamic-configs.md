@@ -221,8 +221,8 @@ with a line break; the list editor can, so `list:text` and `set:text` exist.)
 
 ### Custom types
 
-Declared in Django settings; every value is a dotted path except `label`, `help_text`, `raw_help_text` and
-`listable`:
+Declared in Django settings; every value is a dotted path except `options` (a dict), `label`, `help_text`,
+`raw_help_text` and `listable`:
 
 ```python
 DYNAMIC_CONFIGS = {
@@ -243,16 +243,17 @@ DYNAMIC_CONFIGS = {
 }
 ```
 
-- Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants).
+- Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants), and be at most 59
+  characters: `Config.type`'s 64 less the `list:` prefix, so the list and set variants fit. A longer key is E001.
 - A listable custom type gets a set variant only if its class is hashable (`__hash__` isn't `None`).
 - A key that matches a built-in replaces that built-in.
 - `options`, an optional dict of keyword arguments for the serializer, set per type: the registry creates it as
   `serializer_class(**options)`, or with no arguments when the key is absent. A value that isn't a dict with string
-  keys is E001; a serializer that raises `TypeError` or `ValueError` on creation (an unknown option, a refused value)
-  is E003, naming the serializer and the error, never the options' values. The form field's keyword arguments come
-  from `formfield_for`, which also passes `rounding=` when the type's serializer has a `rounding` attribute that
-  isn't None and the type's `form` is `MoneyField`, `MoneyCurrencyField` or a subclass of either. Any other form
-  gets no `rounding` and keeps its own validation.
+  keys is E001; a serializer that raises any exception when it's created (an unknown option, a refused value) is
+  E003, naming the serializer and the error, never the options' values. The form field's keyword arguments come from
+  `formfield_for`, which also passes `rounding=` when the type's serializer has a `rounding` attribute that isn't
+  None and the type's `form` is `MoneyField`, `MoneyCurrencyField` or a subclass of either. Any other form gets no
+  `rounding` and keeps its own validation.
 - Without `form`, the admin uses `SerializerField(serializer)`: a text input that calls `deserialize` to clean and
   `serialize` to display.
 - A `form` field is instantiated with `required=False`, `label` and `help_text`. The admin form applies the
@@ -305,7 +306,8 @@ DYNAMIC_CONFIGS = {
 - **More than 2 decimal places is rejected, never rounded.** The test is by digits, not value: more than 2 digits
   after the decimal point is rejected even when the extra digits are zeros, so `9.990` and `9.999` are both rejected.
   For a `Decimal` from code this means an exponent below -2 (`Decimal("9.990").as_tuple().exponent == -3`).
-- Amounts are always stored and displayed with exactly 2 places: `10` is stored as `"10.00"`.
+- Amounts are always stored and displayed with exactly 2 places: `10` is stored as `"10.00"`. Zero has no sign:
+  `-0`, or a negative amount that rounds to zero, is stored as `"0.00"`.
 - `MoneySerializer.serialize` applies the same rule to values from code (`Decimal("9.999")` raises
   `ConfigValueError`).
 - **Rounding is opt-in, per type.** `MoneySerializer(rounding=None)` takes `None` (the rule above) or one of decimal's
@@ -743,17 +745,19 @@ Opt-in: install `django-dynamic-configs[simple-history]` and add `"dynamic_confi
 ## Test helpers
 
 - **`dynamic_configs.test.override_configs(**values)`**: a context manager and decorator (for functions, coroutine
-  functions, generator and async generator functions, methods and classes). Overridden values are returned by `get`
-  and `get_or_create` (as `(value, False)`) without touching the cache or the database. Restored in a `finally` block.
-  Built on `contextvars`, so overrides don't leak between threads or async tasks, and they propagate into the async
-  variants. One instance can be open in several tasks at once: its tokens are kept per context. A decorated generator
-  runs under the overrides each time it resumes, not across its `yield`s; a block it opens itself holds across them,
-  and its caller sees that block meanwhile, as in any generator. On a class, like `override_settings`, it covers the
-  whole class: its `test*` methods, inherited ones included, the setup and teardown hooks of unittest, Django and
-  pytest (`setUp`, `asyncSetUp`, `setUpClass`, `setUpTestData`, `setup_method`, `setup_class` and their teardowns),
-  and cleanups registered with `addCleanup` (which `addAsyncCleanup` and `enterContext` use). Subclasses, decorated or
-  not, get the same through an `__init_subclass__` hook. A subclass's values win over a decorated base's; stacked on
-  one class, the inner decorator wins, as on functions.
+  functions, generator and async generator functions, methods and classes). Overridden values are returned by `get` and
+  `get_or_create` (as `(value, False)`) without touching the cache or the database. Restored in a `finally` block. Built
+  on `contextvars`, so overrides don't leak between threads or async tasks, and they propagate into the async variants.
+  On Python 3.14 and later with `sys.flags.thread_inherit_context` on (the default on free-threaded builds), a thread
+  started inside a block starts with a copy of its context, so it sees the overrides. One instance can be open in
+  several tasks at once: its tokens are kept per context. A decorated generator runs under the overrides each time it
+  resumes, not across its `yield`s; a block it opens itself holds across them, and its caller sees that block meanwhile,
+  as in any generator. On a class, like `override_settings`, it covers the whole class: its `test*` methods, inherited
+  ones included, the setup and teardown hooks of unittest, Django and pytest (`setUp`, `asyncSetUp`, `setUpClass`,
+  `setUpTestData`, `setup_method`, `setup_class` and their teardowns), and cleanups registered with `addCleanup` (which
+  `addAsyncCleanup` and `enterContext` use). Subclasses, decorated or not, get the same through an `__init_subclass__`
+  hook. A subclass's values win over a decorated base's; stacked on one class, the inner decorator wins, as on
+  functions.
 - **pytest plugin** (`dynamic_configs/test/pytest_plugin.py`, registered under the `pytest11` entry point): a
   `config_overrides` fixture whose `.set(**values)` applies overrides for the rest of the test, cleared at teardown.
   Inside a `with override_configs(...)` block, or a decorated test, `.set()` still holds after the block ends. The

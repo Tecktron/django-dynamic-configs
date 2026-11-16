@@ -123,7 +123,7 @@ values themselves when the type defines an order. `str` and `text` sort ignoring
 ## Custom types
 
 A custom type is a Python class and a serializer, declared in `DYNAMIC_CONFIGS["TYPES"]`. Every value is a dotted path
-except `label`, `help_text`, `raw_help_text` and `listable`:
+except `options` (a dict), `label`, `help_text`, `raw_help_text` and `listable`:
 
 ```python
 DYNAMIC_CONFIGS = {
@@ -160,8 +160,9 @@ DYNAMIC_CONFIGS = {
 ### The serializer
 
 A serializer turns a value into the text stored in the database and back. Write one by subclassing
-`dynamic_configs.types.serializers.BaseSerializer` and overriding its two methods. It's created with no arguments,
-by the system checks and by each build of the type registry (it isn't created just once).
+`dynamic_configs.types.serializers.BaseSerializer` and overriding its two methods. It's created with the entry's
+`options` as keyword arguments, or none, by the system checks and by each build of the type registry (it isn't created
+just once).
 
 ```python
 from dynamic_configs.types.serializers import BaseSerializer

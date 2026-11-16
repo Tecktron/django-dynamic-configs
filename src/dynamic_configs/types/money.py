@@ -37,7 +37,8 @@ def check_amount(amount: Decimal, rounding: str | None = None) -> Decimal:
     """Return ``amount`` with exactly 2 decimal places.
 
     Without ``rounding``, more than 2 decimal places is rejected, never rounded, and counted as written: ``9.990`` is
-    rejected too. With one of decimal's ``ROUND_*`` constants, the amount is rounded to 2 places that way.
+    rejected too. With one of decimal's ``ROUND_*`` constants, the amount is rounded to 2 places that way. A zero,
+    including a negative amount that rounds to zero, is returned without a sign (``0.00``, not ``-0.00``).
 
     :param rounding: how to round an amount with more than 2 places, or None to reject it
     :raises ValueError: the amount isn't finite, has more than 2 decimal places (and ``rounding`` is None), or is too
@@ -49,9 +50,10 @@ def check_amount(amount: Decimal, rounding: str | None = None) -> Decimal:
         raise ValueError("An amount can have at most 2 decimal places.")
     try:
         with localcontext(_CONTEXT):
-            return amount.quantize(_CENTS, rounding=rounding)
+            result = amount.quantize(_CENTS, rounding=rounding)
     except InvalidOperation:
         raise ValueError("That amount is too large.") from None
+    return result.copy_abs() if result.is_zero() else result
 
 
 @dataclass(frozen=True)

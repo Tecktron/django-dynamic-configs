@@ -143,6 +143,17 @@ def test_money_rounds_a_value_written_from_code():
     assert MoneySerializer(rounding=decimal.ROUND_HALF_UP).serialize(Decimal("9.946")) == "9.95"
 
 
+@pytest.mark.parametrize(
+    ("rounding", "amount"),
+    [(decimal.ROUND_HALF_UP, "-0.004"), (None, "-0")],
+    ids=["rounds_to_zero", "negative_zero"],
+)
+def test_a_zero_amount_is_stored_without_a_sign(rounding, amount):
+    serializer = MoneySerializer(rounding=rounding)
+    assert serializer.serialize(Decimal(amount)) == "0.00"
+    assert str(serializer.deserialize(amount)) == "0.00"
+
+
 def test_the_rounding_given_decides_not_the_thread_context():
     with decimal.localcontext() as context:
         context.rounding = decimal.ROUND_DOWN

@@ -27,8 +27,10 @@ def test_listing():
   the database. The setting doesn't have to exist, and the value isn't type-checked.
 - `update` and `delete` aren't overridden: they change the database as usual.
 - Overrides layer, so an inner block wins, and they're removed when the block ends, even if it raises.
-- They don't leak between threads or asyncio tasks, and they apply in the async variants (`aget`, `aget_or_create`).
-  One instance can be open in several tasks at once; each task's block ends on its own.
+- They don't leak between threads or asyncio tasks, and they apply in the async variants (`aget`, `aget_or_create`). One
+  instance can be open in several tasks at once; each task's block ends on its own. One exception: on Python 3.14 and
+  later with `sys.flags.thread_inherit_context` on (the default on free-threaded builds), a thread started inside a
+  block starts with a copy of its context, so it sees the overrides.
 - It decorates functions, coroutine functions, generator functions and async generator functions. A decorated
   generator runs under the overrides each time it resumes, so they hold while it's iterated, not only while it's
   created. The code that iterates it doesn't see them between items. A block the generator opens itself holds across

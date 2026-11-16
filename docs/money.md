@@ -40,7 +40,8 @@ The rule every amount follows lives in one function. **More than 2 decimal place
 the type sets a [rounding](#rounding)). The test is by digits, not value: more than 2 digits after the decimal point
 is rejected even when the extra digits are zeros, so `9.990` and `9.999` are both rejected. For a `Decimal` from code this means an exponent below -2
 (`Decimal("9.990").as_tuple().exponent == -3`). Amounts are always stored and shown with exactly 2 places: `10` is
-stored as `"10.00"`. Negative amounts are allowed.
+stored as `"10.00"`. Negative amounts are allowed, but zero has no sign: `-0`, or a negative amount that rounds to
+zero, is stored as `"0.00"`.
 
 ```{literalinclude} ../src/dynamic_configs/types/money.py
 :language: python

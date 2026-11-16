@@ -15,8 +15,10 @@ class override_configs:  # noqa: N801 - lowercase like Django's override_setting
     """Override config values in a ``with`` block, or for a decorated function, coroutine function or class.
 
     ``get`` and ``get_or_create`` return overridden values without touching the cache or the database. Overrides
-    layer (an inner block wins), are removed even if the block raises, and are held in a ``ContextVar``, so they
-    don't leak between threads or asyncio tasks. One instance can be open in several tasks at once.
+    layer (an inner block wins), are removed even if the block raises, and are held in a ``ContextVar``, so they don't
+    leak between threads or asyncio tasks. One instance can be open in several tasks at once. On Python 3.14 and later
+    with ``sys.flags.thread_inherit_context`` on (the default on free-threaded builds), a thread started inside a block
+    starts with a copy of its context, so it sees the overrides.
 
     A decorated generator function or async generator function runs under the overrides each time it resumes, while
     its caller's code between items doesn't. Blocks it opens itself hold across its ``yield`` statements, as in any generator.
