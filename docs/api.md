@@ -66,7 +66,8 @@ Changes an existing setting, inside a transaction that locks its row (`select_fo
 - `allow_null=None` keeps the setting's flag; `True` or `False` changes it in the same save.
 - `new_value=None` is accepted only when the resulting flag is `True`.
 - It raises `ConfigDoesNotExist` if the setting is missing, `ConfigTypeError` if the value fails the type check, and
-  `ConfigValueError` if the type's serializer rejects the value or the setting's type is no longer registered.
+  `ConfigValueError` if the type's serializer rejects the value or can't read it back, or the setting's type is no longer
+  registered.
 
 ## `delete`
 

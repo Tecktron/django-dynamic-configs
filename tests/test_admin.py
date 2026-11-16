@@ -188,6 +188,14 @@ def test_json_nested_too_deeply_is_a_form_error(admin_client):
     assert "The JSON is nested too deeply: the limit is 128 levels." in response.content.decode()
 
 
+def test_json_with_a_lone_surrogate_is_a_form_error_not_a_500(admin_client):
+    data = {"name": "ODD", "value": '["\\ud800"]', "description": "", "_save": "Save"}
+    response = admin_client.post(f"{URL}add/?type=json", data)
+    assert response.status_code == 200
+    assert "The value can&#x27;t be stored" in response.content.decode()
+    assert not Config.objects.filter(name="ODD").exists()
+
+
 @pytest.mark.parametrize("view", ["change", "add"])
 def test_json_values_get_the_editor_in_the_admin(admin_client, view):
     make("FLAGS", "json", '{"beta": true}')

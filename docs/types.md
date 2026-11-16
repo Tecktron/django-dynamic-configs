@@ -141,8 +141,8 @@ DYNAMIC_CONFIGS = {
 ### The serializer
 
 A serializer turns a value into the text stored in the database and back. Write one by subclassing
-`dynamic_configs.types.serializers.BaseSerializer` and overriding its two methods. It's created once, with no
-arguments, when the types are loaded.
+`dynamic_configs.types.serializers.BaseSerializer` and overriding its two methods. It's created with no arguments,
+by the system checks and by each build of the type registry (it isn't created just once).
 
 ```python
 from dynamic_configs.types.serializers import BaseSerializer
@@ -159,9 +159,13 @@ write one.
 Raising `ValueError` is how a serializer rejects a value, in both directions:
 
 - From `deserialize`: the admin shows it as a form error, and a stored value that fails it is unreadable (see
-  [Failure handling and logging](failures.md)).
+  [Failure handling and logging](failures.md)). A write that fails it is refused too, as below.
 - From `serialize`: `get_or_create` and `update` raise `ConfigValueError` (the value has the right type but isn't
   allowed).
+
+Every write serializes the value and then reads the text back with `deserialize`. It's stored only if both steps
+succeed, so a value that was stored can always be read. The error says "The value can't be stored: " and then why the
+text can't be read. Text that isn't valid Unicode (a lone surrogate such as `"\ud800"`) is refused the same way.
 
 Error messages are shown to admins as form errors. Don't put the value itself in them: settings may hold secrets.
 
@@ -175,9 +179,10 @@ created with `required=False`, `label` and `help_text`. The admin form applies t
 [Admin and skins](admin.md#empty-values)), so they hold even when `allow_null` changes in the same save, and the
 cleaned value must pass the type check.
 
-The serializer is the one check every path runs. A list item's `form` runs only when the item is added or updated in
-the list editor; raw mode, the field without JavaScript, saving and code check items with the serializer alone. So a
-rule a value must always follow belongs in `deserialize`, and `form` shapes how the value is entered.
+The serializer is the check every path runs: every write calls `serialize` and then `deserialize`. A list item's
+`form` runs only when the item is added or updated in the list editor; raw mode, the field without JavaScript, saving
+and code check items with the serializer alone. So a rule a value must always follow belongs in the serializer (in
+`deserialize`, or in both methods), and `form` shapes how the value is entered.
 
 ### Help text
 

@@ -51,7 +51,8 @@ class StrSerializer(BaseSerializer):
         """Return ``value``, which must not contain a line break."""
         if "\n" in value or "\r" in value:
             raise ValueError("A string setting must be a single line; use the Text type for several lines.")
-        return value
+        # str.__str__ gives the text itself for a str subclass (an enum, say), not the subclass's own str().
+        return str.__str__(value)
 
     def deserialize(self, text: str) -> str:
         """Return ``text``, which must not contain a line break."""
@@ -62,8 +63,8 @@ class TextSerializer(BaseSerializer):
     """Text that may span several lines, stored as is."""
 
     def serialize(self, value: str) -> str:
-        """Return ``value`` unchanged."""
-        return value
+        """Return ``value`` as plain text."""
+        return str.__str__(value)
 
     def deserialize(self, text: str) -> str:
         """Return ``text`` unchanged."""
@@ -77,7 +78,8 @@ class IntSerializer(BaseSerializer):
 
     def serialize(self, value: int) -> str:
         """Return ``value`` in decimal digits."""
-        return str(value)
+        # int() first: an int subclass (an Enum, say) may have a str() that isn't its number.
+        return str(int(value))
 
     def deserialize(self, text: str) -> int:
         """Return the whole number written in ``text``."""
@@ -97,8 +99,10 @@ class FloatSerializer(BaseSerializer):
 
     def serialize(self, value: float) -> str:
         """Return ``value`` as text."""
-        _require_finite(value)
-        return repr(value)
+        # float() first: a float subclass (numpy's float64, say) may have a repr() that isn't its number.
+        number = float(value)
+        _require_finite(number)
+        return repr(number)
 
     def deserialize(self, text: str) -> float:
         """Return the number written in ``text``."""
@@ -115,8 +119,10 @@ class DecimalSerializer(BaseSerializer):
 
     def serialize(self, value: Decimal) -> str:
         """Return ``value`` as text."""
-        _require_finite(value)
-        return str(value)
+        # Decimal() first: a Decimal subclass may have a str() that isn't its number.
+        number = Decimal(value)
+        _require_finite(number)
+        return str(number)
 
     def deserialize(self, text: str) -> Decimal:
         """Return the decimal number written in ``text``."""

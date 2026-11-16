@@ -1,5 +1,7 @@
 from datetime import date, datetime
+from datetime import timezone as dt_timezone
 from decimal import Decimal
+from enum import Enum
 
 import pytest
 
@@ -7,7 +9,9 @@ from dynamic_configs.exceptions import ConfigTypeError, ConfigValueError
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.builtin import BUILTIN_TYPES
 from dynamic_configs.types.serializers import (
+    BaseSerializer,
     DateSerializer,
+    DateTimeSerializer,
     DecimalSerializer,
     FloatSerializer,
     IntSerializer,
@@ -162,3 +166,89 @@ def test_sort_uses_the_key_or_the_values_and_can_go_backwards():
 def test_sorting_values_without_an_order_raises():
     with pytest.raises(TypeError):
         ConfigType("color", "Color", Color, ColorSerializer()).sort([Color("#bbbbbb"), Color("#aaaaaa")])
+
+
+class Priority(int, Enum):
+    HIGH = 3
+
+
+class Colour(str, Enum):
+    RED = "red"
+
+
+class OddFloat(float):
+    def __repr__(self):
+        return "OddFloat(1.5)"
+
+
+def test_int_subclass_is_stored_as_its_number():
+    assert INT.to_text(Priority.HIGH) == "3"
+
+
+def test_str_subclass_is_stored_as_its_text():
+    text = STR.to_text(Colour.RED)
+    assert text == "red"
+    assert type(text) is str
+
+
+def test_float_subclass_is_stored_as_its_number():
+    assert FLOAT.to_text(OddFloat(1.5)) == "1.5"
+
+
+def test_float_from_a_huge_int_is_a_config_value_error():
+    with pytest.raises(ConfigValueError, match="too large for a float"):
+        FLOAT.to_text(10**400)
+
+
+def test_lone_surrogate_is_refused_before_the_database():
+    with pytest.raises(ConfigValueError, match="can't be stored"):
+        JSON.to_text({"a": "\ud800"})
+    with pytest.raises(ConfigValueError, match="lone surrogate"):
+        STR.to_text("\udfff")
+
+
+def test_a_rule_in_deserialize_holds_on_write():
+    class EvenOnly(BaseSerializer):
+        def serialize(self, value):
+            return str(value)
+
+        def deserialize(self, text):
+            if int(text) % 2:
+                raise ValueError("Enter an even number.")
+            return int(text)
+
+    even = ConfigType("even", "Even", int, EvenOnly())
+    assert even.to_text(4) == "4"
+    with pytest.raises(ConfigValueError) as error:
+        even.to_text(3)
+    assert str(error.value) == "The value can't be stored: Enter an even number."
+
+
+def test_a_read_failure_that_isnt_a_value_error_is_refused_without_the_value():
+    class Broken(BaseSerializer):
+        def serialize(self, value):
+            return "secret"
+
+        def deserialize(self, text):
+            raise KeyError(text)
+
+    with pytest.raises(ConfigValueError) as error:
+        ConfigType("broken", "Broken", int, Broken()).to_text(1)
+    assert str(error.value) == "The value can't be stored: Reading the stored text failed with KeyError."
+
+
+def test_set_items_equal_once_read_back_are_refused(settings):
+    # With USE_TZ off, 01:30 EDT and 01:30 EST (an hour apart) are the same local time once stored.
+    settings.USE_TZ = False
+    set_datetime = ConfigType(
+        "set:datetime",
+        "Set of Date and time",
+        frozenset,
+        SetSerializer(DateTimeSerializer()),
+        item_type=ConfigType("datetime", "Date and time", datetime, DateTimeSerializer()),
+        container="set",
+    )
+    first = datetime(2026, 11, 1, 5, 30, tzinfo=dt_timezone.utc)
+    second = datetime(2026, 11, 1, 6, 30, tzinfo=dt_timezone.utc)
+    with pytest.raises(ConfigValueError, match="The value can't be stored: A set can't contain the same item twice."):
+        set_datetime.to_text({first, second})

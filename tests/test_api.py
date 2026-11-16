@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from datetime import timezone as dt_timezone
+from enum import Enum
 
 import pytest
 from django.db import DatabaseError, transaction
@@ -9,6 +10,7 @@ import dynamic_configs
 from dynamic_configs import _overrides, cache
 from dynamic_configs.exceptions import ConfigTypeError, ConfigValueError
 from dynamic_configs.models import Config, ConfigDoesNotExist
+from tests.custom_types import Color
 
 pytestmark = pytest.mark.django_db
 
@@ -373,3 +375,33 @@ def test_an_unreadable_value_is_never_written_to_the_log(settings, caplog):
     assert not record.exc_info
     assert "s3cret-token" not in caplog.text
     assert "ValueError" in record.getMessage()
+
+
+class Priority(int, Enum):
+    HIGH = 3
+
+
+def test_update_stores_an_int_subclass_as_its_number():
+    make("LEVEL", "int", "1")
+    dynamic_configs.update("LEVEL", Priority.HIGH)
+    assert Config.objects.get(name="LEVEL").value == "3"
+    assert dynamic_configs.get("LEVEL") == 3
+
+
+def test_get_or_create_refuses_a_lone_surrogate_and_creates_nothing():
+    with pytest.raises(ConfigValueError, match="can't be stored"):
+        dynamic_configs.get_or_create("SITE_NAME", "str", "\ud800")
+    assert not Config.objects.filter(name="SITE_NAME").exists()
+
+
+def test_the_docs_example_custom_type_saves_through_update_and_get_or_create(settings):
+    # Review Focus 1: the custom type in docs/types.md checks its rule in deserialize and serialize returns the text.
+    settings.DYNAMIC_CONFIGS = {
+        "TYPES": {"color": {"type": "tests.custom_types.Color", "serializer": "tests.custom_types.ColorSerializer"}}
+    }
+    assert dynamic_configs.get_or_create("BRAND", "color", Color("#1a2b3c")) == (Color("#1a2b3c"), True)
+    dynamic_configs.update("BRAND", Color("#ffffff"))
+    assert dynamic_configs.get("BRAND") == Color("#ffffff")
+    with pytest.raises(ConfigValueError, match="can't be stored: Enter a hex color"):
+        dynamic_configs.update("BRAND", Color("red"))
+    assert dynamic_configs.get("BRAND") == Color("#ffffff")

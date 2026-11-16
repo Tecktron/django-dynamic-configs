@@ -49,7 +49,7 @@ adding a custom type would get a spurious migration. The admin form and the API 
 ### Serializer interface
 
 A serializer is a subclass of `BaseSerializer` (`types/serializers.py`) that overrides its two methods. It is
-instantiated once, with no arguments, when the registry is built. The registry also accepts any class with callable
+instantiated with no arguments, by the system checks and by each registry build (not just once). The registry also accepts any class with callable
 `serialize` and `deserialize`, so a serializer that doesn't inherit `BaseSerializer` still works; inheriting it is the
 way to write one.
 
@@ -62,9 +62,15 @@ class ColorSerializer(BaseSerializer):
 Raising `ValueError` is the validation mechanism, in both directions:
 
 - From `deserialize`: the admin shows it as a form error, and a stored value that fails it is "unreadable" (see
-  Failure handling).
+  Failure handling). A write that fails it is refused too, as below.
 - From `serialize`: `get_or_create` and `update` raise `ConfigValueError` (the value has the right type but isn't
   allowed, such as a NaN float or a `str` containing a newline).
+
+Every write (`ConfigType.to_text`) serializes the value and then reads the text back with `deserialize`, so a value is
+stored only if every later `get` can read it. A failure raises `ConfigValueError` ("The value can't be stored: " and
+the reading error's message, never the value). Text that isn't valid UTF-8 (a lone surrogate) is refused first. A set
+whose items read back equal is refused by the read-back. A serializer writes the plain value, not a subclass's own
+text: `str(int(value))`, `repr(float(value))`, `str(Decimal(value))` and `str.__str__(value)`.
 
 Constraints such as "a positive number of hours" are expressed as a custom type whose serializer rejects bad values.
 
@@ -238,9 +244,10 @@ DYNAMIC_CONFIGS = {
 - A `form` field is instantiated with `required=False`, `label` and `help_text`. The admin form applies the
   empty-value rules itself (see Admin), so they hold even when `allow_null` changes in the same save; the cleaned
   value must pass the type check.
-- The serializer is the one check every path runs. A list item's `form` runs only when the item is added or updated
-  in the list editor; raw mode, the field without JavaScript, saving and code check items with the serializer alone.
-  So a rule a value must always follow belongs in `deserialize`, and `form` shapes how the value is entered.
+- The serializer is the check every path runs: every write calls `serialize` and then `deserialize`. A list item's
+  `form` runs only when the item is added or updated in the list editor; raw mode, the field without JavaScript,
+  saving and code check items with the serializer alone. So a rule a value must always follow belongs in the
+  serializer (in `deserialize`, or in both methods), and `form` shapes how the value is entered.
 - `sort_key` or `sort_compare`, not both, sets how the admin's list editor sorts a list of the type. A compare
   function is turned into a key with `functools.cmp_to_key` when the registry loads, so `ConfigType` holds one
   optional `sort_key`. With neither, a list sorts by the values themselves if the class defines an order (its own

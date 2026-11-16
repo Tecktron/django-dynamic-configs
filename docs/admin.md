@@ -169,8 +169,9 @@ widget run entirely by its own script isn't supported there, since the editor fi
 replacing its HTML; widgets built from ordinary inputs, selects and checkboxes all work.
 
 A custom type's `form` checks each item added or updated in the list. Raw mode, the field without JavaScript and saving
-check items with the type's serializer only. So put any rule a value must always follow in the serializer's
-`deserialize`, and use `form` for how the value is entered.
+check items with the type's serializer only, which serializes each item and reads it back. So put any rule a value
+must always follow in the serializer's `deserialize` (or in `serialize` too), and use `form` for how the value is
+entered.
 
 A custom type can say how its lists sort with `sort_key` (the dotted path of a function from an item to what to sort
 by) or `sort_compare` (the dotted path of a function comparing two items) in its `TYPES` entry. Without either, a list

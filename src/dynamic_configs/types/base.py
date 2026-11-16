@@ -78,19 +78,36 @@ class ConfigType:
         return items if self.container == "list" else frozenset(items)
 
     def to_text(self, value: Any) -> str:
-        """Return the text to store for ``value``.
+        """Return the text to store for ``value``, after reading it back.
+
+        The text is serialized and then read with :meth:`from_text`, so a write succeeds only when every later read
+        can read it. A rule in a serializer's ``deserialize`` therefore holds on every write, as one in ``serialize``
+        does.
 
         :param value: the value to store
         :returns: the serialized text
         :raises ConfigTypeError: the value, or an item, has the wrong type
-        :raises ConfigValueError: the serializer rejects the value, or a set type was given duplicates
+        :raises ConfigValueError: the serializer rejects the value, a set type was given duplicates, or the text
+            can't be read back (it holds a lone surrogate, or the serializer's ``deserialize`` refuses it)
         """
         # Containers are serialized from the ordered item list, so a set entered as a list keeps its order.
         checked = self._coerce_items(value) if self.container else self._coerce_scalar(value)
         try:
-            return self.serializer.serialize(checked)
+            text = self.serializer.serialize(checked)
         except ValueError as error:
             raise ConfigValueError(str(error)) from error
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError:
+            # The database refuses it (a 500 in the admin), so refuse it here, before any write.
+            raise ConfigValueError(
+                "The value can't be stored: it contains text that isn't valid Unicode (a lone surrogate)."
+            ) from None
+        try:
+            self.from_text(text)
+        except ConfigValueError as error:
+            raise ConfigValueError(f"The value can't be stored: {error}") from error
+        return text
 
     def from_text(self, text: str) -> Any:
         """Return the value stored as ``text``.
@@ -117,7 +134,10 @@ class ConfigType:
         if expected is date and isinstance(value, datetime):
             raise self._wrong_type(value)
         if isinstance(value, int) and expected in (float, Decimal):
-            return expected(value)
+            try:
+                return expected(value)
+            except OverflowError:
+                raise ConfigValueError("That number is too large for a float.") from None
         if isinstance(value, expected):
             return value
         raise self._wrong_type(value)
