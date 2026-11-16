@@ -13,6 +13,7 @@ from dynamic_configs.forms.list import (
     StoredTexts,
     TypedLineListField,
     UnreadableItems,
+    stored_texts,
 )
 from dynamic_configs.types.registry import build_registry
 
@@ -158,6 +159,14 @@ def test_lines_split_only_at_line_breaks():
 def test_stored_texts_are_read_exactly():
     texts = StoredTexts(["  INV-", "", "PO-"])
     assert typed("str").clean(texts) == ["  INV-", "", "PO-"]
+
+
+def test_stored_texts_of_nested_text_is_none_without_parsing_it(mocker):
+    # A hand-edited row; the admin shows it through stored_texts, so it mustn't overflow a small stack.
+    loads = mocker.spy(json, "loads")
+    assert stored_texts("[" * 100_000 + "]" * 100_000) is None
+    assert loads.call_count == 0
+    assert stored_texts('["a", "b"]') == ["a", "b"]
 
 
 def test_stored_texts_keep_line_breaks():

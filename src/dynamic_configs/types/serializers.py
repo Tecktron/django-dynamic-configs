@@ -282,14 +282,15 @@ class DurationSerializer(BaseSerializer):
             # More digits than Python reads (sys.get_int_max_str_digits()); far past what a timedelta holds.
             raise ValueError(f"That many {self.unit} is too large.") from None
         microseconds = round(exact)
-        # Text written from a float (serialize's) is off by up to a float's rounding error, about 1 part in 10**15; any
-        # more than that is a fraction of a microsecond that would be lost.
-        if abs(exact - microseconds) > abs(exact) / 10**15:
-            raise ValueError("A duration is kept to the microsecond; that one is finer.")
         try:
-            return timedelta(microseconds=microseconds)
+            duration = timedelta(microseconds=microseconds)
         except OverflowError:
             raise ValueError(f"That many {self.unit} is too large.") from None
+        # Text that isn't a whole number of microseconds is read only when it's exactly what serialize writes for the
+        # nearest microsecond (a float's text of a duration a unit can't write exactly, such as 1 second in days).
+        if exact != microseconds and stripped != self.format_number(duration / timedelta(**{self.unit: 1})):
+            raise ValueError("A duration is kept to the microsecond; that one is finer.")
+        return duration
 
 
 class SecondsSerializer(DurationSerializer):

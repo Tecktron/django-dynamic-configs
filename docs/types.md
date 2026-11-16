@@ -28,7 +28,8 @@ for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are writte
 `"2.0"`).
 
 A duration is kept to the microsecond, as a `timedelta` is. Text finer than that ("0.0000001" seconds) is refused:
-"A duration is kept to the microsecond; that one is finer." A value is stored only if its text reads back as exactly
+"A duration is kept to the microsecond; that one is finer." (The only fractions of a microsecond it reads are the
+text it wrote itself, such as `"3.0000115740740743"` days for 3 days and 1 second.) A value is stored only if its text reads back as exactly
 that value, so one the unit can't write exactly (the largest `timedelta`, or a very long duration with a fraction of a
 second, in `weeks`) is refused: "That duration can't be stored exactly in weeks."
 

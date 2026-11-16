@@ -32,8 +32,10 @@ def stored_texts(text: str) -> StoredTexts | None:
     """Return the items of a stored list as their texts, or None when ``text`` isn't a JSON array of strings.
 
     For a stored list that can't be read as its type (a hand-edited row): whatever ``text`` holds, reading it never
-    raises, including a RecursionError on JSON nested too deeply.
+    raises. Nested text is refused before it's parsed, as Python's JSON reader can run out of stack on it.
     """
+    if JSONSerializer.nests_deeper_than(text, 1):
+        return None
     try:
         items = json.loads(text)
     except Exception:

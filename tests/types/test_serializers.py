@@ -431,6 +431,37 @@ def test_a_duration_finer_than_a_microsecond_is_refused():
         SecondsSerializer().deserialize("0.0000001")
 
 
+@pytest.mark.parametrize("text", ["31536000.00000001", "630720000.0000004", "0.0000001", "0.0000005"])
+def test_text_finer_than_a_microsecond_is_refused_at_any_size(text):
+    with pytest.raises(ValueError, match="kept to the microsecond"):
+        SecondsSerializer().deserialize(text)
+
+
+@pytest.mark.parametrize(
+    "serializer", [SecondsSerializer(), MinutesSerializer(), HoursSerializer(), DaysSerializer(), WeeksSerializer()]
+)
+@pytest.mark.parametrize("years", [1, 78, 272])
+@pytest.mark.parametrize("extra", [timedelta(0), timedelta(seconds=1), timedelta(microseconds=1), timedelta(hours=7)])
+def test_what_a_duration_writes_it_reads_back_or_it_is_refused(serializer, years, extra):
+    # Float text of a large duration can be a fraction of a microsecond off; serialize's own text must still read.
+    value = timedelta(days=365 * years) + extra
+    try:
+        text = serializer.serialize(value)
+    except ValueError:
+        return  # refused as not exactly storable, which is allowed
+    assert serializer.deserialize(text) == value
+
+
+def test_a_fractional_microsecond_that_serialize_wrote_is_read_back():
+    # 1 second in days is 0.0000115740740... of a day: the text is finer than a microsecond, but it's serialize's.
+    text = DaysSerializer().serialize(timedelta(days=3, seconds=1))
+    assert text == "3.0000115740740743"
+    assert DaysSerializer().deserialize(text) == timedelta(days=3, seconds=1)
+    assert WeeksSerializer().deserialize(WeeksSerializer().serialize(timedelta(weeks=3, seconds=1))) == timedelta(
+        weeks=3, seconds=1
+    )
+
+
 def test_a_duration_with_more_digits_than_python_reads_is_too_large():
     with pytest.raises(ValueError, match="too large"):
         SecondsSerializer().deserialize("9" * 5000)
