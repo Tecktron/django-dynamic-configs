@@ -6,7 +6,7 @@ from django import forms
 from django.core.exceptions import ValidationError
 
 from dynamic_configs.forms.fields import formfield_for
-from dynamic_configs.forms.money import MoneyCurrencyField, MoneyCurrencyWidget, MoneyField
+from dynamic_configs.forms.money import CurrencyInput, MoneyCurrencyField, MoneyCurrencyWidget, MoneyField
 from dynamic_configs.types import iso4217
 from dynamic_configs.types.money import Money, MoneySerializer
 from dynamic_configs.types.registry import load_custom_type
@@ -130,7 +130,7 @@ def test_the_currency_input_points_at_a_datalist_of_suggestions_inside_the_span(
     html = render_currency()
     assert 'list="id_value_1_currencies"' in html
     assert '<datalist id="id_value_1_currencies">' in html
-    assert '<option value="CAD">Canadian Dollar</option>' in html
+    assert '<option value="CAD">CAD - Canadian Dollar</option>' in html
     assert html.count("<option") == len(iso4217.CURRENCIES)
     assert html.startswith("<span>")
     assert html.endswith("</datalist></span>")
@@ -153,16 +153,31 @@ def test_a_widget_with_no_currencies_has_no_datalist():
     assert "<datalist" not in html
 
 
-def test_a_label_is_escaped_and_an_empty_one_leaves_the_option_empty():
-    html = render_currency(currencies={"ABC": "<b>x</b>", "DEF": ""})
-    assert '<option value="ABC">&lt;b&gt;x&lt;/b&gt;</option>' in html
+def test_a_suggestion_shows_its_code_and_label():
+    html = MoneyCurrencyWidget(currencies={"USD": "US Dollar"}).render("value", None)
+    assert '<option value="USD">USD - US Dollar</option>' in html
+
+
+def test_a_suggestion_without_a_label_shows_its_code():
+    html = MoneyCurrencyWidget(currencies={"ABC": ""}).render("value", None)
+    assert '<option value="ABC">ABC</option>' in html
+
+
+def test_a_suggestions_label_is_escaped_after_its_code():
+    html = MoneyCurrencyWidget(currencies={"ABC": "<b>x</b>"}).render("value", None)
+    assert "ABC - &lt;b&gt;x&lt;/b&gt;" in html
     assert "<b>" not in html
-    assert '<option value="DEF"></option>' in html
+
+
+def test_the_currency_part_is_a_currency_input():
+    currency = MoneyCurrencyWidget().widgets[1]
+    assert type(currency) is CurrencyInput
+    assert currency.attrs == {"size": 3, "maxlength": 3}
 
 
 def test_the_widget_takes_its_own_currencies():
     widget = MoneyCurrencyWidget(currencies={"CAD": "Loonie"})
-    assert '<option value="CAD">Loonie</option>' in widget.render("value", None, {"id": "id_value"})
+    assert '<option value="CAD">CAD - Loonie</option>' in widget.render("value", None, {"id": "id_value"})
     assert "<datalist" in MoneyCurrencyWidget().render("value", None)
 
 
@@ -243,7 +258,7 @@ def test_a_subclass_widget_built_on_the_money_widget_gets_the_number_amount_and_
     widget = BoxedWidgetField(currencies={"CAD": "Loonie"}).widget
     assert type(widget) is BoxedCurrencyWidget
     assert widget.widgets[0].input_type == "number"
-    assert '<option value="CAD">Loonie</option>' in widget.render("value", None, {"id": "id_value"})
+    assert '<option value="CAD">CAD - Loonie</option>' in widget.render("value", None, {"id": "id_value"})
 
 
 def test_a_subclass_widget_that_is_not_the_money_widget_is_left_to_django():
@@ -265,7 +280,7 @@ class InstanceTextInputField(MoneyCurrencyField):
 
 def test_a_subclass_widget_instance_is_kept_as_the_project_made_it():
     html = InstanceWidgetField().widget.render("value", None, {"id": "id_value"})
-    assert '<option value="CAD">Loonie</option>' in html
+    assert '<option value="CAD">CAD - Loonie</option>' in html
     assert 'value="USD"' not in html
 
 

@@ -34,6 +34,10 @@ class MoneyField(forms.DecimalField):
             self.widget.attrs["step"] = "0.01"
 
 
+class CurrencyInput(forms.TextInput):
+    """The 3-character currency input of ``MoneyCurrencyWidget``."""
+
+
 class MoneyCurrencyWidget(forms.MultiWidget):
     """An amount input and a 3-character currency input, side by side, with a datalist of suggested currencies.
 
@@ -54,7 +58,7 @@ class MoneyCurrencyWidget(forms.MultiWidget):
         """
         widgets = [
             MoneyField().widget if amount_widget is None else amount_widget,
-            forms.TextInput(attrs={"size": 3, "maxlength": 3}),
+            CurrencyInput(attrs={"size": 3, "maxlength": 3}),
         ]
         super().__init__(widgets, attrs)
         self.currencies = iso4217.CURRENCIES if currencies is None else currencies
@@ -76,7 +80,12 @@ class MoneyCurrencyWidget(forms.MultiWidget):
         inputs = super().render(name, value, attrs, renderer)
         if not self.currencies:
             return format_html("<span>{}</span>", inputs)
-        options = format_html_join("", '<option value="{}">{}</option>', self.currencies.items())
+        # A suggestion's text is its code and, when it has one, its label: Firefox shows only the text.
+        options = format_html_join(
+            "",
+            '<option value="{}">{}</option>',
+            ((code, f"{code} - {label}" if label else code) for code, label in self.currencies.items()),
+        )
         return format_html(
             '<span>{}<datalist id="{}">{}</datalist></span>', inputs, self.datalist_id(name, attrs), options
         )

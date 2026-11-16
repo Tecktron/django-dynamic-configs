@@ -46,7 +46,7 @@ def test_the_suggestions_are_the_option_the_project_gave(admin_page, settings):
     assert admin_page.locator("input[name=value_1]").evaluate(SUGGESTIONS) == 2
     expect(admin_page.locator("datalist option")).to_have_count(2)
     # The label is text, not markup.
-    assert admin_page.locator("datalist option").first.evaluate("el => el.textContent") == "<b>x</b>"
+    assert admin_page.locator("datalist option").first.evaluate("el => el.textContent") == "ABC - <b>x</b>"
     assert admin_page.locator("datalist b").count() == 0
 
 
