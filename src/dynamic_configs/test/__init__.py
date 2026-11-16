@@ -19,7 +19,7 @@ class override_configs:  # noqa: N801 - lowercase like Django's override_setting
     don't leak between threads or asyncio tasks. One instance can be open in several tasks at once.
 
     A decorated generator function or async generator function runs under the overrides each time it resumes, while
-    its caller's code between items doesn't. Blocks it opens itself hold across its ``yield``s, as in any generator.
+    its caller's code between items doesn't. Blocks it opens itself hold across its ``yield`` statements, as in any generator.
 
     Decorating a class applies the overrides to its ``test*`` methods, inherited ones included, to the setup and
     teardown hooks of unittest, Django and pytest (``setUp``, ``asyncSetUp``, ``setUpClass``, ``setUpTestData``,
