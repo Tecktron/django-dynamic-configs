@@ -351,7 +351,7 @@ Django system checks validate the configuration at startup (`manage.py check`, a
 |-------------------------|--------------------------------------------------------------------------|
 | `dynamic_configs.E001`  | `DYNAMIC_CONFIGS` or `TYPES` has the wrong shape, an invalid key, an entry missing `type`/`serializer`, an `options` that isn't a dict with string keys, an entry with both `sort_key` and `sort_compare` or one that isn't callable, a `TIMEOUT` that isn't `None` or a whole number of seconds (0 or more), a `REGISTER_ADMIN` that isn't `True` or `False`, a `CACHE` that isn't a string or `None`, or `STRIP_STRINGS` isn't `True`, `False` or `None` |
 | `dynamic_configs.E002`  | a dotted path can't be imported                                          |
-| `dynamic_configs.E003`  | a serializer isn't a class, can't be created (with its `options`, if any: it needs arguments, or raises `TypeError` or `ValueError`), or lacks a callable `serialize` or `deserialize` |
+| `dynamic_configs.E003`  | a serializer isn't a class, can't be created (with its `options`, if any: it needs arguments, or raises when created), or lacks a callable `serialize` or `deserialize` |
 | `dynamic_configs.E004`  | `form` is not a `django.forms.Field` subclass                            |
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
 | `dynamic_configs.E006`  | an admin using `ConfigAdminMixin` has a base class before the mixin in its MRO that defines `history_form_view` and isn't a `ConfigAdminMixin` subclass, so its view would run instead of the mixin's (see the django-simple-history integration) |
@@ -609,9 +609,9 @@ numbers whole,
   - A **closing bracket** typed on a line of nothing but indent steps back a level (two spaces or a tab), in the same
     undo step. It goes by the character typed (`beforeinput`), not the key, so a layout that types the bracket without
     a key press of its own, as AltGr layouts may, gets it too. That is tested in Chromium and WebKit with inserted
-    text, not with a real AltGr layout; in Firefox it isn't tested. A bracket
-    committed through an input method (IME), as some phone keyboards do, arrives as `insertCompositionText`, which
-    can't be cancelled, so it doesn't adjust the indent.
+    text, not with a real AltGr layout; in Firefox it isn't tested. A bracket committed through an input method (IME),
+    as some phone keyboards do, arrives as `insertCompositionText`, which can't be cancelled, so it doesn't adjust the
+    indent.
   - A **note** under the field says "Valid JSON." or where and why it isn't ("Invalid JSON at line 2, column 7:
     expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". JSON nested past
     the server's limit gets "The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.", at the
