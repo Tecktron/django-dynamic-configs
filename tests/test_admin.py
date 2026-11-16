@@ -311,7 +311,7 @@ def test_a_combined_field_with_a_different_number_of_inputs_is_left_alone():
     widget = forms.MultiWidget([forms.NumberInput()])
     field = forms.MultiValueField((forms.DecimalField(), forms.CharField()), widget=widget, require_all_fields=False)
     ConfigAdminMixin._use_admin_widget(field)
-    assert type(widget.widgets[0]) is forms.NumberInput
+    assert type(field.widget.widgets[0]) is forms.NumberInput
 
 
 def test_a_combined_fields_other_parts_keep_their_widgets():

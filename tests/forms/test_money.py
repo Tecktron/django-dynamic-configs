@@ -253,3 +253,23 @@ def test_a_subclass_widget_that_is_not_the_money_widget_is_left_to_django():
 def test_an_explicit_widget_wins_over_the_classs():
     assert type(BoxedWidgetField(widget=forms.HiddenInput).widget) is forms.HiddenInput
     assert type(MoneyCurrencyField(widget=forms.HiddenInput).widget) is forms.HiddenInput
+
+
+class InstanceWidgetField(MoneyCurrencyField):
+    widget = MoneyCurrencyWidget(currencies={"CAD": "Loonie"})
+
+
+class InstanceTextInputField(MoneyCurrencyField):
+    widget = forms.TextInput()
+
+
+def test_a_subclass_widget_instance_is_kept_as_the_project_made_it():
+    html = InstanceWidgetField().widget.render("value", None, {"id": "id_value"})
+    assert '<option value="CAD">Loonie</option>' in html
+    assert 'value="USD"' not in html
+
+
+def test_a_subclass_text_input_instance_is_copied_not_shared():
+    widget = InstanceTextInputField().widget
+    assert type(widget) is forms.TextInput
+    assert widget is not InstanceTextInputField.widget
