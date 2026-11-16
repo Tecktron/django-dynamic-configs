@@ -8,6 +8,7 @@ unregister ``ConfigAdmin`` and register ``ConfigAdminMixin`` combined with their
 
 from __future__ import annotations
 
+import functools
 import json
 from typing import Any, cast
 
@@ -18,7 +19,7 @@ from django.contrib.admin import widgets as admin_widgets
 from django.contrib.admin.utils import quote, unquote
 from django.core import checks
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import router
+from django.db import IntegrityError, router, transaction
 from django.http import (
     Http404,
     HttpRequest,
@@ -152,6 +153,10 @@ class ConfigAdminMixin:
     _FIELDS = ("name", "type", "value", "allow_null", "description")
     _LIST_ITEM_URL = "dynamic_configs_config_list_item"
     _UNREADABLE = "The request couldn't be read. Reload the page and try again."
+
+    class _NameTaken(IntegrityError):  # noqa: N818 - an IntegrityError, so one that escapes looks like the original
+        """The add found its name taken when it saved: another save created it after the form checked."""
+
     # ModelAdmin options this mixin's methods replace (see the class docstring).
     _IGNORED_OPTIONS = ("fields", "fieldsets", "readonly_fields")
     # Django's plain widgets (and the zoned datetime widget) mapped to the admin's versions (date picker, split
@@ -325,7 +330,35 @@ class ConfigAdminMixin:
                 "show_save_and_add_another": False,
                 "show_save_and_continue": False,
             }
-        return super().add_view(request, form_url, extra_context)  # type: ignore[misc]
+        try:
+            return super().add_view(request, form_url, extra_context)  # type: ignore[misc]
+        except self._NameTaken:
+            # The name was taken between the form's check and the save. The save is undone, and the form checks again
+            # now that the row exists, so the page says what it always does: a config with that name already exists.
+            return super().add_view(request, form_url, extra_context)  # type: ignore[misc]
+
+    def save_model(self, request: HttpRequest, obj: Config, form: forms.ModelForm, change: bool) -> None:  # type: ignore[type-arg]
+        """Save as Django does, but an add only inserts, so a name taken meanwhile is never overwritten.
+
+        The insert runs in a savepoint: a failure is undone alone, and the request's own transaction (the admin's, or
+        ``ATOMIC_REQUESTS``) stays usable. Only an ``IntegrityError`` is caught, and only when a row with the name
+        exists now; anything else is raised as it was.
+
+        :raises _NameTaken: the name was taken after the form checked it
+        """
+        if change:
+            super().save_model(request, obj, form, change)  # type: ignore[misc]
+            return
+        # Django's save updates a row that has the primary key before it inserts, so it would overwrite one.
+        obj.save = functools.partial(obj.save, force_insert=True)  # type: ignore[method-assign]
+        using = router.db_for_write(self.model)  # type: ignore[attr-defined]
+        try:
+            with transaction.atomic(using=using):
+                super().save_model(request, obj, form, change)  # type: ignore[misc]
+        except IntegrityError as error:
+            if not self.model._default_manager.using(using).filter(pk=obj.pk).exists():  # type: ignore[attr-defined]
+                raise
+            raise self._NameTaken from error
 
     def change_view(
         self, request: HttpRequest, object_id: str, form_url: str = "", extra_context: dict[str, Any] | None = None
@@ -337,7 +370,12 @@ class ConfigAdminMixin:
         if request.method != "GET":
             return super().change_view(request, object_id, form_url, extra_context)  # type: ignore[misc]
         config = self.get_object(request, unquote(object_id))  # type: ignore[attr-defined]
-        if config is not None and get_registry().get(config.type) is None:
+        # Only for a user who may see the config: the warning names its type, and a refused user gets no message.
+        if (
+            config is not None
+            and get_registry().get(config.type) is None
+            and self.has_view_or_change_permission(request, config)  # type: ignore[attr-defined]
+        ):
             self.message_user(  # type: ignore[attr-defined]
                 request,
                 f"This config's type {config.type!r} isn't registered, so its value can't be edited. "

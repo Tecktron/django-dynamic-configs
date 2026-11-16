@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import replace
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
@@ -402,6 +403,19 @@ def test_items_sort_by_value_in_either_direction():
 def test_items_that_cant_be_compared_cant_be_sorted():
     with pytest.raises(ValidationError, match="These items can't be sorted."):
         typed("color").sorted_texts(["#bbbbbb", "#aaaaaa"], descending=False)
+
+
+def test_a_failing_sort_key_logs_a_warning(caplog):
+    # F69: the admin said only "These items can't be sorted."; the log now says which type and what failed.
+    with caplog.at_level(logging.DEBUG, logger="dynamic_configs"), pytest.raises(ValidationError):
+        typed("color").sorted_texts(["#bbbbbb", "#aaaaaa"], descending=False)
+    [record] = [record for record in caplog.records if record.name.startswith("dynamic_configs")]
+    assert record.levelno == logging.WARNING
+    assert "color" in record.getMessage()
+    assert "TypeError" in record.getMessage()
+    assert "#bbbbbb" not in caplog.text
+    assert "#aaaaaa" not in caplog.text
+    assert record.config_type == "color"
 
 
 def test_raw_lines_become_stored_texts_or_line_errors():

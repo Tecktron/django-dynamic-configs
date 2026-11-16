@@ -1,14 +1,22 @@
 import html
 import re
+from datetime import date, datetime, timedelta
+from datetime import timezone as dt_timezone
+from decimal import Decimal
+from html.parser import HTMLParser
 
 import pytest
 from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.contrib.staticfiles import finders
 from django.core import checks
+from django.db import IntegrityError
+from django.test import Client
 
 from dynamic_configs.admin import ConfigAdmin, ConfigAdminMixin, register_admin
+from dynamic_configs.forms.config import ConfigAddForm
 from dynamic_configs.models import Config
+from dynamic_configs.types.registry import get_registry
 
 pytestmark = pytest.mark.django_db
 
@@ -364,3 +372,349 @@ def test_a_types_own_widget_is_kept(admin_client, settings):
     }
     make("BRAND", "color", "#1a2b3c")
     assert 'class="code-editor"' in admin_client.get(change_url("BRAND")).content.decode()
+
+
+class RenderedForm(HTMLParser):
+    """What a browser would submit for the change form as rendered (its fields' values, as the page shows them)."""
+
+    SKIPPED = ("submit", "button", "image", "file", "reset")
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.data = {}
+        self._in_form = False
+        self._select = None
+        self._options = []
+        self._option = None
+        self._textarea = None
+
+    def add(self, name, value):
+        self.data.setdefault(name, []).append(value)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "form":
+            self._in_form = attrs.get("id") == "config_form"
+        if not self._in_form or "disabled" in attrs:
+            return
+        if tag == "input" and attrs.get("type") not in self.SKIPPED and attrs.get("name"):
+            if attrs.get("type") in ("checkbox", "radio"):
+                if "checked" in attrs:
+                    self.add(attrs["name"], attrs.get("value", "on"))
+            else:
+                self.add(attrs["name"], attrs.get("value") or "")
+        elif tag == "textarea":
+            self._textarea = [attrs.get("name"), ""]
+        elif tag == "select":
+            self._select = (attrs.get("name"), "multiple" in attrs)
+            self._options = []
+        elif tag == "option" and self._select is not None:
+            self._option = {"value": attrs.get("value"), "selected": "selected" in attrs, "text": ""}
+            self._options.append(self._option)
+
+    def handle_data(self, data):
+        if self._textarea is not None:
+            self._textarea[1] += data
+        elif self._option is not None:
+            self._option["text"] += data
+
+    def handle_endtag(self, tag):
+        if tag == "textarea" and self._textarea is not None:
+            name, text = self._textarea
+            # A browser drops the newline right after the opening tag.
+            self.add(name, text[1:] if text.startswith("\n") else text)
+            self._textarea = None
+        elif tag == "option":
+            self._option = None
+        elif tag == "select" and self._select is not None:
+            name, multiple = self._select
+            chosen = [option for option in self._options if option["selected"]]
+            if not multiple and not chosen and self._options:
+                chosen = self._options[:1]
+            for option in chosen:
+                self.add(name, option["value"] if option["value"] is not None else option["text"])
+            self._select = None
+
+
+def rendered_data(content):
+    """Return the change page's form as a browser would submit it, one value per name (a list when repeated)."""
+    form = RenderedForm()
+    form.feed(content)
+    return {name: values[0] if len(values) == 1 else values for name, values in form.data.items()}
+
+
+def save_untouched(admin_client, name, **changes):
+    """Open the change page, then submit it as rendered with ``changes`` (the description, by default)."""
+    data = rendered_data(admin_client.get(change_url(name)).content.decode())
+    data.update({"description": "Edited", "_save": "Save", **changes})
+    return admin_client.post(change_url(name), data)
+
+
+@pytest.mark.parametrize(("type_key", "stored"), [("str", ""), ("list:str", "[]"), ("text", ""), ("list:int", "[]")])
+def test_saving_only_the_description_keeps_an_empty_value(admin_client, type_key, stored):
+    # F43: an empty value set from code became None on any save, even one that only edited the description.
+    make("EMPTY", type_key, stored, allow_null=True)
+    assert save_untouched(admin_client, "EMPTY").status_code == 302
+    config = Config.objects.get(name="EMPTY")
+    assert (config.value, config.description) == (stored, "Edited")
+
+
+def test_saving_only_the_description_keeps_a_null_value(admin_client):
+    make("NOTHING", "str", None, allow_null=True)
+    make("NO_LIST", "list:str", None, allow_null=True)
+    assert save_untouched(admin_client, "NOTHING").status_code == 302
+    assert save_untouched(admin_client, "NO_LIST").status_code == 302
+    assert Config.objects.get(name="NOTHING").value is None
+    assert Config.objects.get(name="NO_LIST").value is None
+
+
+def test_turning_allow_null_off_still_applies_the_empty_value_rule(admin_client):
+    make("NOTHING", "int", None, allow_null=True)
+    response = save_untouched(admin_client, "NOTHING")
+    assert response.status_code == 302
+    # Left alone, a null stays; turning allow_null off in the same save asks for a value.
+    data = rendered_data(admin_client.get(change_url("NOTHING")).content.decode())
+    data.pop("allow_null")
+    response = admin_client.post(change_url("NOTHING"), {**data, "description": "", "_save": "Save"})
+    assert response.status_code == 200
+    assert "This field is required." in response.content.decode()
+    assert Config.objects.get(name="NOTHING").allow_null is True
+
+
+SAMPLES = {
+    "bool": True,
+    "date": date(2026, 3, 4),
+    "datetime": datetime(2026, 7, 1, 3, 15, tzinfo=dt_timezone.utc),
+    "days": timedelta(days=3),
+    "decimal": Decimal("1.50"),
+    "float": 1.5,
+    "hours": timedelta(hours=36),
+    "int": 3,
+    "json": {"a": [1, 2]},
+    "minutes": timedelta(minutes=90),
+    "seconds": timedelta(seconds=45),
+    "str": "Example",
+    "text": "two\nlines",
+    "weeks": timedelta(weeks=2),
+}
+# The same instants the way a hand-written row or an API call might store them: seconds, fractions, another zone.
+EXTRA_SAMPLES = [
+    ("datetime", datetime(2026, 7, 1, 3, 15, 45, 123456, tzinfo=dt_timezone.utc)),
+    ("datetime", datetime(2026, 1, 1, 0, 0, tzinfo=dt_timezone.utc)),
+    ("datetime", datetime(2026, 3, 8, 7, 30, 15, tzinfo=dt_timezone.utc)),
+    ("float", 1e-07),
+    ("float", 12345678.9),
+    ("decimal", Decimal("0.000001")),
+    ("str", " padded "),
+    ("seconds", timedelta(seconds=1, microseconds=500)),
+]
+CASES = (
+    list(SAMPLES.items())
+    + [(f"list:{key}", [value]) for key, value in SAMPLES.items() if key != "json"]
+    + [(f"set:{key}", [value]) for key, value in SAMPLES.items() if key != "json"]
+    + EXTRA_SAMPLES
+)
+
+
+@pytest.mark.parametrize(("type_key", "value"), CASES, ids=[f"{key}-{n}" for n, (key, _) in enumerate(CASES)])
+def test_saving_only_the_description_keeps_the_value_for_every_type(admin_client, type_key, value):
+    # Review Focus 3: the value field's posted data is what the page rendered; the stored text must not move.
+    stored = get_registry().get(type_key).to_text(value)
+    make("SAMPLE", type_key, stored, allow_null=True)
+    assert save_untouched(admin_client, "SAMPLE").status_code == 302
+    config = Config.objects.get(name="SAMPLE")
+    assert (config.value, config.description) == (stored, "Edited")
+
+
+@pytest.mark.parametrize("type_key", ["bool", "date", "datetime", "int", "str", "list:int", "set:str", "json"])
+def test_saving_only_the_description_keeps_a_null_for_every_type(admin_client, type_key):
+    make("SAMPLE", type_key, None, allow_null=True)
+    assert save_untouched(admin_client, "SAMPLE").status_code == 302
+    assert Config.objects.get(name="SAMPLE").value is None
+
+
+MONEY_TYPES = {
+    "money": {
+        "type": "decimal.Decimal",
+        "serializer": "dynamic_configs.types.money.MoneySerializer",
+        "form": "dynamic_configs.forms.money.MoneyField",
+    },
+    "money_currency": {
+        "type": "dynamic_configs.types.money.Money",
+        "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
+        "form": "dynamic_configs.forms.money.MoneyCurrencyField",
+    },
+}
+
+
+@pytest.mark.parametrize(
+    ("type_key", "stored"),
+    [
+        ("money", "9.99"),
+        ("money_currency", "9.99 CAD"),
+        ("list:money", '["9.99", "1.50"]'),
+        ("set:money_currency", '["9.99 CAD"]'),
+    ],
+)
+def test_saving_only_the_description_keeps_a_money_value(admin_client, settings, type_key, stored):
+    settings.DYNAMIC_CONFIGS = {"TYPES": MONEY_TYPES}
+    make("PRICE", type_key, stored)
+    assert save_untouched(admin_client, "PRICE").status_code == 302
+    assert Config.objects.get(name="PRICE").value == stored
+
+
+UNREADABLE = [
+    ("int", "abc"),
+    ("list:int", "oops"),
+    ("bool", "maybe"),
+    ("date", "someday"),
+    ("datetime", "soon"),
+    ("float", "many"),
+    ("json", "{not json"),
+    ("str", "two\nlines"),
+    ("set:str", "oops"),
+    ("list:str", "[1, 2]"),
+]
+
+
+def stored_notice(content, stored):
+    return f"<pre>{html.escape(stored)}</pre>" in content
+
+
+def test_an_unreadable_value_is_shown_and_not_overwritten(admin_client):
+    # F44: the page opened an empty field with no message, and saving anything overwrote the stored text.
+    make("MAX_RETRIES", "int", "abc")
+    content = admin_client.get(change_url("MAX_RETRIES")).content.decode()
+    assert "The stored value can't be read: Enter a whole number, such as 42. It's shown below" in content
+    assert "enter a new value to replace it." in content
+    assert stored_notice(content, "abc")
+    assert rendered_data(content)["value"] == ""
+    response = save_untouched(admin_client, "MAX_RETRIES")
+    assert response.status_code == 200
+    assert "Enter a value to replace the unreadable one." in response.content.decode()
+    config = Config.objects.get(name="MAX_RETRIES")
+    assert (config.value, config.description) == ("abc", "")
+
+
+def test_an_unreadable_list_is_shown_and_not_overwritten(admin_client):
+    make("PORTS", "list:int", "oops")
+    content = admin_client.get(change_url("PORTS")).content.decode()
+    assert "The stored value can't be read: A list must be stored as a JSON array." in content
+    assert stored_notice(content, "oops")
+    response = save_untouched(admin_client, "PORTS")
+    assert response.status_code == 200
+    assert "Enter a value to replace the unreadable one." in response.content.decode()
+    assert Config.objects.get(name="PORTS").value == "oops"
+
+
+def test_entering_a_value_replaces_an_unreadable_one(admin_client):
+    make("MAX_RETRIES", "int", "abc")
+    make("PORTS", "list:int", "oops")
+    assert save_untouched(admin_client, "MAX_RETRIES", value="5").status_code == 302
+    assert save_untouched(admin_client, "PORTS", value="80\n443").status_code == 302
+    assert Config.objects.get(name="MAX_RETRIES").value == "5"
+    assert Config.objects.get(name="PORTS").value == '["80", "443"]'
+
+
+@pytest.mark.parametrize(("type_key", "stored"), UNREADABLE)
+def test_the_notice_shows_for_every_kind_of_field(admin_client, type_key, stored):
+    make("BROKEN", type_key, stored)
+    content = admin_client.get(change_url("BROKEN")).content.decode()
+    assert "The stored value can't be read: " in content
+    assert stored_notice(content, stored)
+    # Refused whether or not the config allows null.
+    assert save_untouched(admin_client, "BROKEN").status_code == 200
+    assert Config.objects.get(name="BROKEN").value == stored
+
+
+def test_the_notice_shows_for_money(admin_client, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": MONEY_TYPES}
+    make("PRICE", "money_currency", "lots")
+    content = admin_client.get(change_url("PRICE")).content.decode()
+    assert "The stored value can't be read: " in content
+    assert stored_notice(content, "lots")
+    assert save_untouched(admin_client, "PRICE").status_code == 200
+    assert Config.objects.get(name="PRICE").value == "lots"
+
+
+def test_the_notice_shows_for_a_nullable_boolean(admin_client):
+    make("BETA", "bool", "maybe", allow_null=True)
+    content = admin_client.get(change_url("BETA")).content.decode()
+    assert "The stored value can't be read: " in content
+    assert save_untouched(admin_client, "BETA").status_code == 200
+    assert Config.objects.get(name="BETA").value == "maybe"
+
+
+def test_the_stored_text_in_the_notice_is_escaped(admin_client):
+    make("MAX_RETRIES", "int", "<script>alert(1)</script>")
+    content = admin_client.get(change_url("MAX_RETRIES")).content.decode()
+    assert "<script>alert(1)</script>" not in content
+    assert "<pre>&lt;script&gt;alert(1)&lt;/script&gt;</pre>" in content
+
+
+def test_a_failed_save_shows_the_notice_again(admin_client):
+    make("MAX_RETRIES", "int", "abc")
+    response = save_untouched(admin_client, "MAX_RETRIES")
+    assert stored_notice(response.content.decode(), "abc")
+
+
+def test_a_list_with_a_bad_item_still_opens_as_items(admin_client):
+    # Not an F44 case: the stored text is a JSON array of strings, so the editor shows each item to fix.
+    make("PORTS", "list:int", '["1", "x"]')
+    content = admin_client.get(change_url("PORTS")).content.decode()
+    assert "The stored value can't be read" not in content
+    assert "dynamic-configs-list" in content
+
+
+def test_a_user_without_permission_sees_no_unregistered_warning(admin_client, django_user_model):
+    # F45: the warning was queued before the permission check, so it showed on the page after the 403.
+    make("THEME", "gone", "dark")
+    staff = django_user_model.objects.create_user("staff", password="unused", is_staff=True)
+    client = Client()
+    client.force_login(staff)
+    assert client.get(change_url("THEME")).status_code == 403
+    content = client.get("/admin/").content.decode()
+    assert "isn&#x27;t registered" not in content
+    assert "gone" not in content
+
+
+def test_adding_a_name_taken_meanwhile_is_a_form_error(admin_client, mocker):
+    # F46: two adds of one name raced: the second got a server error. Here the row appears after the form's own
+    # check (which is skipped once), so the save itself meets it.
+    make("MAX_RETRIES", "int", "3")
+    original = ConfigAddForm.validate_unique
+    checks = iter([None])
+
+    def validate_unique(form):
+        if next(checks, "later") is None:
+            return None
+        return original(form)
+
+    mocker.patch.object(ConfigAddForm, "validate_unique", validate_unique)
+    response = admin_client.post(
+        f"{URL}add/?type=int", {"name": "MAX_RETRIES", "value": "9", "description": "", "_save": "Save"}
+    )
+    assert response.status_code == 200
+    assert "already exists" in response.content.decode()
+    # Nothing was overwritten, and the request's own transaction is still usable.
+    assert Config.objects.get(name="MAX_RETRIES").value == "3"
+
+
+def test_an_add_never_overwrites_a_row_created_meanwhile(admin_client, mocker):
+    # With the form's check always skipped, the save meets the row both times and the error is raised: the row is
+    # never updated in its place.
+    make("MAX_RETRIES", "int", "3")
+    mocker.patch.object(ConfigAddForm, "validate_unique", return_value=None)
+    with pytest.raises(IntegrityError):
+        admin_client.post(
+            f"{URL}add/?type=int", {"name": "MAX_RETRIES", "value": "9", "description": "", "_save": "Save"}
+        )
+    assert Config.objects.get(name="MAX_RETRIES").value == "3"
+
+
+def test_an_add_that_fails_for_another_reason_raises(admin_client, mocker):
+    # Only a taken name becomes a form error: an IntegrityError with no row of that name behind it still raises.
+    mocker.patch.object(Config, "save", side_effect=IntegrityError)
+    with pytest.raises(IntegrityError):
+        admin_client.post(f"{URL}add/?type=int", {"name": "NEW_ONE", "value": "9", "description": "", "_save": "Save"})
+    assert not Config.objects.filter(name="NEW_ONE").exists()

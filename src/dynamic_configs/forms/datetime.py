@@ -121,6 +121,29 @@ class ZonedDateTimeField(forms.MultiValueField):
         fields = (forms.DateField(), forms.TimeField(), forms.ChoiceField(choices=zone_choices()))
         super().__init__(fields, **kwargs)
 
+    @staticmethod
+    def _shown(widget: forms.Widget, part: Any) -> str:
+        """Return the text ``widget`` shows for ``part``; a select shows its chosen values as a list."""
+        shown = widget.format_value(part)
+        if isinstance(shown, list):
+            shown = shown[0] if shown else None
+        return "" if shown is None else str(shown)
+
+    def has_changed(self, initial: Any, data: Any) -> bool:
+        """Return whether the date, time and zone differ from what the widget showed for ``initial``.
+
+        Compared as shown, not as parsed: the time input shows whole seconds, so a stored fraction of a second isn't
+        a change the admin made. Anything else typed is compared as Django does.
+        """
+        if isinstance(initial, datetime) and isinstance(data, list) and len(data) == len(self.widget.widgets):
+            shown = [
+                self._shown(widget, part)
+                for part, widget in zip(self.widget.decompress(initial), self.widget.widgets, strict=True)
+            ]
+            if [part or "" for part in data] == shown:
+                return False
+        return super().has_changed(initial, data)
+
     def compress(self, data_list: list[Any]) -> datetime | None:
         """Return the datetime in the chosen zone; None when there's no date and no time.
 

@@ -6,7 +6,7 @@ import pytest
 from django import forms
 
 from dynamic_configs.forms.datetime import ZonedDateTimeField
-from dynamic_configs.forms.fields import DurationUnitField, formfield_for
+from dynamic_configs.forms.fields import DurationUnitField, StrField, formfield_for
 from dynamic_configs.forms.json import JSONTextField
 from dynamic_configs.types.builtin import BUILTIN_TYPES
 
@@ -51,7 +51,7 @@ def test_only_json_has_no_list_variants():
 
 
 EXPECTED_FIELDS = {
-    "str": forms.CharField,
+    "str": StrField,
     "text": forms.CharField,
     "int": forms.IntegerField,
     "float": forms.FloatField,

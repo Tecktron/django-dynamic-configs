@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -18,6 +19,7 @@ from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
 from dynamic_configs.exceptions import ConfigError, ConfigValueError
+from dynamic_configs.log import log
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.serializers import JSONSerializer
 
@@ -226,6 +228,10 @@ class LineListField(forms.CharField):
         """Return the items, in order."""
         return [item for *_, item in self.numbered_items(value)]
 
+    def has_changed(self, initial: Any, data: Any) -> bool:
+        """Return whether the items differ from the initial ones; no initial value is no items, as the page shows it."""
+        return super().has_changed(initial if initial is not None else [], data)
+
     def clean(self, value: Any) -> Any:
         """Clean as Django does, naming validator errors as ``numbered_items`` names its own ("Item 2", "Line 2")."""
         items = self.to_python(value)
@@ -258,6 +264,8 @@ class TypedLineListField(LineListField):
     checkbox): ``item_field``'s describes its own input, and the textarea's (``raw_help``) the item type's typed text,
     its ``raw_help_text`` or else its ``help_text``.
     """
+
+    _logger = logging.getLogger(__name__)
 
     def __init__(self, item_type: ConfigType, *, unique: bool = False, **kwargs: Any) -> None:
         """Parse each item as ``item_type``; reject repeats when ``unique``."""
@@ -385,6 +393,15 @@ class TypedLineListField(LineListField):
             ordered = self.item_type.sort(values, descending=descending)
         except Exception as error:
             # Values that define no order raise TypeError; a project's key may raise anything. The list stays as is.
+            # The log names the type and the class only: an exception's message may contain an item.
+            log(
+                self._logger,
+                logging.WARNING,
+                "Sorting items of type %r failed with %s; the items were left in their order.",
+                self.item_type.key,
+                type(error).__name__,
+                config_type=self.item_type.key,
+            )
             raise ValidationError("These items can't be sorted.") from error
         return [self.item_type.to_text(value) for value in ordered]
 

@@ -28,6 +28,9 @@ Adding takes two steps, so the value can use its type's own input:
 The second step's address is `add/?type=<key>`, so you can link straight to it. An unknown `?type=` shows the first
 step again.
 
+Adding never overwrites a setting. If another admin adds the same name while you're on the second step, saving shows
+the name field's "already exists" error, and the existing setting stays as it is.
+
 ## Changing a setting
 
 The name and type are read-only. The value uses its type's input: a checkbox, a date picker, the JSON editor, the
@@ -43,8 +46,24 @@ number.", except one ending in zeros, such as `1.0`, which it reads as `1`.
 
 On both pages, an empty value is saved as `None` when **Allow null** is checked. When it isn't, an empty value is the
 empty string for `str` and `text`, an empty list or set for list and set types, and a "required" error for every other
-type. (So a `str` setting that allows null can't hold the empty string through the admin; code can still `update` it
-to `""`.)
+type. (So a `str` setting that allows null can't be saved as the empty string through the admin; code can still
+`update` it to `""`.)
+
+A save never changes a value you didn't touch. On the change page, a value left as the page showed it is kept as
+stored, so editing only the description keeps a `""` or `[]` that code set, and keeps a stored `None`. The one
+exception: if you uncheck **Allow null** in the same save, a stored `None` gets the rules above.
+
+## An unreadable value
+
+A stored value is unreadable when its type's serializer rejects it (a row edited by hand, say). The change page still
+opens, with the value field empty and a notice under it:
+
+> The stored value can't be read: Enter a whole number, such as 42. It's shown below; enter a new value to replace it.
+
+The stored text follows in a `<pre>`, exactly as it is. Saving with the value field left empty is refused with "Enter a
+value to replace the unreadable one.", and the stored text stays; enter a new value to replace it. This covers a list
+or set too, when its stored text isn't a JSON array of strings. One that is (but has an item that doesn't read) opens
+in the list editor with its items, so you can remove or fix the bad one.
 
 ## Spaces in typed strings
 
@@ -186,6 +205,7 @@ several parts, say), to say how an item is typed on a raw-mode line.
 A setting whose type is no longer registered (removed from `TYPES`, or its entry broken) is listed with its type key
 marked "(not registered)". Its page shows the stored text read-only, with the message "This config's type 'color'
 isn't registered, so its value can't be edited. Add the type to DYNAMIC_CONFIGS['TYPES']."
+Only users who may view or change the setting see it: a user without permission gets the 403 page and no message.
 
 ## Customizing the admin
 

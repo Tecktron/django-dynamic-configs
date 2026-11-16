@@ -13,6 +13,8 @@ from typing import Any
 
 from django import forms
 from django.core.exceptions import ValidationError
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from dynamic_configs.constants import ADMIN_SCRIPT
 from dynamic_configs.exceptions import ConfigError
@@ -93,12 +95,19 @@ class _TypedConfigForm(_ConfigForm):
         cleaned = super().clean()
         if self.config_type is not None and "value" in cleaned:
             try:
-                cleaned["value"] = self.stored_text(
+                cleaned["value"] = self.value_to_store(
                     self.config_type, cleaned["value"], allow_null=cleaned.get("allow_null", False)
                 )
             except ValidationError as error:
                 self.add_error("value", error)
         return cleaned
+
+    def value_to_store(self, config_type: ConfigType, value: Any, *, allow_null: bool) -> str | None:
+        """Return the text to store for the cleaned ``value``; the change form keeps what it didn't change.
+
+        :raises ValidationError: the value is refused (see ``stored_text``)
+        """
+        return self.stored_text(config_type, value, allow_null=allow_null)
 
 
 class ConfigAddForm(_TypedConfigForm):
@@ -129,29 +138,76 @@ class ConfigChangeForm(_TypedConfigForm):
         fields = ("value", "allow_null", "description")
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """Show the stored value as its type's field expects it."""
+        """Show the stored value as its type's field expects it, and say so when it can't be read."""
         super().__init__(*args, **kwargs)
+        # Why the stored text can't be read, or None; set only for a text the page can't show in the value field.
+        self.unreadable: str | None = None
         if self.config_type is not None and self.instance.value is not None:
-            self.initial["value"] = self.initial_value(self.config_type, self.instance.value)
+            self.initial["value"], self.unreadable = self.read_for_form(self.config_type, self.instance.value)
+            if self.unreadable is not None:
+                self.show_unreadable(self.unreadable, self.instance.value)
 
     @staticmethod
-    def initial_value(config_type: ConfigType, text: str) -> Any:
-        """Return the stored ``text`` as a value for the form, so the page still opens.
+    def read_for_form(config_type: ConfigType, text: str) -> tuple[Any, str | None]:
+        """Return the stored ``text`` as a value for the form, and why it can't be read (None when it can).
 
-        When it can't be read: None, except a list or set whose stored text is a JSON array of strings, which comes back
-        as those texts, so the list editor shows every item and the unreadable one can be removed or replaced.
+        So the page still opens when it can't be read: the value is None, except a list or set whose stored text is a
+        JSON array of strings, which comes back as those texts, so the list editor shows every item and the unreadable
+        one can be removed or replaced (and there's no reason: that page needs no notice).
+
+        The reason never contains the text: it's the serializer's own message, or the class of what reading raised.
         """
         try:
             if config_type.container is not None:
                 # Keep the stored order (a set would lose it), so the admin sees items as they were entered.
-                return ListSerializer.deserialize(config_type.serializer, text)
-            return config_type.from_text(text)
-        except Exception:
+                return ListSerializer.deserialize(config_type.serializer, text), None
+            return config_type.from_text(text), None
+        except Exception as error:
             # Whatever reading it raises (a RecursionError on JSON nested too deeply, a custom serializer's KeyError),
             # as from_text treats it for get(): the stored text is unreadable, and the admin needs the page to fix it.
+            # A ValueError's message is the serializer's own; any other exception is named by its class alone.
+            reason = (
+                str(error)
+                if isinstance(error, ValueError)
+                else f"Reading the stored text failed with {type(error).__name__}."
+            )
             if config_type.container is not None:
-                return stored_texts(text)
-            return None
+                texts = stored_texts(text)
+                if texts is not None:
+                    return texts, None
+            return None, reason
+
+    def show_unreadable(self, reason: str, text: str) -> None:
+        """Put a notice with the stored ``text`` under the value field, which opens empty.
+
+        In the field's help, which the admin shows under every kind of field, on a fresh page and again after a
+        refused save. The text is escaped, and shown in a ``<pre>`` so it stays exactly as stored.
+        """
+        field = self.fields["value"]
+        field.help_text = format_html(
+            "<p>The stored value can't be read: {}. It's shown below; enter a new value to replace it.</p>"
+            "<pre>{}</pre>{}",
+            reason.rstrip("."),
+            text,
+            # The admin shows help as HTML already, so the type's own help is kept as it was.
+            mark_safe(field.help_text),  # noqa: S308
+        )
+
+    def value_to_store(self, config_type: ConfigType, value: Any, *, allow_null: bool) -> str | None:
+        """Keep the stored text when the value field is as the page showed it, so the save can't change it silently.
+
+        An empty value that the config still allows stays as it was (``""`` and ``[]`` don't turn into None). An
+        unreadable one isn't replaced by whatever the empty field stands for: it's refused until a value is entered.
+        When ``allow_null`` is turned off in the same save, a stored None gets the usual empty-value rules.
+
+        :raises ValidationError: the value is unchanged but unreadable, or the new value is refused
+        """
+        if "value" not in self.changed_data:
+            if self.unreadable is not None:
+                raise ValidationError("Enter a value to replace the unreadable one.", code="unreadable")
+            if self.instance.value is not None or allow_null:
+                return self.instance.value
+        return super().value_to_store(config_type, value, allow_null=allow_null)
 
 
 def _value_field(config_type: ConfigType, *, allow_null: bool) -> forms.Field:

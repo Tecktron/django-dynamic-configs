@@ -266,7 +266,8 @@ DYNAMIC_CONFIGS = {
   function is turned into a key with `functools.cmp_to_key` when the registry loads, so `ConfigType` holds one
   optional `sort_key`. With neither, a list sorts by the values themselves if the class defines an order (its own
   `__lt__`, or a dataclass with `order=True`); otherwise the list editor has no Sort button. A key that fails on some
-  value doesn't break the page: the editor says "These items can't be sorted." and leaves the list alone.
+  value doesn't break the page: the editor says "These items can't be sorted." and leaves the list alone. The failure
+  is logged as a warning naming the type and the exception's class, never an item.
 
 ### Included example types: money
 
@@ -558,7 +559,21 @@ numbers whole,
 - On both pages, an empty value is saved as `None` when `allow_null` is set. When it isn't set, an empty value is the
   empty string for `str` and `text`, an empty list or set for list and set types, and a "required" error for every
   other type. (So
-  a `str` setting with `allow_null` can't hold the empty string through the admin; code can still `update` it to `""`.)
+  a `str` setting with `allow_null` can't be saved as the empty string through the admin; code can still `update` it
+  to `""`.)
+- **A save never changes a value the admin didn't touch.** On the change page a value left as the page showed it
+  (compared with what was posted, as the widget shows it: a datetime's time input shows whole seconds, a `str` shows
+  its spaces) is kept as stored, so `""` and `[]` set from code aren't turned into `None` by a description-only save.
+  Turning `allow_null` off in the same save gives a stored `None` the empty-value rules.
+- **Unreadable stored value:** a scalar the serializer rejects, or a list or set whose stored text isn't a JSON array
+  of strings, opens as an empty field with a notice in the field's help: "The stored value can't be read: {reason}.
+  It's shown below; enter a new value to replace it.", then the stored text, escaped, in a `<pre>`. The reason is the
+  serializer's message (or the class of what reading raised) and never contains the value. Saving with the field
+  unchanged is refused ("Enter a value to replace the unreadable one."). A list whose text is a JSON array of strings
+  keeps opening in the list editor, so the bad item can be fixed.
+- **Adding never overwrites:** the add saves with an insert inside a savepoint. A name taken between the form's check
+  and the save (an `IntegrityError` with that row present) shows as the name field's "already exists" error, and the
+  request's own transaction stays usable; any other `IntegrityError` is raised.
 - **Whitespace:** on both pages the name is stripped, and `text` values and descriptions are kept exactly as typed.
   Strings typed in a single-line input (`str` values and items, and custom types without a `form`) follow
   `STRIP_STRINGS` (see Configuration): by default a single value is stripped and a list or set item is kept exactly.
@@ -670,7 +685,7 @@ numbers whole,
   - Only the config admin has the editor: the check URL belongs to it and its permissions. `TypedLineListField` in a
     project's own forms keeps the textarea, the raw format.
 - **Unregistered type:** a row whose type is no longer registered shows its stored text read-only, with a message
-  saying the type is missing from settings.
+  saying the type is missing from settings (queued only for a user who may view or change the row).
 - Permissions are Django's standard add/change/delete/view permissions; the list editor's check URL needs add or
   change permission.
 

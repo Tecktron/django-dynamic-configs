@@ -25,6 +25,14 @@ _BOOLEAN_HELP = "Checked means true."
 _NULL_BOOLEAN_HELP = "Unknown leaves the setting empty, which needs Allow null checked."
 
 
+class StrField(forms.CharField):
+    """The built-in ``str`` type's field: a text input that treats untouched text as unchanged, spaces and all."""
+
+    def has_changed(self, initial: Any, data: Any) -> bool:
+        """Compare the text shown with what was submitted before it's stripped, so untouched text stays as stored."""
+        return str(initial if initial is not None else "") != str(data if data is not None else "")
+
+
 class SerializerField(forms.CharField):
     """A text input cleaned with a serializer's ``deserialize`` and shown with its ``serialize``.
 
@@ -98,7 +106,9 @@ def formfield_for(
         typed string is stripped (``STRIP_STRINGS``, which covers only ``str`` and custom types without a ``form``)
     :param kwargs: options for the field, such as ``required``, ``label`` and ``help_text``; a ``rounding`` is added
         when the type's serializer has one and its ``form`` is ``MoneyField``, ``MoneyCurrencyField`` or a subclass
-    :returns: a ``TypedLineListField`` for list and set types, the type's ``form_class``, or a ``SerializerField``
+    :returns: a ``TypedLineListField`` for list and set types; for a type without a ``form`` a ``SerializerField``;
+        otherwise the type's ``form_class`` (a ``NullBooleanField`` instead of a ``BooleanField`` when ``allow_null``,
+        and a ``StrField`` for the built-in ``str``)
     :rtype: forms.Field
     """
     if config_type.container is not None:
@@ -117,6 +127,8 @@ def formfield_for(
         # The built-in type's help describes typed text ("true or false (yes/no, …)"), which list items take but a
         # checkbox or select doesn't; a custom type's own help is its author's.
         kwargs["help_text"] = _NULL_BOOLEAN_HELP if allow_null else _BOOLEAN_HELP
+    if config_type.key == "str" and form_class is forms.CharField:
+        form_class = StrField
     if allow_null and form_class is forms.BooleanField:
         # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
         form_class = forms.NullBooleanField
@@ -126,7 +138,7 @@ def formfield_for(
         # first. Any other form keeps its own validation: it doesn't know the keyword.
         kwargs["rounding"] = rounding
     field = form_class(**kwargs)
-    if config_type.key == "str" and form_class is forms.CharField:
+    if config_type.key == "str" and form_class is StrField:
         # Only the built-in str follows STRIP_STRINGS; every other type's own form field (a custom form, a duration,
         # multi-line text, a project's replacement str with its own form) keeps its own strip.
         field.strip = strips_typed_strings(item=item)
