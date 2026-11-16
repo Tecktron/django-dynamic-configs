@@ -36,6 +36,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Example custom types, not registered by default: `money` (an amount with at most 2 decimal places) and
   `money_currency` (an amount and a currency code). An amount with more than 2 places is refused,
   unless the type's `options` set a `rounding`.
+- Currency suggestions for `money_currency`: its currency input offers the ISO 4217 codes (from SIX Group, with their
+  names) as you type, or the codes and labels of a `currencies` option; the suggestions never restrict what is entered.
+  A monthly workflow checks the list and opens a pull request when it changes.
 - An optional django-simple-history integration (`dynamic_configs.contrib.simple_history`, installed with the
   `simple-history` extra) that records every change and adds the History button to the admin, with the system checks
   `dynamic_configs.E101` and `E102`. Restoring a past version never changes a config's type.

@@ -124,17 +124,61 @@ letters A to Z count, so a look-alike such as a dotless "ı" is refused:
 :pyobject: MoneyCurrencySerializer
 ```
 
-Currency codes are checked for shape (3 letters), not against the ISO 4217 list, so there's no data file to keep
-current.
+Entered currency codes are checked for shape (3 letters), not against a list: `XYZ` is accepted. The package keeps a
+list of ISO 4217 codes only to suggest them in the admin (see [Currency suggestions](#currency-suggestions)), so a list
+that is out of date never refuses a value.
 
-Its form field is a `MultiValueField`: `MoneyField` for the amount and a 3-character input for the currency, side by
-side, with no JavaScript. Because that input isn't typed as one line, the `TYPES` entry gives a `raw_help_text`
-saying how to type an item on a line of a list's raw mode (`9.99 CAD`).
+Its form field is a `MultiValueField`: `MoneyField`'s own number input for the amount, and a 3-character input for the
+currency that suggests codes as you type, side by side, with no JavaScript. Because that input isn't typed as one line,
+the `TYPES` entry gives a `raw_help_text` saying how to type an item on a line of a list's raw mode (`9.99 CAD`).
 
 ```{literalinclude} ../src/dynamic_configs/forms/money.py
 :language: python
 :pyobject: MoneyCurrencyField
 ```
+
+### Currency suggestions
+
+The currency input has a `<datalist>`, so the browser offers codes while you type. By default these are the ISO 4217
+currencies, as published by SIX Group, the ISO 4217 maintenance agency (the date of the list the package carries is
+`dynamic_configs.types.iso4217.PUBLISHED`). Funds, precious metals, bond market units and the codes for testing (`XTS`)
+and for no currency (`XXX`) are left out. Each suggestion shows the code with ISO's name for it as published ("Pound
+Sterling", "US Dollar"); how a browser shows the two differs, and some show less than others.
+
+Give the type a `currencies` option to suggest your own. A list of codes suggests just those, with ISO's names for the
+ones it knows; a mapping of code to label uses your labels as given; an empty list turns the suggestions off. Codes are
+3 capital letters A to Z and labels are plain strings (a lazily translated label is refused). Anything else, such as a
+bare string, is a `dynamic_configs.E003` error. It can be combined with `rounding`:
+
+```python
+import decimal
+
+DYNAMIC_CONFIGS = {
+    "TYPES": {
+        "money_currency": {
+            "type": "dynamic_configs.types.money.Money",
+            "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
+            "options": {"currencies": ["CAD", "USD"], "rounding": decimal.ROUND_HALF_UP},
+            "form": "dynamic_configs.forms.money.MoneyCurrencyField",
+        },
+    },
+}
+```
+
+With a mapping, `{"currencies": {"CAD": "Canadian dollar", "USD": "US dollar"}}`, the labels are yours.
+
+Suggestions never restrict: the input still takes any 3 letters, so a code that isn't suggested (`XYZ`, or a currency
+too new for the list) is accepted. The package refreshes its list every month (the maintainer's side of it is under
+[The currency list](development.md#the-currency-list)), and a list that is a few weeks behind only means a new code
+isn't suggested yet. If you write your own serializer with a `currencies` attribute, it must be a mapping of code to
+label, since the form field draws its `.items()`.
+
+### Decimal places
+
+Every amount has 2 decimal places, although ISO 4217 gives some currencies 0 (JPY, KRW) and some 3 (KWD, BHD). That is a
+known limit, and on purpose: 2 places is a one-size-fits-most choice for an example whose job is to show how to extend
+the package by writing and registering your own types. A project that needs each currency's minor units writes its own
+type; ISO's list gives them as `CcyMnrUnts`.
 
 ## Sorting: `by_currency_then_amount`
 
