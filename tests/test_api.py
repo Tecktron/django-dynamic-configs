@@ -480,7 +480,8 @@ def test_a_cache_entry_with_an_unhashable_type_is_a_miss(django_capture_on_commi
 
 
 def test_an_unrecognised_cache_entry_is_replaced(django_capture_on_commit_callbacks, django_assert_num_queries):
-    # F23: the refill used add, so an unrecognised entry stayed and every get read the database until it expired.
+    # F23: the refill used add, so an unrecognised entry stayed and every get read the database until it expired. The
+    # read now drops it, so the usual add fills the slot.
     make("MAX_RETRIES", "int", "2")
     backend = cache.get_cache()
     backend.set(cache.cache_key("MAX_RETRIES", backend), "garbage")
@@ -489,3 +490,22 @@ def test_an_unrecognised_cache_entry_is_replaced(django_capture_on_commit_callba
     assert cache.read("MAX_RETRIES") == ("int", "2")
     with django_assert_num_queries(0):
         assert dynamic_configs.get("MAX_RETRIES") == 2
+
+
+def test_a_newer_entry_cached_after_an_unrecognised_one_is_dropped_is_kept(mocker, django_capture_on_commit_callbacks):
+    # The refill after an unrecognised entry must not overwrite an entry a writer cached once it was dropped.
+    make("MAX_RETRIES", "int", "2")
+    backend = cache.get_cache()
+    key = cache.cache_key("MAX_RETRIES", backend)
+    backend.set(key, "garbage")
+    real_delete = backend.delete
+
+    def delete_then_a_writer_caches(*args, **kwargs):
+        result = real_delete(*args, **kwargs)
+        backend.set(key, ("int", "3"))
+        return result
+
+    mocker.patch.object(backend, "delete", side_effect=delete_then_a_writer_caches)
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get("MAX_RETRIES") == 2
+    assert cache.read("MAX_RETRIES") == ("int", "3")

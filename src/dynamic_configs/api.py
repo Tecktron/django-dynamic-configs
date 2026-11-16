@@ -47,8 +47,7 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
         entry: Entry | object = cache.ABSENT
     else:
         entry = cache.NOT_CACHED if no_cache else cache.read(name)
-        if entry is cache.NOT_CACHED or entry is cache.UNRECOGNISED:
-            replace = entry is cache.UNRECOGNISED
+        if entry is cache.NOT_CACHED:
             try:
                 entry = _load_entry(name)
             except DatabaseError:
@@ -63,14 +62,14 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
                     exc_info=True,
                 )
                 return default
-            # Cached only once the read's transaction commits. A plain read only fills an empty slot (or replaces an
-            # entry it didn't recognise), so a slow reader can't replace the newer entry a writer cached; no_cache=True
-            # drops the entry instead, for the same reason.
+            # Cached only once the read's transaction commits. A plain read only fills an empty slot, so a slow
+            # reader can't replace the newer entry a writer cached; no_cache=True drops the entry instead, for the
+            # same reason.
             using = router.db_for_read(Config)
             if no_cache:
                 cache.delete_on_commit(name, using=using)
             else:
-                cache.write_on_commit(name, entry, using=using, overwrite=replace)
+                cache.write_on_commit(name, entry, using=using)
     if entry is cache.ABSENT:
         if not has_default:
             raise ConfigDoesNotExist(f"Config {name!r} does not exist.")

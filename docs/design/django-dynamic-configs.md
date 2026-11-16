@@ -412,8 +412,8 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
   A name long enough to push the cache's full key past 250 characters (Memcached's limit) is keyed by its start and a
   hash of the whole name instead. A `KEY_PREFIX` so long that even that key doesn't fit means Memcached caches
   nothing (every read goes to the database); backends that only warn about long keys still cache.
-- **Anything else in the slot** (not a `(str, str | None)` pair or the marker, such as an unhashable type key) is a
-  miss, and the refill replaces it.
+- **Anything else in the slot** (not a `(str, str | None)` pair or the marker, such as an unhashable type key) is
+  dropped and read as a miss, so the usual refill (`add`) fills the slot without overwriting a newer entry.
 - **Missing settings** are cached as a marker, so `get(name, default)` for a nonexistent setting doesn't query the
   database on every call.
 - **Timeout:** `DYNAMIC_CONFIGS["TIMEOUT"]`, default `300` seconds; `None` means no expiry (Django's semantics).

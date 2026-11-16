@@ -94,12 +94,14 @@ def test_entries_from_a_cache_that_stores_json_read_as_hits(text):
     "raw",
     ["garbage", ("str",), ("str", "a", "b"), [["int"], "1"], (1, "x"), ("str", 5), {"str": "x", "int": "1"}, 0],
 )
-def test_entries_of_any_other_shape_read_as_unrecognised(raw, caplog):
+def test_entries_of_any_other_shape_are_dropped_and_read_as_not_cached(raw, caplog):
     caplog.set_level(logging.DEBUG, logger="dynamic_configs")
-    cache.get_cache().set(cache.cache_key("SITE_NAME", cache.get_cache()), raw)
-    assert cache.read("SITE_NAME") is cache.UNRECOGNISED
+    backend = cache.get_cache()
+    backend.set(cache.cache_key("SITE_NAME", backend), raw)
+    assert cache.read("SITE_NAME") is cache.NOT_CACHED
+    assert backend.get(cache.cache_key("SITE_NAME", backend)) is None
     assert [record.getMessage() for record in caplog.records] == [
-        "Cache entry for config 'SITE_NAME' isn't recognised; reading from the database"
+        "Dropped the unrecognised cache entry for config 'SITE_NAME'; reading from the database"
     ]
 
 
@@ -175,7 +177,6 @@ def test_hits_and_misses_are_logged_at_debug(caplog):
 def test_markers_name_themselves_in_repr():
     assert repr(cache.ABSENT) == "ABSENT"
     assert repr(cache.NOT_CACHED) == "NOT_CACHED"
-    assert repr(cache.UNRECOGNISED) == "UNRECOGNISED"
 
 
 def test_a_fill_never_replaces_an_existing_entry():

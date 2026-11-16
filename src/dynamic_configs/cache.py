@@ -50,8 +50,6 @@ class _Sentinel:
 
 NOT_CACHED: Final = _Sentinel("NOT_CACHED")
 ABSENT: Final = _Sentinel("ABSENT")
-# The slot holds something that isn't an entry of this format, so the refill replaces it instead of leaving it.
-UNRECOGNISED: Final = _Sentinel("UNRECOGNISED")
 
 
 def cache_key(name: str, backend: BaseCache) -> str:
@@ -95,8 +93,9 @@ def get_cache() -> BaseCache | None:
 def read(name: str) -> Entry | _Sentinel:
     """Return the cached entry for ``name``, ``ABSENT`` if it's cached as missing, or else ``NOT_CACHED``.
 
-    ``UNRECOGNISED`` instead when the slot holds anything other than a ``(type_key, text)`` pair of strings (``text``
-    may be None) or the marker.
+    Anything in the slot other than a ``(type_key, text)`` pair of strings (``text`` may be None) or the marker is
+    dropped and reads as ``NOT_CACHED``, so the usual fill (an ``add``) replaces it without ever overwriting an entry
+    a writer caches in the meantime.
     """
     backend = get_cache()
     if backend is None:
@@ -128,15 +127,16 @@ def read(name: str) -> Entry | _Sentinel:
         return (raw[0], raw[1])
     if raw is None:
         log(logger, logging.DEBUG, "Cache miss for config %r", name, config_name=name)
-        return NOT_CACHED
-    log(
-        logger,
-        logging.DEBUG,
-        "Cache entry for config %r isn't recognised; reading from the database",
-        name,
-        config_name=name,
-    )
-    return UNRECOGNISED
+    else:
+        log(
+            logger,
+            logging.DEBUG,
+            "Dropped the unrecognised cache entry for config %r; reading from the database",
+            name,
+            config_name=name,
+        )
+        delete(name)
+    return NOT_CACHED
 
 
 def write(name: str, entry: Entry | _Sentinel, *, overwrite: bool = True) -> None:
@@ -174,8 +174,10 @@ def write(name: str, entry: Entry | _Sentinel, *, overwrite: bool = True) -> Non
         log(logger, logging.DEBUG, "Config %r was already cached; kept that entry", name, config_name=name)
 
 
-def write_on_commit(name: str, entry: Entry | _Sentinel, *, using: str, overwrite: bool) -> None:
-    """Cache ``entry`` once the current transaction on ``using`` commits (at once outside a transaction).
+def write_on_commit(name: str, entry: Entry | _Sentinel, *, using: str) -> None:
+    """Fill the empty slot for ``name`` with ``entry`` once the transaction on ``using`` commits (at once outside one).
+
+    Only an empty slot (``add``), so a slow reader can't replace the newer entry a writer cached after committing.
 
     A value read inside a transaction may never be committed; caching it straight away would leave a rolled-back
     value in the cache for every process until it expired. With autocommit off outside a transaction there's no
@@ -184,9 +186,8 @@ def write_on_commit(name: str, entry: Entry | _Sentinel, *, using: str, overwrit
     :param name: the setting's name
     :param entry: what to cache
     :param using: the database alias the entry was read from
-    :param overwrite: passed to :func:`write`: True only to replace an entry ``read`` didn't recognise
     """
-    _on_commit(partial(write, name, entry, overwrite=overwrite), name, using)
+    _on_commit(partial(write, name, entry, overwrite=False), name, using)
 
 
 def delete_on_commit(name: str, *, using: str) -> None:
