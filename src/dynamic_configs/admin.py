@@ -12,11 +12,13 @@ import json
 from typing import Any, cast
 
 from django import forms
+from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.admin import widgets as admin_widgets
-from django.contrib.admin.utils import unquote
+from django.contrib.admin.utils import quote, unquote
 from django.core import checks
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import router
 from django.http import (
     Http404,
     HttpRequest,
@@ -315,6 +317,62 @@ class ConfigAdminMixin:
                 messages.WARNING,
             )
         return super().change_view(request, object_id, form_url, extra_context)  # type: ignore[misc]
+
+    def history_form_view(
+        self, request: HttpRequest, object_id: str, version_id: str, extra_context: dict[str, Any] | None = None
+    ) -> HttpResponse:
+        """Check a revert from django-simple-history's page of a past version, then leave the page to it.
+
+        Only ``SimpleHistoryAdmin`` routes here; with a plain ``ModelAdmin``, Django never calls it. A GET only shows
+        the version, so it's simple-history's alone. A POST restores the version, so it's refused (403) when
+        ``SIMPLE_HISTORY_REVERT_DISABLED`` is set, or when the user can't change the config, or can't add it when it
+        has been deleted (reverting re-creates it). A version whose type isn't the config's, or isn't registered, isn't
+        restored: a config's type never changes.
+        """
+        if request.method == "POST":
+            refusal = self._refuse_revert(request, object_id, version_id)
+            if refusal is not None:
+                return refusal
+        return super().history_form_view(request, object_id, version_id, extra_context)  # type: ignore[misc]
+
+    def _refuse_revert(self, request: HttpRequest, object_id: str, version_id: str) -> HttpResponse | None:
+        """Return a redirect with a message when the version's type rules out the revert, or None to allow it.
+
+        Raise PermissionDenied when the user may not revert.
+        """
+        model = self.model  # type: ignore[attr-defined]
+        history = getattr(model, model._meta.simple_history_manager_attribute)
+        # Found as simple-history finds it, so this checks the version it saves. A missing one is left to its 404.
+        version = history.filter(**{model._meta.pk.attname: object_id, "history_id": version_id}).first()
+        if version is None:
+            return None
+        if getattr(settings, "SIMPLE_HISTORY_REVERT_DISABLED", False):
+            raise PermissionDenied
+        name = version.instance.pk
+        # Read where the revert writes: it updates this row, or inserts it again when it's gone.
+        live = model._default_manager.db_manager(router.db_for_write(model)).filter(pk=name).first()
+        if live is not None:
+            allowed = self.has_change_permission(request, live)  # type: ignore[attr-defined]
+        else:
+            allowed = self.has_add_permission(request)  # type: ignore[attr-defined]
+        if not allowed:
+            raise PermissionDenied
+        if live is not None and version.type != live.type:
+            message = (
+                f"This version's type {version.type!r} isn't the config's type {live.type!r}, and a config's type "
+                "never changes, so it wasn't restored."
+            )
+        elif get_registry().get(version.type) is None:
+            message = (
+                f"This version's type {version.type!r} isn't registered, so it wasn't restored. Add the type to "
+                "DYNAMIC_CONFIGS['TYPES']."
+            )
+        else:
+            return None
+        self.message_user(request, message, messages.ERROR)  # type: ignore[attr-defined]
+        opts = model._meta
+        site = self.admin_site.name  # type: ignore[attr-defined]
+        return HttpResponseRedirect(reverse(f"{site}:{opts.app_label}_{opts.model_name}_history", args=[quote(name)]))
 
     def get_urls(self) -> list[Any]:
         """Add the list editor's check URL, before the admin's own (whose ``<path:object_id>/`` would take it).

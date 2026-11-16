@@ -36,5 +36,5 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   `money_currency` (an amount and a currency code). An amount with more than 2 places is refused,
   unless the type's `options` set a `rounding`.
 - An optional django-simple-history integration (`dynamic_configs.contrib.simple_history`, installed with the
-  `simple-history` extra) that records every change and adds the History button to the admin, with the system check
-  `dynamic_configs.E101`.
+  `simple-history` extra) that records every change and adds the History button to the admin, with the system checks
+  `dynamic_configs.E101` and `E102`. Restoring a past version never changes a config's type.

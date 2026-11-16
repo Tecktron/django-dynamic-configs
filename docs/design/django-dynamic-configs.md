@@ -355,6 +355,7 @@ Django system checks validate the configuration at startup (`manage.py check`, a
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
 | `dynamic_configs.W001`  | (warning) an admin using `ConfigAdminMixin` sets `fields`, `fieldsets` or `readonly_fields`, which the mixin ignores (see Admin) |
 | `dynamic_configs.E101`  | the simple-history sub-app is installed but `simple_history` isn't in `INSTALLED_APPS` |
+| `dynamic_configs.E102`  | the simple-history sub-app is installed and `SIMPLE_HISTORY_HISTORY_ID_USE_UUID` is set (the shipped migration has integer ids) |
 
 ## Public API
 
@@ -683,7 +684,17 @@ Opt-in: install `django-dynamic-configs[simple-history]` and add `"dynamic_confi
   button.
 - Changes through `update`, `delete` and `get_or_create` are recorded too; the user comes from simple_history's
   `HistoryRequestMiddleware` when it's installed.
-- Check `dynamic_configs.E101`: the sub-app is installed but `simple_history` isn't in `INSTALLED_APPS`.
+- Restoring a version (a POST to simple_history's page of a past version) goes through
+  `ConfigAdminMixin.history_form_view` first, for any admin combining the mixin before `SimpleHistoryAdmin`. A version
+  whose type differs from the config's, or isn't registered (the only test for a deleted config), isn't restored, since
+  a config's type never changes: the History page shows an error message and nothing is saved. A version that doesn't
+  exist is left to simple_history's 404.
+- The shipped migration assumes simple_history's defaults for the settings that shape the historical model.
+  `SIMPLE_HISTORY_HISTORY_ID_USE_UUID` isn't supported (every save would fail on the integer `history_id`);
+  `SIMPLE_HISTORY_DATE_INDEX` (`False` or `"Composite"`) and `SIMPLE_HISTORY_HISTORY_CHANGE_REASON_USE_TEXT_FIELD`
+  leave a pending migration in the sub-app; the docs point such projects to `MIGRATION_MODULES`.
+- Checks `dynamic_configs.E101`: the sub-app is installed but `simple_history` isn't in `INSTALLED_APPS`; and
+  `dynamic_configs.E102`: `SIMPLE_HISTORY_HISTORY_ID_USE_UUID` is set.
 
 ## Test helpers
 
@@ -853,7 +864,9 @@ Plus:
   environments in Playwright's Docker image (`mcr.microsoft.com/playwright/python`, non-root, `--ipc=host`, with a
   `base_python` override for the image's Python 3.12).
 - `extras`: newest Django and Python, with django-simple-history installed and its app enabled in the test settings
-  (`tests/settings.py` reads an environment variable).
+  (`tests/settings.py` reads an environment variable). `extras-oldest` runs the same on the oldest Django (5.2) and
+  django-simple-history (3.8) the package supports, on Python 3.12, so the shipped migration is checked against
+  the models both generate.
 - `postgres`: newest Django and Python against PostgreSQL, with `psycopg[binary]`; `tests/settings.py` switches to
   PostgreSQL when an environment variable says so, and the connection comes from libpq's standard `PG*` variables,
   which tox passes through. Every other environment, and every local run, uses SQLite: the package's ORM use is
@@ -879,9 +892,9 @@ Plus:
 - `docs`: builds the documentation site with warnings as errors.
 - `coverage`: combines every environment's data and enforces the threshold.
 
-Plain `tox` runs the matrix, the browser environments, `extras`, `lint`, `docs` and `coverage`. `postgres` (it needs a
-PostgreSQL server), `redis`, `redis-json` and `memcached` (each needs a server of its own) and `djangomain` (it installs
-Django from GitHub each time) run only when named (`tox -e postgres`), and always in CI.
+Plain `tox` runs the matrix, the browser environments, `extras`, `extras-oldest`, `lint`, `docs` and `coverage`.
+`postgres` (it needs a PostgreSQL server), `redis`, `redis-json` and `memcached` (each needs a server of its own) and
+`djangomain` (it installs Django from GitHub each time) run only when named (`tox -e postgres`), and always in CI.
 
 ### Coverage
 

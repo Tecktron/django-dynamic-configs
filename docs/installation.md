@@ -102,6 +102,7 @@ at startup:
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
 | `dynamic_configs.W001`  | (warning) an admin using `ConfigAdminMixin` sets options the mixin ignores; see [Admin and skins](admin.md) |
 | `dynamic_configs.E101`  | the simple-history integration is installed without `simple_history`; see [simple-history](simple-history.md) |
+| `dynamic_configs.E102`  | the simple-history integration is installed and `SIMPLE_HISTORY_HISTORY_ID_USE_UUID` is set, which it doesn't support |
 
 Checks don't run under every server (gunicorn and uwsgi don't run them), so a broken `TYPES` entry never stops
 settings being read: it's logged as an error and skipped, and only settings of that type are affected (they read as

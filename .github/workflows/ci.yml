@@ -83,6 +83,7 @@ jobs:
           - {env: py314-django61, python: "3.14"}
           - {env: py315-django61, python: "3.15", prereleases: true}
           - {env: extras, python: "3.14"}
+          - {env: extras-oldest, python: "3.12"}
           - {env: postgres, python: "3.14"}
           - {env: redis, python: "3.14"}
           - {env: redis-json, python: "3.14"}

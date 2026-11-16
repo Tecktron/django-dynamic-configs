@@ -38,6 +38,20 @@ def test_register_admin_respects_the_setting_and_is_idempotent(settings):
     assert isinstance(site.get_model_admin(Config), ConfigAdmin)
 
 
+def test_the_plain_admin_has_no_page_of_a_past_version():
+    # ConfigAdminMixin.history_form_view serves simple-history's page of a past version, which the plain admin lacks.
+    names = {pattern.name for pattern in ConfigAdmin(Config, AdminSite()).get_urls()}
+    assert names == {
+        "dynamic_configs_config_list_item",
+        "dynamic_configs_config_changelist",
+        "dynamic_configs_config_add",
+        "dynamic_configs_config_history",
+        "dynamic_configs_config_delete",
+        "dynamic_configs_config_change",
+        None,
+    }
+
+
 def test_the_default_admin_passes_its_checks():
     assert ConfigAdmin(Config, AdminSite()).check() == []
 

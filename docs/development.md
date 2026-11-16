@@ -99,6 +99,8 @@ Plain `tox` runs these environments:
   more, use the image tag of that version.
 - **`extras`**: the suite with django-simple-history installed and its app enabled in the test settings
   (`DYNAMIC_CONFIGS_TEST_EXTRAS=1`).
+- **`extras-oldest`**: the same on the oldest Django and django-simple-history the package supports, so the shipped
+  migration is checked against both ends.
 - **`lint`**: ruff's check and format check.
 - **`docs`**: builds this documentation site with warnings as errors.
 - **`coverage`**: combines the coverage of every test environment and enforces 100%.
