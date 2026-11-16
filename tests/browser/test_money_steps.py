@@ -13,6 +13,15 @@ MONEY = {
     },
 }
 
+MONEY_CURRENCY = {
+    "money_currency": {
+        "type": "dynamic_configs.types.money.Money",
+        "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
+        "form": "dynamic_configs.forms.money.MoneyCurrencyField",
+        "label": "Money with currency",
+    },
+}
+
 
 def value_input(page):
     return page.locator("input[name=value]")
@@ -47,3 +56,26 @@ def test_money_with_rounding_saves_more_places_as_typed(admin_page, settings):
     save(admin_page)
     expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
     assert Config.objects.get(name="PRICE").value == "9.95"
+
+
+def test_money_currency_arrows_step_from_whole_cents_after_a_refused_value(admin_page, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": MONEY_CURRENCY}
+    Config.objects.create(name="PRICE", type="money_currency", value="1.00 CAD")
+    admin_page.goto("/admin/dynamic_configs/config/PRICE/change/")
+    amount = admin_page.locator("input[name=value_0]")
+    amount.fill("1.234")
+    save(admin_page)
+    expect(admin_page.locator(".errorlist")).to_contain_text("no more than 2 decimal places")
+    expect(amount).to_have_value("1.234")
+    amount.press("ArrowUp")
+    expect(amount).to_have_value("1.24")
+
+
+def test_money_currency_inputs_sit_side_by_side(admin_page, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": MONEY_CURRENCY}
+    Config.objects.create(name="PRICE", type="money_currency", value="1.00 CAD")
+    admin_page.goto("/admin/dynamic_configs/config/PRICE/change/")
+    amount = admin_page.locator("input[name=value_0]").bounding_box()
+    currency = admin_page.locator("input[name=value_1]").bounding_box()
+    assert amount["y"] < currency["y"] + currency["height"]
+    assert currency["y"] < amount["y"] + amount["height"]

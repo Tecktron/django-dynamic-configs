@@ -6,6 +6,7 @@ from decimal import Decimal
 from html.parser import HTMLParser
 
 import pytest
+from django import forms
 from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.contrib.staticfiles import finders
@@ -269,6 +270,48 @@ def test_decimals_are_marked_for_the_admin_script(admin_client):
 def test_numbers_that_arent_decimals_arent_marked_as_decimals(admin_client, type_key, value):
     make("AMOUNT", type_key, value)
     assert "data-dynamic-configs-decimal" not in admin_client.get(change_url("AMOUNT")).content.decode()
+
+
+MONEY_CURRENCY = {
+    "money_currency": {
+        "type": "dynamic_configs.types.money.Money",
+        "serializer": "dynamic_configs.types.money.MoneyCurrencySerializer",
+        "form": "dynamic_configs.forms.money.MoneyCurrencyField",
+        "label": "Money with currency",
+    },
+}
+
+
+def input_tag(content, name):
+    return re.search(rf"<input [^>]*name=\"{name}\"[^>]*>", content).group(0)
+
+
+def test_the_admin_marks_a_combined_fields_number_part(admin_client, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": MONEY_CURRENCY}
+    make("PRICE", "money_currency", "1.00 CAD")
+    content = admin_client.get(change_url("PRICE")).content.decode()
+    amount, currency = input_tag(content, "value_0"), input_tag(content, "value_1")
+    assert 'type="number"' in amount
+    assert "data-dynamic-configs-decimal" in amount
+    assert 'type="number"' not in currency
+    assert "data-dynamic-configs-decimal" not in currency
+
+
+def test_the_admin_marks_a_list_editors_combined_number_part(admin_client, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": MONEY_CURRENCY}
+    make("PRICES", "list:money_currency", '["1.00 CAD"]')
+    content = admin_client.get(change_url("PRICES")).content.decode()
+    amount, currency = input_tag(content, "value__item_0"), input_tag(content, "value__item_1")
+    assert 'type="number"' in amount
+    assert "data-dynamic-configs-decimal" in amount
+    assert "data-dynamic-configs-decimal" not in currency
+
+
+def test_a_combined_field_with_a_different_number_of_inputs_is_left_alone():
+    widget = forms.MultiWidget([forms.NumberInput()])
+    field = forms.MultiValueField((forms.DecimalField(), forms.CharField()), widget=widget, require_all_fields=False)
+    ConfigAdminMixin._use_admin_widget(field)
+    assert type(widget.widgets[0]) is forms.NumberInput
 
 
 def post_datetime(admin_client, name, day, clock, zone):

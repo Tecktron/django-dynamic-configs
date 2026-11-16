@@ -188,21 +188,37 @@ class ConfigAdminMixin:
     ordering = ("name",)
 
     @classmethod
-    def _use_admin_widget(cls, field: forms.Field) -> None:
-        """Swap ``field``'s widget for the admin's version when it's one of Django's plain widgets, keeping its attrs.
+    def _admin_widget_class(cls, field: forms.Field, widget: forms.Widget) -> type[forms.Widget] | None:
+        """Return the admin's version of ``widget`` (``field``'s input, or a part of it), or None to keep it.
 
         A number input is swapped for a decimal field (money's too) and a whole-number field, each with its own mark.
         Float and decimal fields use the same input as whole numbers, and Django makes them subclasses of
         ``IntegerField``; a float's input is left as it is.
         """
-        widget_class = cls._ADMIN_WIDGETS.get(type(field.widget))
-        if type(field.widget) is forms.NumberInput:
+        widget_class = cls._ADMIN_WIDGETS.get(type(widget))
+        if type(widget) is forms.NumberInput:
             if isinstance(field, forms.DecimalField):
                 widget_class = AdminDecimalInput
             elif isinstance(field, forms.IntegerField) and not isinstance(field, forms.FloatField):
                 widget_class = AdminIntegerInput
+        return widget_class
+
+    @classmethod
+    def _use_admin_widget(cls, field: forms.Field) -> None:
+        """Swap ``field``'s widget for the admin's version when it's one of Django's plain widgets, keeping its attrs.
+
+        A combined field (``MultiValueField``) whose widget has one input per field gets the same for each part.
+        """
+        widget_class = cls._admin_widget_class(field, field.widget)
         if widget_class is not None:
             field.widget = widget_class(attrs=field.widget.attrs)
+        elif isinstance(field, forms.MultiValueField) and isinstance(field.widget, forms.MultiWidget):
+            parts = field.widget.widgets
+            if len(parts) == len(field.fields):
+                for index, (part_field, part) in enumerate(zip(field.fields, parts, strict=True)):
+                    part_class = cls._admin_widget_class(part_field, part)
+                    if part_class is not None:
+                        parts[index] = part_class(attrs=part.attrs)
 
     @staticmethod
     def _chosen_type(request: HttpRequest) -> ConfigType | None:

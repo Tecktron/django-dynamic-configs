@@ -6,6 +6,8 @@ from typing import Any
 
 from django import forms
 from django.core.exceptions import ValidationError
+from django.utils.html import format_html
+from django.utils.safestring import SafeString
 
 from dynamic_configs.types.money import Money, check_amount
 
@@ -33,13 +35,21 @@ class MoneyField(forms.DecimalField):
 class MoneyCurrencyWidget(forms.MultiWidget):
     """An amount input and a 3-character currency input, side by side (no JavaScript)."""
 
-    def __init__(self, attrs: dict[str, Any] | None = None) -> None:
-        """Create the amount and currency inputs."""
+    def __init__(self, attrs: dict[str, Any] | None = None, amount_widget: forms.Widget | None = None) -> None:
+        """Create the amount and currency inputs.
+
+        :param attrs: attributes for the widget as a whole
+        :param amount_widget: the amount's input; ``MoneyField``'s own when None
+        """
         widgets = [
-            forms.TextInput(attrs={"inputmode": "decimal", "size": 10}),
+            MoneyField().widget if amount_widget is None else amount_widget,
             forms.TextInput(attrs={"size": 3, "maxlength": 3}),
         ]
         super().__init__(widgets, attrs)
+
+    def render(self, name: str, value: Any, attrs: dict[str, Any] | None = None, renderer: Any = None) -> SafeString:
+        """Render both inputs in one element, so a flex layout stays side by side (Django 6.1's admin stacks children)."""
+        return format_html("<span>{}</span>", super().render(name, value, attrs, renderer))
 
     def decompress(self, value: Any) -> list[Any]:
         """Split money into its amount and currency."""
@@ -59,7 +69,9 @@ class MoneyCurrencyField(forms.MultiValueField):
         :param rounding: the type's rounding (``formfield_for`` passes it), or None
         """
         self.rounding = rounding
-        super().__init__((MoneyField(rounding=rounding), forms.CharField(min_length=3, max_length=3)), **kwargs)
+        amount = MoneyField(rounding=rounding)
+        kwargs.setdefault("widget", MoneyCurrencyWidget(amount_widget=amount.widget))
+        super().__init__((amount, forms.CharField(min_length=3, max_length=3)), **kwargs)
 
     def compress(self, data_list: list[Any]) -> Money | None:
         """Return ``Money`` from the cleaned amount and currency."""

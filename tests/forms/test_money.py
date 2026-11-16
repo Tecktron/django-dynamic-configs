@@ -2,6 +2,7 @@ import decimal
 from decimal import Decimal
 
 import pytest
+from django import forms
 from django.core.exceptions import ValidationError
 
 from dynamic_configs.forms.fields import formfield_for
@@ -110,3 +111,10 @@ def test_a_subclass_of_the_money_field_gets_the_rounding():
     assert isinstance(field, ProjectMoneyField)
     assert field.clean("9.946") == Decimal("9.946")
     assert MoneySerializer(rounding="ROUND_HALF_UP").serialize(field.clean("9.946")) == "9.95"
+
+
+@pytest.mark.parametrize("rounding", [None, decimal.ROUND_HALF_UP])
+def test_the_currency_fields_amount_is_the_money_fields_number_input(rounding):
+    amount = MoneyCurrencyField(rounding=rounding).widget.widgets[0]
+    assert type(amount) is forms.NumberInput
+    assert amount.attrs["step"] == "0.01"
