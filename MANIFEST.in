@@ -3,3 +3,4 @@
 include CHANGELOG.md tox.ini
 graft tests
 global-exclude __pycache__ *.py[cod]
+include scripts/update_currencies.py
