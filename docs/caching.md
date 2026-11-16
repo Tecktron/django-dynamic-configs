@@ -45,13 +45,22 @@ logged.
   data migration that changes settings, refresh their cache entries: `get(name, default=None, no_cache=True)` does
   that for one.
 - `get_or_create` always reads the database, and so does `get(name, no_cache=True)`. When its transaction commits,
-  each reads the row again and caches what the database then holds, as a save does.
+  each reads the row again and caches it, as a save does. That re-read goes to the primary database (your router's
+  `db_for_write`), so a lagging replica can't put an old value back.
 - A plain `get` that misses caches what it read when its transaction commits, but only into an empty slot: it never
-  replaces an entry. If the slot is empty by then (the entry expired or was evicted) and the setting has changed
-  since the read, as can happen in a long transaction, the value it read is cached until the setting is saved or
-  refreshed again, or the entry expires.
+  replaces an entry.
 - With autocommit turned off and no transaction open, there's no commit to wait for, so `get` and `get_or_create`
   leave the cache entry as it is.
+
+So saves, deletes and those two reads cache what the database holds when their callback re-reads it. Two gaps
+remain, since a cache has no compare-and-set:
+
+- **Two commits within one re-read of each other:** if the second callback re-reads and caches the new value while
+  the first is between its re-read and its cache write, the first puts the older value back.
+- **A plain `get` in a long transaction:** if its slot is empty when it commits (the entry expired or was evicted)
+  and the setting changed after its read, it caches the value it read.
+
+Either lasts until the setting is saved or refreshed again, or the entry expires (never, with `TIMEOUT=None`).
 
 If the cache is down while a setting is saved or deleted, the failure is logged as a warning and the save still
 succeeds; the old entry, if one is left, expires after `TIMEOUT`. A failed cache read is logged too, and the setting

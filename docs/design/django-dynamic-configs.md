@@ -421,18 +421,20 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
   database). When the transaction commits (`transaction.on_commit`), it reads the row again on the save's database
   and caches what the database holds (`set`), or nothing if the row is gone by then. So a rolled-back save never
   reaches the cache, `save(update_fields=[...])` from a stale copy or a Python value assigned to `value` never
-  caches what the instance holds, and of two writers committing out of order, the later callback caches the newer
-  row.
+  caches what the instance holds. Two writers committing out of order leave the newer row cached unless their
+  callbacks overlap: the window narrows to one callback's re-read and `set` (the cache has no compare-and-set).
 - **On delete:** `post_delete` does the same, caching the missing marker on commit (or the row, if another
   transaction has created it again by then).
 - **Reads past the cache refresh it:** `get(no_cache=True)` and `get_or_create` (for an existing setting) register
-  the receivers' re-read on commit, on the database they read from: they cache the row as the database then holds
-  it (`set`), or the missing marker if it's gone. So they never cache what they read earlier, and a slower plain
-  read's `add` finds the slot filled.
+  the receivers' re-read on commit, waiting for the transaction they read in but re-reading on
+  `router.db_for_write` (the primary, so a lagging replica can't put a stale value over a writer's entry). They
+  cache the row as the database holds it then (`set`), or the missing marker if it's gone. So they never cache what
+  they read earlier, and a slower plain read's `add` finds the slot filled. The same overlap window as writers'
+  applies.
 - **Plain reads fill an empty slot only:** a plain `get` that misses caches what it read with `add` on commit, so it
-  never replaces an entry. That is the whole guarantee: if the slot is empty when it commits (expired or evicted)
-  and the setting changed after its read, as can happen in a long transaction, it caches the value it read until
-  the next save or refresh, or expiry.
+  never replaces an entry. But if the slot is empty when it commits (expired or evicted) and the setting changed
+  after its read, as can happen in a long transaction, it caches the value it read until the next save or refresh,
+  or expiry.
 - With autocommit off outside a transaction, `on_commit` can't run, so reads skip their cache write (logged at
   DEBUG).
 - A failed re-read after a commit is logged as a warning and drops the entry; it never fails the commit.
@@ -440,7 +442,8 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
   succeeds; the old entry, if one is left, expires after `TIMEOUT`.
 - Admin saves, `update`, `delete` and `get_or_create` all go through the model's `save`/`delete`, so they all trigger
   this. `QuerySet.update()`, `bulk_create()` and `bulk_update()` bypass signals, and so does a data migration's
-  historical `Config` model (clear the affected entries after the migration); the docs say so.
+  historical `Config` model (refresh with `get(name, default=None, no_cache=True)` after the migration has run); the
+  docs say so.
   (`QuerySet.delete()` does send `post_delete` for each row, because a receiver is connected.)
 - **Large values:** Memcached's default item limit is 1 MB (servers can raise it with `-I`). A larger value is read
   from the database every time, and each read logs a warning.

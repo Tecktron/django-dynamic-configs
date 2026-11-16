@@ -5,7 +5,7 @@ from datetime import timezone as dt_timezone
 from enum import Enum
 
 import pytest
-from django.db import DatabaseError, connections, transaction
+from django.db import DatabaseError, connections, router, transaction
 
 import dynamic_configs
 from dynamic_configs import _overrides, cache
@@ -556,3 +556,23 @@ def test_a_newer_entry_cached_after_an_unrecognised_one_is_dropped_is_kept(mocke
     with django_capture_on_commit_callbacks(execute=True):
         assert dynamic_configs.get("MAX_RETRIES") == 2
     assert cache.read("MAX_RETRIES") == ("int", "3")
+
+
+@pytest.mark.parametrize(
+    "read_past_the_cache",
+    [
+        lambda: dynamic_configs.get("SITE_NAME", no_cache=True),
+        lambda: dynamic_configs.get_or_create("SITE_NAME", "str", "Other"),
+    ],
+    ids=["no_cache", "get_or_create"],
+)
+def test_reads_past_the_cache_refresh_it_from_the_primary(
+    read_past_the_cache, mocker, django_capture_on_commit_callbacks
+):
+    # With a primary/replica router, a re-read on a lagging replica could set a stale value over a writer's entry.
+    make()
+    mocker.patch.object(router, "db_for_write", return_value="primary")
+    write_from_database = mocker.patch.object(cache, "write_from_database")
+    with django_capture_on_commit_callbacks(execute=True):
+        read_past_the_cache()
+    write_from_database.assert_called_once_with("SITE_NAME", "primary", gone=cache.ABSENT)

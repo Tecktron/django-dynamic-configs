@@ -36,7 +36,8 @@ Returns the setting's value, as its type's Python type, or `None` for an empty s
 - A name that doesn't match the name pattern can never be saved, so `get` treats it as missing without touching the
   cache or the database.
 - `no_cache=True` skips the cache read and reads the database. When the read's transaction commits, the cache entry
-  is refreshed with what the database then holds (see [Caching](caching.md)).
+  is refreshed with what the primary database holds when the callback re-reads it (see [Caching](caching.md), which
+  names the remaining gaps).
 - Overrides from the test helpers come first (see [Testing](testing.md)).
 
 ## `get_or_create`
@@ -48,7 +49,7 @@ get_or_create(name, type, value, *, description="", allow_null=False)
 Returns `(value, created)`.
 
 - It always reads the database, so code that declares its settings this way sees what an admin has changed. Like
-  `get(name, no_cache=True)`, it refreshes the cache entry from the database when the transaction commits.
+  `get(name, no_cache=True)`, it refreshes the cache entry from the primary database when the transaction commits.
 - When the setting exists, it returns the stored value and `created=False`; `type`, `value`, `description` and
   `allow_null` are not used, except that a setting stored with a different type raises `ConfigTypeError`.
 - When it doesn't exist, it checks the name, the type key and the value, creates the setting, and returns

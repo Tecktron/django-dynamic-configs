@@ -21,7 +21,7 @@ from typing import Final
 from django.core.cache import InvalidCacheBackendError, caches
 from django.core.cache.backends.base import BaseCache
 from django.core.cache.backends.dummy import DummyCache
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, router, transaction
 from django.db.transaction import TransactionManagementError
 
 from dynamic_configs.conf import get_settings
@@ -192,21 +192,27 @@ def write_on_commit(name: str, entry: Entry | _Sentinel, *, using: str) -> None:
 
 
 def refresh_on_commit(name: str, *, using: str) -> None:
-    """Cache what the database ``using`` holds for ``name`` once the current transaction on ``using`` commits.
+    """Once the current transaction on ``using`` commits, cache what the primary database holds for ``name``.
 
-    For reads that skip the cache (``get(no_cache=True)``, ``get_or_create``): they cache the row as it is at their
-    commit, as writers do, never what they read earlier, so they can't replace a newer entry; and they fill the slot,
-    so a slower plain read's ``add`` can't cache an older value after them. The "doesn't exist" marker if there's no
-    row. As with :func:`write_on_commit`, nothing happens with autocommit off outside a transaction.
+    For reads that skip the cache (``get(no_cache=True)``, ``get_or_create``): like writers, they cache the row as the
+    database holds it when the callback re-reads it, never what they read earlier, and they fill the slot, so a
+    slower plain read's ``add`` can't cache an older value after them. The "doesn't exist" marker if there's no row.
+    The re-read goes to ``router.db_for_write`` (the primary): a lagging replica could put a stale value over a
+    writer's entry. As with :func:`write_on_commit`, nothing happens with autocommit off outside a transaction.
+
+    :param name: the setting's name
+    :param using: the database alias the read ran on, whose commit to wait for
     """
-    _on_commit(partial(write_from_database, name, using, gone=ABSENT), name, using)
+    _on_commit(partial(write_from_database, name, router.db_for_write(Config), gone=ABSENT), name, using)
 
 
 def write_from_database(name: str, using: str, *, gone: object) -> None:
     """Read the row ``name`` from the database ``using`` and cache it (``set``).
 
-    If there's no row, ``gone`` is cached instead, unless it's None. Runs after a commit, so it never raises: a failed read is logged and the entry dropped, since a slow reader may
-    have filled it in the meantime.
+    If there's no row, ``gone`` is cached instead, unless it's None. Runs after a commit, so it never raises: a failed
+    read is logged and the entry dropped, since a slow reader may have filled it in the meantime. The re-read and the
+    ``set`` are two steps, and the cache has no compare-and-set: a writer whose callback runs in between can have its
+    newer entry replaced by this older one.
     """
     try:
         row = Config._default_manager.using(using).filter(name=name).values_list("type", "value").first()
