@@ -192,7 +192,8 @@ class DateTimeSerializer(BaseSerializer):
         """Apply Django's time zone settings to ``value``.
 
         With ``USE_TZ`` on, a naive datetime is read in ``TIME_ZONE`` (ambiguous or missing local times around a daylight
-        saving change follow ``zoneinfo``'s ``fold=0`` rule) and the result is converted to UTC. With ``USE_TZ`` off, an
+        saving change follow ``zoneinfo``: the caller's ``fold`` is honoured, and a time that doesn't set one has
+        ``fold=0``) and the result is converted to UTC. With ``USE_TZ`` off, an
         aware datetime is converted to ``TIME_ZONE`` and made naive, Django's own convention for that mode.
 
         :param value: a naive or aware datetime
