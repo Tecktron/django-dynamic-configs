@@ -59,5 +59,5 @@ LOGGING = {
 - Changes made in the admin aren't logged by the package: Django's admin keeps its own log of them.
 - Problems in the configuration are reported by Django's system checks at startup (see
   [System checks](installation.md#system-checks)). Since a server may not run the checks, two are also logged when
-  they're met at run time: a broken `TYPES` entry, skipped, as an error, and a `CACHE` alias that isn't in `CACHES`
+  they're met at run time: a broken `TYPES` entry, skipped, as an error, and a `CACHE` that isn't an alias in `CACHES`
   as a warning.

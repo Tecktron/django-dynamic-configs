@@ -32,7 +32,7 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
 
     :param name: the config's name, such as ``"SITE_NAME"``
     :param default: returned when the config doesn't exist or can't be read
-    :param no_cache: skip the cache read (the cache entry is still refreshed with what's read)
+    :param no_cache: skip the cache read and drop the cache entry once the read's transaction commits
     :returns: the typed value, or None for an empty ``allow_null`` config
     :raises ConfigDoesNotExist: the config doesn't exist and no default was passed
     :raises ConfigValueError: the stored value can't be read (or its type isn't registered) and no default was passed
@@ -47,7 +47,8 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
         entry: Entry | object = cache.ABSENT
     else:
         entry = cache.NOT_CACHED if no_cache else cache.read(name)
-        if entry is cache.NOT_CACHED:
+        if entry is cache.NOT_CACHED or entry is cache.UNRECOGNISED:
+            replace = entry is cache.UNRECOGNISED
             try:
                 entry = _load_entry(name)
             except DatabaseError:
@@ -62,9 +63,14 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
                     exc_info=True,
                 )
                 return default
-            # Cached only once the read's transaction commits; a plain read only fills an empty slot, while
-            # no_cache=True refreshes whatever is there.
-            cache.write_on_commit(name, entry, using=router.db_for_read(Config), overwrite=no_cache)
+            # Cached only once the read's transaction commits. A plain read only fills an empty slot (or replaces an
+            # entry it didn't recognise), so a slow reader can't replace the newer entry a writer cached; no_cache=True
+            # drops the entry instead, for the same reason.
+            using = router.db_for_read(Config)
+            if no_cache:
+                cache.delete_on_commit(name, using=using)
+            else:
+                cache.write_on_commit(name, entry, using=using, overwrite=replace)
     if entry is cache.ABSENT:
         if not has_default:
             raise ConfigDoesNotExist(f"Config {name!r} does not exist.")
@@ -129,8 +135,8 @@ def get_or_create(
 ) -> tuple[Any, bool]:
     """Return the config ``name``, creating it with ``value`` if it doesn't exist.
 
-    Always reads the database (then refreshes the cache), so code that declares its settings this way sees what an
-    admin has changed.
+    Always reads the database (then drops the cache entry once the transaction commits, so the next ``get`` fills
+    it), so code that declares its settings this way sees what an admin has changed.
 
     :param name: the config's name (UPPER_SNAKE_CASE)
     :param type: a registered type key, such as ``"int"`` or ``"list:str"``
@@ -156,7 +162,7 @@ def get_or_create(
     if not created:
         if config.type != type:
             raise ConfigTypeError(f"Config {name!r} already exists with type {config.type!r}, not {type!r}.")
-        cache.write_on_commit(name, (config.type, config.value), using=config._state.db, overwrite=True)
+        cache.delete_on_commit(name, using=config._state.db)
     return _decode(name, config.type, config.value), created
 
 

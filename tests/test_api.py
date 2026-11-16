@@ -38,12 +38,30 @@ def test_get_uses_the_cache_without_querying(django_assert_num_queries):
         assert dynamic_configs.get("SITE_NAME") == "Cached"
 
 
-def test_no_cache_reads_the_database_and_refreshes_the_cache(django_capture_on_commit_callbacks):
+def test_no_cache_reads_the_database_and_drops_the_cache_entry(django_capture_on_commit_callbacks):
     make(value="Fresh")
     cache.write("SITE_NAME", ("str", "Stale"))
     with django_capture_on_commit_callbacks(execute=True):
         assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Fresh"
-    assert cache.read("SITE_NAME") == ("str", "Fresh")
+    assert cache.read("SITE_NAME") is cache.NOT_CACHED
+    assert dynamic_configs.get("SITE_NAME") == "Fresh"
+
+
+def test_no_cache_read_drops_the_entry_instead_of_overwriting(mocker, django_capture_on_commit_callbacks):
+    # F17: a slow no_cache read (or get_or_create) refilled with set, overwriting the newer entry a writer cached.
+    make(value="Example")
+    backend = cache.get_cache()
+    backend_set = mocker.spy(backend, "set")
+    backend_delete = mocker.spy(backend, "delete")
+    key = cache.cache_key("SITE_NAME", backend)
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Example"
+        assert dynamic_configs.get_or_create("SITE_NAME", "str", "Other") == ("Example", False)
+    backend_delete.assert_not_called()
+    for callback in callbacks:
+        callback()
+    backend_set.assert_not_called()
+    assert backend_delete.call_args_list == [mocker.call(key), mocker.call(key)]
 
 
 def test_a_missing_setting_raises_without_a_default():
@@ -177,12 +195,13 @@ def test_get_or_create_creates_a_missing_setting(caplog):
     assert "Created config 'MAX_RETRIES' (type 'int')" in caplog.text
 
 
-def test_get_or_create_returns_an_existing_value_and_refreshes_the_cache(django_capture_on_commit_callbacks):
+def test_get_or_create_returns_an_existing_value_and_drops_the_cache_entry(django_capture_on_commit_callbacks):
     make("MAX_RETRIES", "int", "5")
     cache.write("MAX_RETRIES", ("int", "4"))
     with django_capture_on_commit_callbacks(execute=True):
         assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 3) == (5, False)
-    assert cache.read("MAX_RETRIES") == ("int", "5")
+    assert cache.read("MAX_RETRIES") is cache.NOT_CACHED
+    assert dynamic_configs.get("MAX_RETRIES") == 5
 
 
 def test_get_or_create_refuses_an_existing_setting_of_another_type():
@@ -421,3 +440,52 @@ def test_the_docs_example_custom_type_saves_through_update_and_get_or_create(set
     with pytest.raises(ConfigValueError, match="can't be stored: Enter a hex color"):
         dynamic_configs.update("BRAND", Color("red"))
     assert dynamic_configs.get("BRAND") == Color("#ffffff")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_get_with_default_never_raises_with_autocommit_off(caplog):
+    # F20: the cache fill's on_commit raised TransactionManagementError outside atomic with autocommit off.
+    make("MAX_RETRIES", "int", "3")
+    cache.delete("MAX_RETRIES")
+    caplog.set_level(logging.DEBUG, logger="dynamic_configs")
+    transaction.set_autocommit(False)
+    try:
+        assert dynamic_configs.get("MAX_RETRIES", 0) == 3
+        assert dynamic_configs.get("MAX_RETRIES", 0, no_cache=True) == 3
+        assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 1) == (3, False)
+    finally:
+        transaction.rollback()
+        transaction.set_autocommit(True)
+    assert cache.read("MAX_RETRIES") is cache.NOT_CACHED
+    message = "Left the cache entry for config 'MAX_RETRIES' as it is: autocommit is off outside a transaction"
+    assert caplog.text.count(message) == 3
+
+
+def test_a_non_string_cache_setting_reads_uncached(settings, caplog):
+    # F21: a non-string CACHE made every get raise TypeError, default or not.
+    make("MAX_RETRIES", "int", "3")
+    settings.DYNAMIC_CONFIGS = {"CACHE": 3}
+    assert dynamic_configs.get("MAX_RETRIES", 0) == 3
+    assert dynamic_configs.get("MAX_RETRIES") == 3
+    assert "Cache alias 3 isn't configured; reading configs without a cache" in caplog.text
+
+
+def test_a_cache_entry_with_an_unhashable_type_is_a_miss(django_capture_on_commit_callbacks):
+    # F22: an unhashable type key made get raise TypeError despite a default.
+    make("MAX_RETRIES", "int", "2")
+    backend = cache.get_cache()
+    backend.set(cache.cache_key("MAX_RETRIES", backend), [["int"], "1"])
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get("MAX_RETRIES", 0) == 2
+
+
+def test_an_unrecognised_cache_entry_is_replaced(django_capture_on_commit_callbacks, django_assert_num_queries):
+    # F23: the refill used add, so an unrecognised entry stayed and every get read the database until it expired.
+    make("MAX_RETRIES", "int", "2")
+    backend = cache.get_cache()
+    backend.set(cache.cache_key("MAX_RETRIES", backend), "garbage")
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get("MAX_RETRIES") == 2
+    assert cache.read("MAX_RETRIES") == ("int", "2")
+    with django_assert_num_queries(0):
+        assert dynamic_configs.get("MAX_RETRIES") == 2

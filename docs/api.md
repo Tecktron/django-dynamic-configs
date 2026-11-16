@@ -35,7 +35,8 @@ Returns the setting's value, as its type's Python type, or `None` for an empty s
   the default, and is logged (see [Failure handling and logging](failures.md)).
 - A name that doesn't match the name pattern can never be saved, so `get` treats it as missing without touching the
   cache or the database.
-- `no_cache=True` skips the cache read and reads the database, then refreshes the cache entry with what it read.
+- `no_cache=True` skips the cache read and reads the database, then drops the cache entry when the read's transaction
+  commits, so the next `get` fills it again (see [Caching](caching.md)).
 - Overrides from the test helpers come first (see [Testing](testing.md)).
 
 ## `get_or_create`
@@ -46,8 +47,8 @@ get_or_create(name, type, value, *, description="", allow_null=False)
 
 Returns `(value, created)`.
 
-- It always reads the database, then refreshes the cache, so code that declares its settings this way sees what an
-  admin has changed.
+- It always reads the database, so code that declares its settings this way sees what an admin has changed. Like
+  `get(name, no_cache=True)`, it then drops the cache entry when the transaction commits.
 - When the setting exists, it returns the stored value and `created=False`; `type`, `value`, `description` and
   `allow_null` are not used, except that a setting stored with a different type raises `ConfigTypeError`.
 - When it doesn't exist, it checks the name, the type key and the value, creates the setting, and returns
@@ -87,7 +88,8 @@ sync functions with `asgiref.sync.sync_to_async`, so they behave exactly alike.
 Admin saves and the API go through the model's `save` and `delete`, which keep the cache in step. If you change
 `Config` rows yourself, use the model's `save()` and `delete()` (or `QuerySet.delete()`) too:
 `QuerySet.update()`, `bulk_create()` and `bulk_update()` don't send Django's signals, so the cache keeps the old value
-until it expires (see [Caching](caching.md)).
+until it expires (see [Caching](caching.md)). Nor does the historical `Config` model in a data migration: after one
+that changes settings, clear their cache entries.
 
 ## Exceptions
 

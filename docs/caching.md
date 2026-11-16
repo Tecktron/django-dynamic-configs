@@ -14,8 +14,9 @@ DYNAMIC_CONFIGS = {
 }
 ```
 
-An alias that isn't in `CACHES` is reported by the system check `dynamic_configs.E005`; if the server starts anyway,
-settings are read without a cache and a warning is logged.
+An alias that isn't in `CACHES` is reported by the system check `dynamic_configs.E005`, and a value that isn't a
+string by `dynamic_configs.E001`; if the server starts anyway, settings are read without a cache and a warning is
+logged.
 
 ## What's cached
 
@@ -23,27 +24,39 @@ settings are read without a cache and a warning is logged.
   deserialized value, so your custom classes are never pickled into the cache. `v1` lets a later release change the
   format safely.
   A name long enough to push the cache's full key past 250 characters (Memcached's limit) is keyed by its start and a
-  hash of the whole name instead.
+  hash of the whole name instead. If your cache's `KEY_PREFIX` is so long that even that key doesn't fit, Memcached
+  refuses it: nothing is cached and every read goes to the database.
 - **Missing settings** are cached as a marker, so `get(name, default)` for a setting that doesn't exist doesn't query
   the database on every call.
 - **Timeout:** `DYNAMIC_CONFIGS["TIMEOUT"]`, default `300` seconds; `None` means no expiry (Django's semantics).
 
 ## When the cache is refreshed
 
-- **On save:** the entry is deleted at once, so reads inside the same transaction go to the database, then replaced
-  with the new value when the transaction commits, so a rolled-back save never reaches the cache.
-- **On delete:** the same, writing the missing marker on commit.
+- **On save:** the entry is deleted at once, so reads inside the same transaction go to the database. When the
+  transaction commits, the row is read again and cached as the database holds it. So a rolled-back save never reaches
+  the cache, and a save of some fields only (`save(update_fields=[...])`) never caches an old copy's value.
+- **On delete:** the same, writing the missing marker on commit (or the row, if it was created again by then).
 - Admin saves, `update`, `delete` and `get_or_create` all go through the model's `save` and `delete`, so they all
   refresh the cache. So does `QuerySet.delete()`, which sends Django's `post_delete` signal for each row.
 - `QuerySet.update()`, `bulk_create()` and `bulk_update()` **bypass Django's signals**, so the cache isn't refreshed.
   If you change `Config` rows that way, the old value is served until its entry expires; use `save()` or the API
   instead.
-- `get_or_create` always reads the database and refreshes the entry with what it read, and so does
-  `get(name, no_cache=True)`.
+- Data migrations bypass them too: the historical `Config` model a migration gets has no signal receivers. After a
+  data migration that changes settings, clear their cache entries, for example with
+  `get(name, default=None, no_cache=True)`, which drops one.
+- `get_or_create` always reads the database, and so does `get(name, no_cache=True)`. Neither overwrites the cache
+  entry: each drops it when its transaction commits, and the next `get` fills it again. That way a slow read can't
+  replace a newer value that a save has cached.
+- With autocommit turned off and no transaction open, there's no commit to wait for, so `get` and `get_or_create`
+  leave the cache entry as it is.
 
 If the cache is down while a setting is saved or deleted, the failure is logged as a warning and the save still
 succeeds; the old entry, if one is left, expires after `TIMEOUT`. A failed cache read is logged too, and the setting
 is read from the database (see [Failure handling and logging](failures.md)).
+
+Memcached's default item limit is 1 MB
+([Memcached docs](https://docs.memcached.org/userguide/usecases/#storing-sets-or-lists); servers can raise it with
+`-I`). A larger value is read from the database every time, and each read logs a warning.
 
 ## Per-process caches
 

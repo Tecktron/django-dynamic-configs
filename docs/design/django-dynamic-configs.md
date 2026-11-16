@@ -373,12 +373,12 @@ aget(...), aget_or_create(...), aupdate(...), adelete(...)  # async, same argume
 
 - **`get`** returns the deserialized value, or `None` for an empty `allow_null` setting. When the setting doesn't
   exist and no default was passed, it raises `ConfigDoesNotExist`. `no_cache=True` skips the cache read, then
-  refreshes the cache entry with what it read.
+  drops the cache entry when the read's transaction commits (see Caching).
 - Names that don't match the name pattern can never be saved, so `get` treats them as missing without touching the
   cache or the database.
-- **`get_or_create`** always reads the database, then refreshes the cache. When the setting exists, it returns the
-  stored value and `created=False`; if the stored type differs from `type`, it raises `ConfigTypeError`. When it
-  doesn't exist, it validates the name, the type key and the value, creates the setting, and returns
+- **`get_or_create`** always reads the database, then drops the cache entry on commit. When the setting exists, it
+  returns the stored value and `created=False`; if the stored type differs from `type`, it raises `ConfigTypeError`.
+  When it doesn't exist, it validates the name, the type key and the value, creates the setting, and returns
   `(value, True)`. Concurrent creation is handled by Django's `get_or_create`.
 - **`update`** changes an existing setting inside a transaction (`select_for_update`). `allow_null=None` keeps the
   setting's flag; `True` or `False` updates it in the same save. `new_value=None` is accepted only when the
@@ -405,23 +405,39 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
 ## Caching
 
 - **Enabled** when `DYNAMIC_CONFIGS["CACHE"]` names a cache alias (default `"default"`) whose backend isn't
-  `DummyCache`. `None` disables caching.
+  `DummyCache`. `None` disables caching. A value that isn't a configured alias (a non-string included) is logged as
+  a warning and reads run without a cache.
 - **Per key:** `dynamic_configs:v1:<name>` holds the tuple `(type_key, stored_text)`, never a deserialized object,
   so custom classes are never pickled into the cache. `v1` lets a later release change the format safely.
   A name long enough to push the cache's full key past 250 characters (Memcached's limit) is keyed by its start and a
-  hash of the whole name instead.
+  hash of the whole name instead. A `KEY_PREFIX` so long that even that key doesn't fit means Memcached caches
+  nothing (every read goes to the database); backends that only warn about long keys still cache.
+- **Anything else in the slot** (not a `(str, str | None)` pair or the marker, such as an unhashable type key) is a
+  miss, and the refill replaces it.
 - **Missing settings** are cached as a marker, so `get(name, default)` for a nonexistent setting doesn't query the
   database on every call.
 - **Timeout:** `DYNAMIC_CONFIGS["TIMEOUT"]`, default `300` seconds; `None` means no expiry (Django's semantics).
 - **On save:** a `post_save` signal deletes the entry immediately (so reads inside the transaction go to the
-  database), then replaces it with the new value when the transaction commits (`transaction.on_commit`), so a
-  rolled-back save never reaches the cache.
-- **On delete:** `post_delete` does the same, writing the missing marker on commit.
+  database). When the transaction commits (`transaction.on_commit`), it reads the row again on the save's database
+  and caches what the database holds (`set`), or nothing if the row is gone by then. So a rolled-back save never
+  reaches the cache, `save(update_fields=[...])` from a stale copy or a Python value assigned to `value` never
+  caches what the instance holds, and of two writers committing out of order, the later callback caches the newer
+  row.
+- **On delete:** `post_delete` does the same, caching the missing marker on commit (or the row, if another
+  transaction has created it again by then).
+- **Reads fill, never overwrite:** a plain `get` that misses caches what it read with `add` on commit, so a slow
+  reader can't replace the newer entry a writer cached. `get(no_cache=True)` and `get_or_create` read past the cache,
+  so they drop the entry on commit instead of writing it; the next `get` fills it. With autocommit off outside a
+  transaction, `on_commit` can't run, so these reads skip the cache write (logged at DEBUG).
+- A failed re-read after a commit is logged as a warning and drops the entry; it never fails the commit.
 - If the cache is down while a setting is saved or deleted, the failure is logged as a warning and the save still
   succeeds; the old entry, if one is left, expires after `TIMEOUT`.
 - Admin saves, `update`, `delete` and `get_or_create` all go through the model's `save`/`delete`, so they all trigger
-  this. `QuerySet.update()`, `bulk_create()` and `bulk_update()` bypass signals; the README documents this.
+  this. `QuerySet.update()`, `bulk_create()` and `bulk_update()` bypass signals, and so does a data migration's
+  historical `Config` model (clear the affected entries after the migration); the docs say so.
   (`QuerySet.delete()` does send `post_delete` for each row, because a receiver is connected.)
+- **Large values:** Memcached's default item limit is 1 MB (servers can raise it with `-I`). A larger value is read
+  from the database every time, and each read logs a warning.
 - **Per-process caches:** with Django's default `LocMemCache`, an edit only refreshes the cache of the process that
   handled it; other processes see the old value until it expires. The README recommends a shared cache (Redis,
   Memcached) or a short `TIMEOUT`.

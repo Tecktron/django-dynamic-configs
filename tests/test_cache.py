@@ -90,9 +90,17 @@ def test_entries_from_a_cache_that_stores_json_read_as_hits(text):
     assert cache.read("SITE_NAME") == ("str", text)
 
 
-def test_unexpected_cached_values_read_as_not_cached():
-    cache.get_cache().set(cache.cache_key("SITE_NAME", cache.get_cache()), "garbage")
-    assert cache.read("SITE_NAME") is cache.NOT_CACHED
+@pytest.mark.parametrize(
+    "raw",
+    ["garbage", ("str",), ("str", "a", "b"), [["int"], "1"], (1, "x"), ("str", 5), {"str": "x", "int": "1"}, 0],
+)
+def test_entries_of_any_other_shape_read_as_unrecognised(raw, caplog):
+    caplog.set_level(logging.DEBUG, logger="dynamic_configs")
+    cache.get_cache().set(cache.cache_key("SITE_NAME", cache.get_cache()), raw)
+    assert cache.read("SITE_NAME") is cache.UNRECOGNISED
+    assert [record.getMessage() for record in caplog.records] == [
+        "Cache entry for config 'SITE_NAME' isn't recognised; reading from the database"
+    ]
 
 
 def test_delete_removes_the_entry():
@@ -118,6 +126,13 @@ def test_an_unconfigured_alias_disables_caching_with_a_warning(settings, caplog)
     settings.DYNAMIC_CONFIGS = {"CACHE": "missing"}
     assert cache.get_cache() is None
     assert "Cache alias 'missing' isn't configured" in caplog.text
+
+
+@pytest.mark.parametrize("alias", [3, ["default"]])
+def test_a_non_string_alias_disables_caching_with_a_warning(settings, caplog, alias):
+    settings.DYNAMIC_CONFIGS = {"CACHE": alias}
+    assert cache.get_cache() is None
+    assert f"Cache alias {alias!r} isn't configured" in caplog.text
 
 
 def test_the_timeout_comes_from_settings(settings):
@@ -160,6 +175,7 @@ def test_hits_and_misses_are_logged_at_debug(caplog):
 def test_markers_name_themselves_in_repr():
     assert repr(cache.ABSENT) == "ABSENT"
     assert repr(cache.NOT_CACHED) == "NOT_CACHED"
+    assert repr(cache.UNRECOGNISED) == "UNRECOGNISED"
 
 
 def test_a_fill_never_replaces_an_existing_entry():
