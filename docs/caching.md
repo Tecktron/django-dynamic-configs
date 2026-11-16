@@ -42,11 +42,14 @@ logged.
   If you change `Config` rows that way, the old value is served until its entry expires; use `save()` or the API
   instead.
 - Data migrations bypass them too: the historical `Config` model a migration gets has no signal receivers. After a
-  data migration that changes settings, clear their cache entries, for example with
-  `get(name, default=None, no_cache=True)`, which drops one.
-- `get_or_create` always reads the database, and so does `get(name, no_cache=True)`. Neither overwrites the cache
-  entry: each drops it when its transaction commits, and the next `get` fills it again. That way a slow read can't
-  replace a newer value that a save has cached.
+  data migration that changes settings, refresh their cache entries: `get(name, default=None, no_cache=True)` does
+  that for one.
+- `get_or_create` always reads the database, and so does `get(name, no_cache=True)`. When its transaction commits,
+  each reads the row again and caches what the database then holds, as a save does.
+- A plain `get` that misses caches what it read when its transaction commits, but only into an empty slot: it never
+  replaces an entry. If the slot is empty by then (the entry expired or was evicted) and the setting has changed
+  since the read, as can happen in a long transaction, the value it read is cached until the setting is saved or
+  refreshed again, or the entry expires.
 - With autocommit turned off and no transaction open, there's no commit to wait for, so `get` and `get_or_create`
   leave the cache entry as it is.
 

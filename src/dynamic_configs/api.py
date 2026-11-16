@@ -32,7 +32,7 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
 
     :param name: the config's name, such as ``"SITE_NAME"``
     :param default: returned when the config doesn't exist or can't be read
-    :param no_cache: skip the cache read and drop the cache entry once the read's transaction commits
+    :param no_cache: skip the cache read; the entry is refreshed from the database when the read's transaction commits
     :returns: the typed value, or None for an empty ``allow_null`` config
     :raises ConfigDoesNotExist: the config doesn't exist and no default was passed
     :raises ConfigValueError: the stored value can't be read (or its type isn't registered) and no default was passed
@@ -63,11 +63,11 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
                 )
                 return default
             # Cached only once the read's transaction commits. A plain read only fills an empty slot, so a slow
-            # reader can't replace the newer entry a writer cached; no_cache=True drops the entry instead, for the
-            # same reason.
+            # reader can't replace the newer entry a writer cached; no_cache=True caches the row as the database
+            # holds it at the commit, as writers do.
             using = router.db_for_read(Config)
             if no_cache:
-                cache.delete_on_commit(name, using=using)
+                cache.refresh_on_commit(name, using=using)
             else:
                 cache.write_on_commit(name, entry, using=using)
     if entry is cache.ABSENT:
@@ -134,8 +134,8 @@ def get_or_create(
 ) -> tuple[Any, bool]:
     """Return the config ``name``, creating it with ``value`` if it doesn't exist.
 
-    Always reads the database (then drops the cache entry once the transaction commits, so the next ``get`` fills
-    it), so code that declares its settings this way sees what an admin has changed.
+    Always reads the database (then, once the transaction commits, caches the row as the database holds it), so code
+    that declares its settings this way sees what an admin has changed.
 
     :param name: the config's name (UPPER_SNAKE_CASE)
     :param type: a registered type key, such as ``"int"`` or ``"list:str"``
@@ -161,7 +161,7 @@ def get_or_create(
     if not created:
         if config.type != type:
             raise ConfigTypeError(f"Config {name!r} already exists with type {config.type!r}, not {type!r}.")
-        cache.delete_on_commit(name, using=config._state.db)
+        cache.refresh_on_commit(name, using=config._state.db)
     return _decode(name, config.type, config.value), created
 
 

@@ -372,11 +372,11 @@ aget(...), aget_or_create(...), aupdate(...), adelete(...)  # async, same argume
 ```
 
 - **`get`** returns the deserialized value, or `None` for an empty `allow_null` setting. When the setting doesn't
-  exist and no default was passed, it raises `ConfigDoesNotExist`. `no_cache=True` skips the cache read, then
-  drops the cache entry when the read's transaction commits (see Caching).
+  exist and no default was passed, it raises `ConfigDoesNotExist`. `no_cache=True` skips the cache read; when the
+  read's transaction commits, the entry is refreshed from the database (see Caching).
 - Names that don't match the name pattern can never be saved, so `get` treats them as missing without touching the
   cache or the database.
-- **`get_or_create`** always reads the database, then drops the cache entry on commit. When the setting exists, it
+- **`get_or_create`** always reads the database, then refreshes the cache on commit. When the setting exists, it
   returns the stored value and `created=False`; if the stored type differs from `type`, it raises `ConfigTypeError`.
   When it doesn't exist, it validates the name, the type key and the value, creates the setting, and returns
   `(value, True)`. Concurrent creation is handled by Django's `get_or_create`.
@@ -425,10 +425,16 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
   row.
 - **On delete:** `post_delete` does the same, caching the missing marker on commit (or the row, if another
   transaction has created it again by then).
-- **Reads fill, never overwrite:** a plain `get` that misses caches what it read with `add` on commit, so a slow
-  reader can't replace the newer entry a writer cached. `get(no_cache=True)` and `get_or_create` read past the cache,
-  so they drop the entry on commit instead of writing it; the next `get` fills it. With autocommit off outside a
-  transaction, `on_commit` can't run, so these reads skip the cache write (logged at DEBUG).
+- **Reads past the cache refresh it:** `get(no_cache=True)` and `get_or_create` (for an existing setting) register
+  the receivers' re-read on commit, on the database they read from: they cache the row as the database then holds
+  it (`set`), or the missing marker if it's gone. So they never cache what they read earlier, and a slower plain
+  read's `add` finds the slot filled.
+- **Plain reads fill an empty slot only:** a plain `get` that misses caches what it read with `add` on commit, so it
+  never replaces an entry. That is the whole guarantee: if the slot is empty when it commits (expired or evicted)
+  and the setting changed after its read, as can happen in a long transaction, it caches the value it read until
+  the next save or refresh, or expiry.
+- With autocommit off outside a transaction, `on_commit` can't run, so reads skip their cache write (logged at
+  DEBUG).
 - A failed re-read after a commit is logged as a warning and drops the entry; it never fails the commit.
 - If the cache is down while a setting is saved or deleted, the failure is logged as a warning and the save still
   succeeds; the old entry, if one is left, expires after `TIMEOUT`.

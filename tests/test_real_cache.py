@@ -281,7 +281,7 @@ def test_a_second_process_reads_the_database_value_after_a_stale_save(reader):
     stale.description = "The site's name."
     stale.save(update_fields=["description"])
     assert reader.ask("SITE_NAME") == {"get": "Second", "cached": "('str', 'Second')"}
-    # A no_cache read drops the entry; the second process fills it again.
+    # A no_cache read caches what the database holds when it commits, which the second process then reads.
+    cache.write("SITE_NAME", ("str", "Stale"))
     assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Second"
-    assert cache.read("SITE_NAME") is cache.NOT_CACHED
     assert reader.ask("SITE_NAME") == {"get": "Second", "cached": "('str', 'Second')"}

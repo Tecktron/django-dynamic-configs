@@ -5,7 +5,7 @@ from datetime import timezone as dt_timezone
 from enum import Enum
 
 import pytest
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, connections, transaction
 
 import dynamic_configs
 from dynamic_configs import _overrides, cache
@@ -38,30 +38,71 @@ def test_get_uses_the_cache_without_querying(django_assert_num_queries):
         assert dynamic_configs.get("SITE_NAME") == "Cached"
 
 
-def test_no_cache_reads_the_database_and_drops_the_cache_entry(django_capture_on_commit_callbacks):
+def test_no_cache_reads_the_database_and_refreshes_the_cache(django_capture_on_commit_callbacks):
     make(value="Fresh")
     cache.write("SITE_NAME", ("str", "Stale"))
     with django_capture_on_commit_callbacks(execute=True):
         assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Fresh"
-    assert cache.read("SITE_NAME") is cache.NOT_CACHED
-    assert dynamic_configs.get("SITE_NAME") == "Fresh"
+    assert cache.read("SITE_NAME") == ("str", "Fresh")
 
 
-def test_no_cache_read_drops_the_entry_instead_of_overwriting(mocker, django_capture_on_commit_callbacks):
-    # F17: a slow no_cache read (or get_or_create) refilled with set, overwriting the newer entry a writer cached.
-    make(value="Example")
-    backend = cache.get_cache()
-    backend_set = mocker.spy(backend, "set")
-    backend_delete = mocker.spy(backend, "delete")
-    key = cache.cache_key("SITE_NAME", backend)
-    with django_capture_on_commit_callbacks(execute=False) as callbacks:
-        assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Example"
-        assert dynamic_configs.get_or_create("SITE_NAME", "str", "Other") == ("Example", False)
-    backend_delete.assert_not_called()
-    for callback in callbacks:
+def test_no_cache_of_a_missing_setting_caches_the_marker(django_capture_on_commit_callbacks):
+    cache.write("MISSING", ("str", "Stale"))
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get("MISSING", None, no_cache=True) is None
+    assert cache.read("MISSING") is cache.ABSENT
+
+
+def test_no_cache_read_caches_the_database_value_at_commit_not_its_own(django_capture_on_commit_callbacks):
+    # F17: a slow no_cache read (or get_or_create) refilled with what it had read, overwriting the newer entry a
+    # writer cached. It now reads the row again when its transaction commits.
+    make(value="Old")
+    with django_capture_on_commit_callbacks(execute=False) as slow_reads:
+        assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Old"
+        assert dynamic_configs.get_or_create("SITE_NAME", "str", "Other") == ("Old", False)
+    with django_capture_on_commit_callbacks(execute=True):
+        dynamic_configs.update("SITE_NAME", "New")
+    for callback in slow_reads:
         callback()
-    backend_set.assert_not_called()
-    assert backend_delete.call_args_list == [mocker.call(key), mocker.call(key)]
+    assert cache.read("SITE_NAME") == ("str", "New")
+
+
+@pytest.mark.parametrize(
+    "read_past_the_cache",
+    [
+        lambda: dynamic_configs.get("SITE_NAME", no_cache=True),
+        lambda: dynamic_configs.get_or_create("SITE_NAME", "str", "Other"),
+    ],
+    ids=["no_cache", "get_or_create"],
+)
+def test_a_slow_plain_fill_after_a_read_past_the_cache_keeps_the_new_value(
+    read_past_the_cache, django_capture_on_commit_callbacks
+):
+    # Review: a plain get (inside atomic) reads the old value and defers its add; a writer commits the new one; a read
+    # past the cache commits. If that read only dropped the entry, the plain get's add then cached the old value.
+    make(value="Old")
+    with django_capture_on_commit_callbacks(execute=False) as slow_fill:
+        assert dynamic_configs.get("SITE_NAME") == "Old"
+    with django_capture_on_commit_callbacks(execute=True):
+        dynamic_configs.update("SITE_NAME", "New")
+    with django_capture_on_commit_callbacks(execute=True):
+        read_past_the_cache()
+    for callback in slow_fill:
+        callback()
+    assert cache.read("SITE_NAME") == ("str", "New")
+
+
+def test_a_slow_missing_fill_after_get_or_create_keeps_the_created_row(django_capture_on_commit_callbacks):
+    # Review: the same with a plain get that read "doesn't exist" before the setting was created.
+    with django_capture_on_commit_callbacks(execute=False) as slow_fill:
+        assert dynamic_configs.get("SITE_NAME", None) is None
+    with django_capture_on_commit_callbacks(execute=True):
+        make(value="Created")
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get_or_create("SITE_NAME", "str", "Other") == ("Created", False)
+    for callback in slow_fill:
+        callback()
+    assert cache.read("SITE_NAME") == ("str", "Created")
 
 
 def test_a_missing_setting_raises_without_a_default():
@@ -195,13 +236,12 @@ def test_get_or_create_creates_a_missing_setting(caplog):
     assert "Created config 'MAX_RETRIES' (type 'int')" in caplog.text
 
 
-def test_get_or_create_returns_an_existing_value_and_drops_the_cache_entry(django_capture_on_commit_callbacks):
+def test_get_or_create_returns_an_existing_value_and_refreshes_the_cache(django_capture_on_commit_callbacks):
     make("MAX_RETRIES", "int", "5")
     cache.write("MAX_RETRIES", ("int", "4"))
     with django_capture_on_commit_callbacks(execute=True):
         assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 3) == (5, False)
-    assert cache.read("MAX_RETRIES") is cache.NOT_CACHED
-    assert dynamic_configs.get("MAX_RETRIES") == 5
+    assert cache.read("MAX_RETRIES") == ("int", "5")
 
 
 def test_get_or_create_refuses_an_existing_setting_of_another_type():
@@ -365,9 +405,16 @@ def test_a_deeply_nested_list_returns_the_default_in_a_thread_with_a_small_stack
     # needs no database connection.
     cache.write("DEEP", ("list:str", "[" * 100_000 + "]" * 100_000))
     found = []
+
+    def read():
+        try:
+            found.append(dynamic_configs.get("DEEP", ["default"]))
+        finally:
+            connections.close_all()
+
     previous = threading.stack_size(256 * 1024)
     try:
-        thread = threading.Thread(target=lambda: found.append(dynamic_configs.get("DEEP", ["default"])))
+        thread = threading.Thread(target=read)
         thread.start()
         thread.join()
     finally:

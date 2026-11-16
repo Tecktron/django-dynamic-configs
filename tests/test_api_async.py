@@ -1,6 +1,8 @@
 import asyncio
 
 import pytest
+from asgiref.sync import sync_to_async
+from django.db import connections
 
 import dynamic_configs
 from dynamic_configs import _overrides
@@ -17,7 +19,12 @@ def test_the_async_api_matches_the_sync_api():
         missing = await dynamic_configs.aget("MAX_RETRIES", default=None)
         return created, value, deleted, missing
 
-    assert asyncio.run(scenario()) == ((3, True), 4, True, None)
+    try:
+        assert asyncio.run(scenario()) == ((3, True), 4, True, None)
+    finally:
+        # The calls ran in asgiref's single sync thread, which outlives the test: close its database connection, or
+        # PostgreSQL can't drop the test database while that session is open.
+        asyncio.run(sync_to_async(connections.close_all)())
 
 
 def test_aget_sees_overrides_from_the_calling_context():
