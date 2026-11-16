@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
         """Return the ``CURRENCIES`` of the module at ``path`` without importing it, or ``{}`` if it is missing."""
         if not path.exists():
             return {}
-        for node in ast.parse(path.read_text()).body:
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
             if isinstance(node, ast.Assign) and [target.id for target in node.targets] == ["CURRENCIES"]:
                 return ast.literal_eval(node.value)
         raise ValueError(f"{path} has no CURRENCIES")
@@ -120,10 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     old = current(arguments.out)
     summary = summarize(old, currencies)
     if currencies != old:
-        arguments.out.write_text(render(published, currencies))
+        arguments.out.write_text(render(published, currencies), encoding="utf-8")
     print(summary)
     if arguments.summary:
-        arguments.summary.write_text(summary + "\n")
+        arguments.summary.write_text(summary + "\n", encoding="utf-8")
     return 0
 
 

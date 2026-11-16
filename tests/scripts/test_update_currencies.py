@@ -91,7 +91,7 @@ def test_parse_enforces_the_floor_of_100_by_default(script):
 
 
 def test_render_is_what_is_shipped(script):
-    assert script.render(iso4217.PUBLISHED, iso4217.CURRENCIES) == Path(iso4217.__file__).read_text()
+    assert script.render(iso4217.PUBLISHED, iso4217.CURRENCIES) == Path(iso4217.__file__).read_text(encoding="utf-8")
 
 
 def test_main_writes_then_reports_unchanged(script, tmp_path, capsys):
@@ -101,12 +101,12 @@ def test_main_writes_then_reports_unchanged(script, tmp_path, capsys):
 
     assert script.main(["--from", str(source), "--out", str(out)]) == 0
     assert "added: " in capsys.readouterr().out
-    assert out.read_text() == script.render("2026-09-17", synthetic(120))
+    assert out.read_text(encoding="utf-8") == script.render("2026-09-17", synthetic(120))
 
-    text, mtime = out.read_text(), out.stat().st_mtime_ns
+    text, mtime = out.read_text(encoding="utf-8"), out.stat().st_mtime_ns
     assert script.main(["--from", str(source), "--out", str(out)]) == 0
     assert capsys.readouterr().out.strip() == "unchanged"
-    assert (out.read_text(), out.stat().st_mtime_ns) == (text, mtime)
+    assert (out.read_text(encoding="utf-8"), out.stat().st_mtime_ns) == (text, mtime)
 
 
 def test_main_ignores_a_new_publication_date_alone(script, tmp_path, capsys):
@@ -115,18 +115,18 @@ def test_main_ignores_a_new_publication_date_alone(script, tmp_path, capsys):
     source.write_bytes(synthetic_xml(synthetic(120)))
     script.main(["--from", str(source), "--out", str(out)])
     capsys.readouterr()
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
 
     source.write_bytes(synthetic_xml(synthetic(120), published="2026-10-01"))
     script.main(["--from", str(source), "--out", str(out)])
 
     assert capsys.readouterr().out.strip() == "unchanged"
-    assert out.read_text() == text
+    assert out.read_text(encoding="utf-8") == text
 
 
 def test_main_reports_added_removed_and_renamed(script, tmp_path, capsys):
     out = tmp_path / "iso4217.py"
-    out.write_text(script.render("2026-09-17", synthetic(120)))
+    out.write_text(script.render("2026-09-17", synthetic(120)), encoding="utf-8")
     changed = synthetic(121)
     del changed["AAB"]
     changed["AAC"] = "Renamed Money"
@@ -137,12 +137,12 @@ def test_main_reports_added_removed_and_renamed(script, tmp_path, capsys):
     assert script.main(["--from", str(source), "--out", str(out), "--summary", str(summary)]) == 0
 
     printed = capsys.readouterr().out
-    assert printed == summary.read_text()
+    assert printed == summary.read_text(encoding="utf-8")
     assert "added: " in printed
     assert "removed: " in printed
     assert "renamed: AAC (Money AAC -> Renamed Money)" in printed
-    assert 'PUBLISHED = "2026-10-01"' in out.read_text()
-    assert out.read_text() == script.render("2026-10-01", changed)
+    assert 'PUBLISHED = "2026-10-01"' in out.read_text(encoding="utf-8")
+    assert out.read_text(encoding="utf-8") == script.render("2026-10-01", changed)
 
 
 def test_main_with_from_never_fetches(script, tmp_path, mocker):
