@@ -143,6 +143,9 @@ class ConfigAdminMixin:
     then every field) and which of them are read-only (``get_readonly_fields``: the type once chosen, the name once
     created). So the ``fields``, ``fieldsets`` and ``readonly_fields`` options are ignored, and the system check
     ``dynamic_configs.W001`` warns when one is set. To change them, override those methods and call ``super()``.
+
+    Put the mixin first among an admin's base classes: ``dynamic_configs.E006`` reports a base before it whose
+    ``history_form_view`` would run instead of the mixin's.
     """
 
     _PREVIEW_LENGTH = 80
@@ -217,8 +220,33 @@ class ConfigAdminMixin:
         return int(raw)
 
     def check(self, **kwargs: Any) -> list[checks.CheckMessage]:
-        """Run the admin's checks, and warn about each option the mixin ignores because it sets it itself."""
+        """Run the admin's checks, and add the mixin's own: W001 and E006.
+
+        W001 warns about each option the mixin ignores because it sets it itself. E006 reports a base class placed
+        before the mixin whose ``history_form_view`` would run instead of the mixin's.
+        """
         found = list(super().check(**kwargs))  # type: ignore[misc]
+        mro = type(self).__mro__
+        # A base before the mixin (SimpleHistoryAdmin, say) whose history_form_view runs instead of the mixin's.
+        shadowing = next(
+            (
+                base
+                for base in mro[: mro.index(ConfigAdminMixin)]
+                if "history_form_view" in vars(base) and not issubclass(base, ConfigAdminMixin)
+            ),
+            None,
+        )
+        if shadowing is not None:
+            found.append(
+                checks.Error(
+                    f"{type(self).__name__} puts {shadowing.__name__} before ConfigAdminMixin, so its "
+                    "history_form_view runs instead of ConfigAdminMixin's.",
+                    hint="Put ConfigAdminMixin first among the base classes, as in "
+                    "class ConfigAdmin(ConfigAdminMixin, SimpleHistoryAdmin, ModelAdmin).",
+                    obj=type(self),
+                    id="dynamic_configs.E006",
+                )
+            )
         for option in self._IGNORED_OPTIONS:
             # Django's defaults for these are empty (None or ()).
             if getattr(self, option):

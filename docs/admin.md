@@ -245,7 +245,7 @@ class ConfigAdmin(ConfigAdminMixin, ModelAdmin):
 ```
 
 With the [simple-history](simple-history.md) integration, include its base class too: the mixin first, simple_history's
-`SimpleHistoryAdmin` next, and the skin's base class last:
+`SimpleHistoryAdmin` next, and the skin's base class last (`dynamic_configs.E006` reports the wrong order):
 
 ```python
 # myapp/admin.py

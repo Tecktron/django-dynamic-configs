@@ -97,6 +97,40 @@ def test_reverting_a_missing_version_is_not_found(admin_client):
 
 
 @pytest.mark.usefixtures("history_admin")
+def test_a_version_of_another_config_is_not_found(admin_client):
+    renamed()
+    dynamic_configs.get_or_create("OTHER", "str", "Other")
+    site_name_version = Config.history.filter(name="SITE_NAME").earliest("history_date", "history_id").history_id
+    response = admin_client.post(version_url("OTHER", site_name_version), {**FORM, "value": "Changed"})
+    assert response.status_code == 404
+    assert dict(Config.objects.values_list("name", "value")) == {"OTHER": "Other", "SITE_NAME": "Renamed"}
+
+
+@pytest.mark.usefixtures("history_admin")
+def test_restoring_needs_change_permission_on_the_config(client, django_user_model, settings):
+    settings.SIMPLE_HISTORY_ENFORCE_HISTORY_MODEL_PERMISSIONS = True
+    renamed()
+    user = staff(client, django_user_model, "view_config")
+    user.user_permissions.add(
+        Permission.objects.get(
+            content_type__app_label="dynamic_configs_simple_history", codename="change_historicalconfig"
+        )
+    )
+    response = client.post(version_url("SITE_NAME"), {**FORM, "value": "Changed"})
+    assert response.status_code == 403
+    assert Config.objects.get(name="SITE_NAME").value == "Renamed"
+
+
+def test_the_admins_own_change_permission_is_asked(admin_client, settings):
+    # NoChangeConfigAdmin lets no one change a config, and leaves reverting enabled.
+    renamed()
+    settings.ROOT_URLCONF = "tests.contrib.simple_history.urls"
+    url = version_url("SITE_NAME").replace("/admin/", "/no-change-admin/", 1)
+    assert admin_client.post(url, {**FORM, "value": "Changed"}).status_code == 403
+    assert Config.objects.get(name="SITE_NAME").value == "Renamed"
+
+
+@pytest.mark.usefixtures("history_admin")
 def test_reverting_a_deleted_config_needs_add_permission(client, django_user_model):
     renamed()
     dynamic_configs.delete("SITE_NAME")

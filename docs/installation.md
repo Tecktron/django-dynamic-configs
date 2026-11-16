@@ -100,6 +100,7 @@ at startup:
 | `dynamic_configs.E003`  | a serializer can't be created with no arguments (or with its `options`, such as an unknown `rounding`), or lacks a callable `serialize` or `deserialize` |
 | `dynamic_configs.E004`  | a `form` isn't a `django.forms.Field` subclass                           |
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
+| `dynamic_configs.E006`  | an admin using `ConfigAdminMixin` puts a base class before it that overrides its `history_form_view` (`SimpleHistoryAdmin`, say); see [Admin skins](admin.md#admin-skins) |
 | `dynamic_configs.W001`  | (warning) an admin using `ConfigAdminMixin` sets options the mixin ignores; see [Admin and skins](admin.md) |
 | `dynamic_configs.E101`  | the simple-history integration is installed without `simple_history`; see [simple-history](simple-history.md) |
 | `dynamic_configs.E102`  | the simple-history integration is installed and `SIMPLE_HISTORY_HISTORY_ID_USE_UUID` is set, which it doesn't support |

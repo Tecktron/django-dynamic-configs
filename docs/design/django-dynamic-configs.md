@@ -353,6 +353,7 @@ Django system checks validate the configuration at startup (`manage.py check`, a
 | `dynamic_configs.E003`  | a serializer can't be created (with its `options`, if any), or lacks a callable `serialize` or `deserialize` |
 | `dynamic_configs.E004`  | `form` is not a `django.forms.Field` subclass                            |
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
+| `dynamic_configs.E006`  | an admin using `ConfigAdminMixin` has a base class before the mixin in its MRO that defines `history_form_view` and isn't a `ConfigAdminMixin` subclass, so its view would run instead of the mixin's (see the django-simple-history integration) |
 | `dynamic_configs.W001`  | (warning) an admin using `ConfigAdminMixin` sets `fields`, `fieldsets` or `readonly_fields`, which the mixin ignores (see Admin) |
 | `dynamic_configs.E101`  | the simple-history sub-app is installed but `simple_history` isn't in `INSTALLED_APPS` |
 | `dynamic_configs.E102`  | the simple-history sub-app is installed and `SIMPLE_HISTORY_HISTORY_ID_USE_UUID` is set (the shipped migration has integer ids) |
@@ -540,6 +541,9 @@ numbers whole,
   since the add page's two steps and the locked name and type depend on them. So the `fields`, `fieldsets` and
   `readonly_fields` options are ignored, and `dynamic_configs.W001` warns when one is set; a subclass changes them by
   overriding those methods and calling `super()`.
+- The mixin comes first among an admin's base classes. `dynamic_configs.E006` (from the mixin's `check()`, without
+  importing simple_history) reports a base before it that defines `history_form_view` and isn't a
+  `ConfigAdminMixin` subclass, since that base's view would run instead of the mixin's.
 - **List page:** name, type label, a value preview (list and set items joined with `, `, long values truncated),
   description and modified time. A list or set whose stored text isn't a JSON array of strings (a hand-edited row)
   previews as that text. Search on name and description; filter by type.
