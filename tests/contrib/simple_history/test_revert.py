@@ -82,6 +82,14 @@ def test_revert_is_refused_when_revert_is_disabled(admin_client, settings):
     assert Config.objects.get(name="SITE_NAME").value == "Renamed"
 
 
+def test_revert_is_refused_when_the_admin_disables_it(admin_client, settings):
+    renamed()
+    settings.ROOT_URLCONF = "tests.contrib.simple_history.urls"
+    url = version_url("SITE_NAME").replace("/admin/", "/no-revert-admin/", 1)
+    assert admin_client.post(url, {**FORM, "value": "Example"}).status_code == 403
+    assert Config.objects.get(name="SITE_NAME").value == "Renamed"
+
+
 @pytest.mark.usefixtures("history_admin")
 def test_reverting_a_missing_version_is_not_found(admin_client):
     renamed()

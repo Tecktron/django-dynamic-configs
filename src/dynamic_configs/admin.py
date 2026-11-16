@@ -325,9 +325,9 @@ class ConfigAdminMixin:
 
         Only ``SimpleHistoryAdmin`` routes here; with a plain ``ModelAdmin``, Django never calls it. A GET only shows
         the version, so it's simple-history's alone. A POST restores the version, so it's refused (403) when
-        ``SIMPLE_HISTORY_REVERT_DISABLED`` is set, or when the user can't change the config, or can't add it when it
-        has been deleted (reverting re-creates it). A version whose type isn't the config's, or isn't registered, isn't
-        restored: a config's type never changes.
+        ``SIMPLE_HISTORY_REVERT_DISABLED`` is set, when the admin's ``revert_disabled()`` returns True, or when the
+        user can't change the config, or can't add it when it has been deleted (reverting re-creates it). A version
+        whose type isn't the config's, or isn't registered, isn't restored: a config's type never changes.
         """
         if request.method == "POST":
             refusal = self._refuse_revert(request, object_id, version_id)
@@ -346,7 +346,12 @@ class ConfigAdminMixin:
         version = history.filter(**{model._meta.pk.attname: object_id, "history_id": version_id}).first()
         if version is None:
             return None
-        if getattr(settings, "SIMPLE_HISTORY_REVERT_DISABLED", False):
+        # Calls the admin's revert_disabled() (simple-history 3.8 and later have it) as simple-history calls it, with
+        # the version's instance.
+        revert_disabled = getattr(self, "revert_disabled", None)
+        if getattr(settings, "SIMPLE_HISTORY_REVERT_DISABLED", False) or (
+            revert_disabled is not None and revert_disabled(request, version.instance)
+        ):
             raise PermissionDenied
         name = version.instance.pk
         # Read where the revert writes: it updates this row, or inserts it again when it's gone.
