@@ -429,11 +429,12 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
 - **On delete:** `post_delete` does the same, caching the missing marker on commit (or the row, if another
   transaction has created it again by then).
 - **Reads past the cache refresh it:** `get(no_cache=True)` and `get_or_create` (for an existing setting) register
-  the receivers' re-read on commit, waiting for the transaction they read in but re-reading on
-  `router.db_for_write` (the primary, so a lagging replica can't put a stale value over a writer's entry). They
-  cache the row as the database holds it then (`set`), or the missing marker if it's gone. So they never cache what
-  they read earlier, and a slower plain read's `add` finds the slot filled. The same overlap window as writers'
-  applies.
+  the receivers' re-read on commit, both waiting for the commit and re-reading on `router.db_for_write` (the
+  primary). A lagging replica can't put a stale value over a writer's entry. A replica's connection isn't in the
+  caller's transaction, so waiting on it would re-read at once, inside the primary's uncommitted transaction, and
+  could cache a value that is then rolled back. They cache the row as the database holds it then (`set`), or the
+  missing marker if it's gone. So they never cache what they read earlier, and a slower plain read's `add` finds
+  the slot filled. The same overlap window as writers' applies.
 - **Plain reads fill an empty slot only:** a plain `get` that misses caches what it read with `add` on commit, so it
   never replaces an entry. But if the slot is empty when it commits (expired or evicted) and the setting changed
   after its read, as can happen in a long transaction, it caches the value it read until the next save or refresh,

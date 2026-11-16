@@ -4,7 +4,7 @@ import threading
 
 import pytest
 from django.core.management import call_command
-from django.db import DEFAULT_DB_ALIAS, DatabaseError, connections, transaction
+from django.db import DEFAULT_DB_ALIAS, DatabaseError, InterfaceError, connections, transaction
 
 import dynamic_configs
 from dynamic_configs import cache
@@ -127,14 +127,16 @@ def test_a_row_deleted_before_the_commit_callback_is_not_cached(mocker):
     assert cache.read("SITE_NAME") is cache.NOT_CACHED
 
 
+# InterfaceError (a closed connection) isn't a DatabaseError; both are django.db.Error.
+@pytest.mark.parametrize("error", [DatabaseError("down"), InterfaceError("closed")], ids=["database", "interface"])
 def test_a_database_error_in_the_commit_callback_is_logged_and_drops_the_entry(
-    mocker, caplog, django_capture_on_commit_callbacks
+    error, mocker, caplog, django_capture_on_commit_callbacks
 ):
     with django_capture_on_commit_callbacks(execute=False) as callbacks:
         Config.objects.create(name="SITE_NAME", type="str", value="Example")
     # A slow reader's fill landed between the save and its callback.
     cache.write("SITE_NAME", ("str", "Old"))
-    mocker.patch("django.db.models.query.QuerySet.first", side_effect=DatabaseError("down"))
+    mocker.patch("django.db.models.query.QuerySet.first", side_effect=error)
     callbacks[0]()
     assert cache.read("SITE_NAME") is cache.NOT_CACHED
     assert [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING] == [

@@ -558,7 +558,7 @@ def test_a_newer_entry_cached_after_an_unrecognised_one_is_dropped_is_kept(mocke
     assert cache.read("MAX_RETRIES") == ("int", "3")
 
 
-@pytest.mark.parametrize(
+reads_past_the_cache = pytest.mark.parametrize(
     "read_past_the_cache",
     [
         lambda: dynamic_configs.get("SITE_NAME", no_cache=True),
@@ -566,16 +566,45 @@ def test_a_newer_entry_cached_after_an_unrecognised_one_is_dropped_is_kept(mocke
     ],
     ids=["no_cache", "get_or_create"],
 )
+
+
+def route_reads_to_the_replica(mocker):
+    """Seed the setting on both databases and route reads to ``replica``, writes to ``default``."""
+    for alias in ("default", "replica"):
+        Config.objects.using(alias).create(name="SITE_NAME", type="str", value="Example")
+    mocker.patch.object(router, "db_for_read", return_value="replica")
+    mocker.patch.object(router, "db_for_write", return_value="default")
+
+
+@reads_past_the_cache
+@pytest.mark.django_db(databases=["default", "replica"])
 def test_reads_past_the_cache_refresh_it_from_the_primary(
     read_past_the_cache, mocker, django_capture_on_commit_callbacks
 ):
     # With a primary/replica router, a re-read on a lagging replica could set a stale value over a writer's entry.
-    make()
-    mocker.patch.object(router, "db_for_write", return_value="primary")
+    route_reads_to_the_replica(mocker)
     write_from_database = mocker.patch.object(cache, "write_from_database")
     with django_capture_on_commit_callbacks(execute=True):
         read_past_the_cache()
-    write_from_database.assert_called_once_with("SITE_NAME", "primary", gone=cache.ABSENT)
+    write_from_database.assert_called_once_with("SITE_NAME", "default", gone=cache.ABSENT)
+
+
+@reads_past_the_cache
+@pytest.mark.django_db(transaction=True, databases=["default", "replica"])
+def test_a_read_past_the_cache_on_a_replica_never_caches_a_rolled_back_write(read_past_the_cache, mocker):
+    # Review focus: transaction=True, so the replica's connection is outside the caller's transaction, as in
+    # production. Waiting for the replica's commit ran the re-read at once, on the primary connection still inside
+    # the uncommitted atomic(), and cached the value it then rolled back.
+    route_reads_to_the_replica(mocker)
+    try:
+        with transaction.atomic(using="default"):
+            dynamic_configs.update("SITE_NAME", "Uncommitted")
+            read_past_the_cache()
+            raise RuntimeError("roll back")
+    except RuntimeError:
+        pass
+    assert Config.objects.using("default").get(name="SITE_NAME").value == "Example"
+    assert dynamic_configs.get("SITE_NAME") == "Example"
 
 
 def test_update_opens_its_transaction_on_the_routers_write_alias(mocker):

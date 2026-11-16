@@ -62,14 +62,13 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
                     exc_info=True,
                 )
                 return default
-            # Cached only once the read's transaction commits. A plain read only fills an empty slot, so a slow
-            # reader can't replace the newer entry a writer cached; no_cache=True caches the row as the database
-            # holds it at the commit, as writers do.
-            using = router.db_for_read(Config)
+            # Cached only once the transaction commits. A plain read only fills an empty slot, so a slow reader
+            # can't replace the newer entry a writer cached; no_cache=True caches the row as the primary database
+            # holds it when its transaction commits, as writers do.
             if no_cache:
-                cache.refresh_on_commit(name, using=using)
+                cache.refresh_on_commit(name)
             else:
-                cache.write_on_commit(name, entry, using=using)
+                cache.write_on_commit(name, entry, using=router.db_for_read(Config))
     if entry is cache.ABSENT:
         if not has_default:
             raise ConfigDoesNotExist(f"Config {name!r} does not exist.")
@@ -162,7 +161,7 @@ def get_or_create(
     if not created:
         if config.type != type:
             raise ConfigTypeError(f"Config {name!r} already exists with type {config.type!r}, not {type!r}.")
-        cache.refresh_on_commit(name, using=config._state.db)
+        cache.refresh_on_commit(name)
     return _decode(name, config.type, config.value), created
 
 

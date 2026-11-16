@@ -1,10 +1,11 @@
 """Keep cache entries in step with saves and deletes.
 
 The entry is removed at once, so reads inside the same transaction go to the database. When the transaction commits,
-the row is read again and what the database then holds is cached: a rolled-back save never reaches the cache, a save
-of some fields never caches a stale copy's other fields, and of two writers the one whose callback runs last can't
-cache an older value. Admin saves, the API and ``QuerySet.delete()`` all send these signals; ``QuerySet.update()``,
-``bulk_create()``, ``bulk_update()`` and data migrations' historical models don't.
+the row is read again and what the database then holds is cached: a rolled-back save never reaches the cache, and a
+save of some fields never caches a stale copy's other fields. Two writers committing out of order leave the newer row
+cached unless their callbacks overlap: the re-read and the cache write are two steps, and the cache has no
+compare-and-set (see ``cache.write_from_database``). Admin saves, the API and ``QuerySet.delete()`` all send these
+signals; ``QuerySet.update()``, ``bulk_create()``, ``bulk_update()`` and data migrations' historical models don't.
 """
 
 from functools import partial

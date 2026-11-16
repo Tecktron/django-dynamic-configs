@@ -44,9 +44,9 @@ logged.
 - Data migrations bypass them too: the historical `Config` model a migration gets has no signal receivers. After a
   data migration that changes settings, refresh their cache entries: `get(name, default=None, no_cache=True)` does
   that for one.
-- `get_or_create` always reads the database, and so does `get(name, no_cache=True)`. When its transaction commits,
-  each reads the row again and caches it, as a save does. That re-read goes to the primary database (your router's
-  `db_for_write`), so a lagging replica can't put an old value back.
+- `get_or_create` always reads the database, and so does `get(name, no_cache=True)`. When the transaction on the
+  primary database (your router's `db_for_write`) commits, each reads the row again there and caches it, as a save
+  does. So a lagging replica can't put an old value back, and a change that is rolled back is never cached.
 - A plain `get` that misses caches what it read when its transaction commits, but only into an empty slot: it never
   replaces an entry.
 - With autocommit turned off and no transaction open, there's no commit to wait for, so `get` and `get_or_create`

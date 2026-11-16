@@ -39,9 +39,9 @@ Returns the setting's value, as its type's Python type, or `None` for an empty s
   the default, and is logged (see [Failure handling and logging](failures.md)).
 - A name that doesn't match the name pattern can never be saved, so `get` treats it as missing without touching the
   cache or the database.
-- `no_cache=True` skips the cache read and reads the database. When the read's transaction commits, the cache entry
-  is refreshed with what the primary database holds when the callback re-reads it (see [Caching](caching.md), which
-  names the remaining gaps).
+- `no_cache=True` skips the cache read and reads the database. When the transaction on the primary database
+  commits, the cache entry is refreshed with what it holds when the callback re-reads it (see [Caching](caching.md),
+  which names the remaining gaps).
 - Overrides from the test helpers come first (see [Testing](testing.md)).
 
 ## `get_or_create`

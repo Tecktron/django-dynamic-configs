@@ -21,7 +21,7 @@ from typing import Final
 from django.core.cache import InvalidCacheBackendError, caches
 from django.core.cache.backends.base import BaseCache
 from django.core.cache.backends.dummy import DummyCache
-from django.db import DatabaseError, router, transaction
+from django.db import Error, router, transaction
 from django.db.transaction import TransactionManagementError
 
 from dynamic_configs.conf import get_settings
@@ -191,19 +191,21 @@ def write_on_commit(name: str, entry: Entry | _Sentinel, *, using: str) -> None:
     _on_commit(partial(write, name, entry, overwrite=False), name, using)
 
 
-def refresh_on_commit(name: str, *, using: str) -> None:
-    """Once the current transaction on ``using`` commits, cache what the primary database holds for ``name``.
+def refresh_on_commit(name: str) -> None:
+    """Once the current transaction on the primary database commits, cache what it holds for ``name``.
 
     For reads that skip the cache (``get(no_cache=True)``, ``get_or_create``): like writers, they cache the row as the
     database holds it when the callback re-reads it, never what they read earlier, and they fill the slot, so a
     slower plain read's ``add`` can't cache an older value after them. The "doesn't exist" marker if there's no row.
-    The re-read goes to ``router.db_for_write`` (the primary): a lagging replica could put a stale value over a
-    writer's entry. As with :func:`write_on_commit`, nothing happens with autocommit off outside a transaction.
+    Both the wait and the re-read use ``router.db_for_write`` (the primary): a lagging replica could put a stale value
+    over a writer's entry, and a replica's connection isn't in the caller's transaction, so waiting on it would
+    re-read at once, inside the primary's uncommitted transaction, and cache a value that may be rolled back. As with
+    :func:`write_on_commit`, nothing happens with autocommit off outside a transaction.
 
     :param name: the setting's name
-    :param using: the database alias the read ran on, whose commit to wait for
     """
-    _on_commit(partial(write_from_database, name, router.db_for_write(Config), gone=ABSENT), name, using)
+    primary = router.db_for_write(Config)
+    _on_commit(partial(write_from_database, name, primary, gone=ABSENT), name, primary)
 
 
 def write_from_database(name: str, using: str, *, gone: object) -> None:
@@ -216,7 +218,7 @@ def write_from_database(name: str, using: str, *, gone: object) -> None:
     """
     try:
         row = Config._default_manager.using(using).filter(name=name).values_list("type", "value").first()
-    except DatabaseError:
+    except Error:
         log(
             logger,
             logging.WARNING,
