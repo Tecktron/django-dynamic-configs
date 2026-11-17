@@ -5,7 +5,9 @@ stock `ModelAdmin` pages, so admin skins apply. Its scripts are optional and eve
 `dynamic_configs/admin.js` fills in defaults, saves clicks and keeps whole numbers whole,
 `dynamic_configs/json_editor.js` is the JSON editor and
 `dynamic_configs/list_editor.js` the list editor, with `dynamic_configs/admin.css`, which styles only the editors' own
-elements. You can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
+elements. The currency input of `money_currency` gets a dropdown of suggestions from `dynamic_configs/suggestions.js`
+(see [Currency suggestions](money.md#currency-suggestions)); without the script it keeps the browser's own list. You can
+still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
 
 Permissions are Django's standard add, change, delete and view permissions on configs.
 

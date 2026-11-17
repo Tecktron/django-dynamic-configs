@@ -129,7 +129,8 @@ list of ISO 4217 codes only to suggest them in the admin (see [Currency suggesti
 that is out of date never refuses a value.
 
 Its form field is a `MultiValueField`: `MoneyField`'s own number input for the amount, and a 3-character input for the
-currency that suggests codes as you type, side by side, with no JavaScript. Because that input isn't typed as one line,
+currency that suggests codes as you type, side by side. The inputs need no JavaScript; the admin's dropdown (see
+[Currency suggestions](#currency-suggestions)) is a script on top. Because that input isn't typed as one line,
 the `TYPES` entry gives a `raw_help_text` saying how to type an item on a line of a list's raw mode (`9.99 CAD`).
 
 ```{literalinclude} ../src/dynamic_configs/forms/money.py
@@ -142,8 +143,14 @@ the `TYPES` entry gives a `raw_help_text` saying how to type an item on a line o
 The currency input has a `<datalist>`, so the browser offers codes while you type. By default these are the ISO 4217
 currencies, as published by SIX Group, the ISO 4217 maintenance agency (the date of the list the package carries is
 `dynamic_configs.types.iso4217.PUBLISHED`). Funds, precious metals, bond market units and the codes for testing (`XTS`)
-and for no currency (`XXX`) are left out. Each suggestion shows the code with ISO's name for it as published ("Pound
-Sterling", "US Dollar"); how a browser shows the two differs, and some show less than others.
+and for no currency (`XXX`) are left out. Each suggestion's text is the code and ISO's name for it as published, such
+as `GBP - Pound Sterling` or `USD - US Dollar`; a suggestion with no label is the code alone.
+
+In the admin, the input opens its own dropdown, in the admin's colours, with one click. It filters as you type, listing
+the codes that start with what you typed first and then the suggestions whose text has it, and you choose with the
+arrow keys and Enter, or the mouse; Escape closes it. Outside the admin, and in the admin if its script doesn't run, the
+browser shows its own list, which looks and opens differently from one browser to the next (Firefox opens it on a
+second click).
 
 Give the type a `currencies` option to suggest your own. A list of codes suggests just those, with ISO's names for the
 ones it knows; a mapping of code to label uses your labels as given; an empty list turns the suggestions off. Codes are

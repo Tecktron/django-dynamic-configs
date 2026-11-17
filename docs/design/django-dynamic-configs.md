@@ -330,9 +330,10 @@ DYNAMIC_CONFIGS = {
   currency code. Stored text is `"9.99 CAD"`; on input the code is uppercased (`"9.99 cad"` is accepted). It takes
   the same `rounding` and rounds the amount of entered text before it creates `Money`.
 - `MoneyCurrencyField` is a `MultiValueField` combining `MoneyField` (the amount; the widget uses `MoneyField`'s own
-  number input) with a 3-character currency input, shown side by side with no JavaScript. The currency input has a
-  `list` attribute pointing at a `<datalist>` of suggested currencies, rendered in the same `<span>` as the inputs (so
-  the admin's flex layout keeps them together).
+  number input) with a 3-character currency input (`CurrencyInput`, a `TextInput`), shown side by side with no
+  JavaScript. The currency input has a `list` attribute pointing at a `<datalist>` of suggested currencies, rendered in
+  the same `<span>` as the inputs (so the admin's flex layout keeps them together). Each option's text is
+  `CODE - Label`, or the code alone when the label is empty.
 - **Currency suggestions.** `MoneyCurrencySerializer(rounding=None, currencies=None)` takes the codes to suggest:
   `None` gives the ISO 4217 list in `types/iso4217.py`; a list of codes is labelled from that list when it knows them
   (an unknown code is suggested without a label); a mapping of code to label is used as given; empty gives no
@@ -621,6 +622,24 @@ numbers whole,
   `step="0.01"` but takes more places, and the change form's `novalidate` lets them through to the server. The
   number part of a combined field (a `MultiValueField` with one input per field), such as `money_currency`'s amount,
   is marked the same way, as is a whole-number part; the combined field's other parts are left as they are.
+- **Currency suggestions:** `CurrencyInput` (the exact class, as a part of a combined field) gets `AdminCurrencyInput`,
+  marked `data-dynamic-configs-suggest`, with `suggestions.js` and `admin.css`. The script takes the input's own
+  `<datalist>` and shows it as a list in the admin's colours, the same in every browser:
+  - It opens on the first press of the input, and on the up or down arrow, with every suggestion and the input's code
+    highlighted. Typing filters it, the codes that start with the text first and then the suggestions whose text has it,
+    without regard to case; with no match it closes.
+  - The arrows move the highlight, Enter picks it, and a click picks an option; a pick sets the code and sends `input`
+    and `change`. Escape closes the list. Leaving the input or pressing Tab closes it without picking, so a typed code
+    that isn't suggested stays as typed.
+  - Enter with nothing highlighted does what it did (saves the page, or adds the list editor's item) and also closes
+    an open list; a pick neither saves nor adds.
+  - The list is appended to `<body>` and shown in the top layer (`popover="manual"`): Django's `.form-row` has
+    `overflow: hidden`, which would clip a list drawn beside the input. It is placed from the input's box, below it, or
+    above it when it doesn't fit below and there's more room above, and follows scrolling and resizing.
+  - The input keeps the focus; it gets the combobox role and `aria-expanded`, `aria-controls` and
+    `aria-activedescendant`, and the list the listbox role. The input's own `list` attribute is removed so the browser's
+    popup stays shut. Option text is set with `textContent`.
+  - Without the script, or in a browser with no `showPopover`, the native datalist stays.
 - **Steps:** on load the script drops a whole-number or decimal input's `value` attribute, keeping the value shown.
   With no `min`, the browser counts the arrows' steps from that attribute, so after the server refused an int's
   `1.7`, up went to `2.7`, and money's `1.234`, to `1.244`; now they count from multiples of the step (`2`, `1.24`).

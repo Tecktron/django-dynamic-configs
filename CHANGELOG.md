@@ -38,6 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   unless the type's `options` set a `rounding`.
 - Currency suggestions for `money_currency`: its currency input offers the ISO 4217 codes (from SIX Group, with their
   names) as you type, or the codes and labels of a `currencies` option; the suggestions never restrict what is entered.
+  In the admin the currency input opens a dropdown listing `USD - US Dollar` and filters as you type.
   A monthly workflow checks the list and opens a pull request when it changes.
 - An optional django-simple-history integration (`dynamic_configs.contrib.simple_history`, installed with the
   `simple-history` extra) that records every change and adds the History button to the admin, with the system checks
