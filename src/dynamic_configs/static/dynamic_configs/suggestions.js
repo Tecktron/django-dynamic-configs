@@ -50,6 +50,8 @@
         let options = [];
         let active = -1;
         let open = false;
+        // Typing closed the list: the next Enter only confirms that, as it would have on the open list.
+        let held = false;
 
         // Under the input; above it when the list doesn't fit under it and there's more room above.
         function place() {
@@ -80,6 +82,7 @@
         }
 
         function close() {
+            held = false;
             if (open) {
                 open = false;
                 list.hidePopover();
@@ -91,12 +94,15 @@
             }
         }
 
-        // Every suggestion, with the input's code highlighted; or, as it's typed, the ones that match, with none.
+        // Every suggestion, with the input's code highlighted; or, as it's typed, the ones that match, with the first.
         function show(typed) {
             const all = suggestions(datalist);
-            const shown = typed && input.value ? matching(all, input.value) : all;
+            const filtering = Boolean(typed && input.value);
+            const shown = filtering ? matching(all, input.value) : all;
             if (!shown.length) {
+                const holding = open || held;
                 close();
+                held = holding;
                 return;
             }
             options = shown.map((item, index) => {
@@ -119,7 +125,8 @@
             list.scrollTop = 0;
             place();
             const code = input.value.toUpperCase();
-            highlight(typed ? -1 : shown.findIndex((item) => item.code === code));
+            // Typed away to nothing, the empty input has no code, so nothing is highlighted.
+            highlight(filtering ? 0 : shown.findIndex((item) => item.code === code));
         }
 
         function pick(option) {
@@ -155,17 +162,23 @@
                     highlight(active < 0 ? (step > 0 ? 0 : last) : Math.min(Math.max(active + step, 0), last));
                 }
             } else if (event.key === "Enter") {
-                // A pick neither saves the page nor adds the list editor's item; otherwise Enter does what it did.
-                if (open && active >= 0) {
+                // On the open list, or the one typing closed, Enter picks the highlight or only closes: it neither
+                // saves the page nor adds the list editor's item. The next Enter does what it did.
+                if (open || held) {
                     event.preventDefault();
                     event.stopPropagation();
-                    pick(options[active]);
-                } else {
-                    close();
+                    if (open && active >= 0) {
+                        pick(options[active]);
+                    } else {
+                        close();
+                    }
                 }
-            } else if (event.key === "Escape" && open) {
-                event.preventDefault();
-                event.stopPropagation();
+            } else if (event.key === "Escape") {
+                // A deliberate close, so the next Enter does what it did.
+                if (open) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
                 close();
             } else if (event.key === "Tab") {
                 close();

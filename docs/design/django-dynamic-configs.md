@@ -629,14 +629,16 @@ scripts' own elements. Projects can still override the standard templates
   `<datalist>` and shows it as a list in the admin's colours, the same in every browser:
   - It opens on the first press of the input, and on the up or down arrow, with every suggestion and the input's code
     highlighted. Typing filters it, the codes that start with the text first and then the suggestions whose text has it,
-    without regard to case; with no match it closes.
+    without regard to case, and highlights the first; with no match it closes. Typed away to nothing, it lists every
+    suggestion with none highlighted.
   - The arrows move the highlight, Enter picks it, and a click picks an option; a pick sets the code and sends `input`
     and `change`. Escape closes the list. Leaving the input, pressing Tab or a press anywhere else (a finger's press
     that turns into a scroll never focuses the input) closes it without picking, so a typed code that isn't suggested
     stays as typed. The highlight, and a hovered option, take the colours of the admin's own dropdowns (`--primary`,
     `--primary-fg`), or the system's when colours are forced.
-  - Enter with nothing highlighted does what it did (saves the page, or adds the list editor's item) and also closes
-    an open list; a pick neither saves nor adds.
+  - Enter on the open list, or on one that typing closed, picks the highlight, or with none only closes the list; it
+    neither saves the page nor adds the list editor's item, so the next Enter does that. After Escape, Tab, leaving the
+    input or a press elsewhere, Enter does what it did.
   - The list is appended to `<body>` and shown in the top layer (`popover="manual"`): Django's `.form-row` has
     `overflow: hidden`, which would clip a list drawn beside the input. It is placed from the input's box, below it, or
     above it when it doesn't fit below and there's more room above, and follows scrolling and resizing.

@@ -147,8 +147,10 @@ and for no currency (`XXX`) are left out. Each suggestion's text is the code and
 as `GBP - Pound Sterling` or `USD - US Dollar`; a suggestion with no label is the code alone.
 
 In the admin, the input opens its own dropdown, in the admin's colours, with one click. It filters as you type, listing
-the codes that start with what you typed first and then the suggestions whose text has it, and you choose with the arrow
-keys and Enter, or the mouse; Escape, or a press anywhere else, closes it. Outside the admin, and in the admin if its
+the codes that start with what you typed first and then the suggestions whose text has it, with the first highlighted,
+and you choose with the arrow keys and Enter, or the mouse; Escape, or a press anywhere else, closes it. While the list
+is open, or once typing has closed it, Enter only picks or closes it: the next Enter saves the page, or adds the list
+editor's item. Outside the admin, and in the admin if its
 script doesn't run, the browser shows its own list, which looks and opens differently from one browser to the next
 (Firefox opens it on a second click).
 

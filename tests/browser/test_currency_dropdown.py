@@ -90,10 +90,9 @@ def items(page):
     return page.get_by_role("listbox", name="Items").locator("option")
 
 
-def type_and_highlight(currency, text):
+def type_in(currency, text):
     currency.fill("")
     currency.press_sequentially(text)
-    currency.press("ArrowDown")
 
 
 def sits_under(currency, dropdown):
@@ -138,9 +137,22 @@ def test_typing_filters_codes_first(admin_page, settings):
     expect(dropdown).to_be_hidden()
 
 
-def test_arrows_and_enter_pick_without_saving(admin_page, settings):
+def test_typing_highlights_the_top_match(admin_page, settings):
     currency, dropdown = open_price(admin_page, settings)
-    type_and_highlight(currency, "us")
+    highlighted = dropdown.locator("[aria-selected=true]")
+    type_in(currency, "us")
+    expect(highlighted).to_have_attribute("data-value", "USD")
+    expect(dropdown.locator("[role=option]").first).to_have_attribute("data-value", "USD")
+    # Typed away to nothing, every suggestion is listed and none is highlighted.
+    currency.press("Backspace")
+    currency.press("Backspace")
+    expect(dropdown).to_be_visible()
+    expect(highlighted).to_have_count(0)
+
+
+def test_enter_picks_the_top_match_without_saving(admin_page, settings):
+    currency, dropdown = open_price(admin_page, settings)
+    type_in(currency, "us")
     admin_page.evaluate(WATCH_ENTER)
     currency.press("Enter")
     assert admin_page.evaluate(LEAKED) == {"enter": False, "submit": False}
@@ -150,12 +162,50 @@ def test_arrows_and_enter_pick_without_saving(admin_page, settings):
     assert Config.objects.get(name="PRICE").value == "1.00 CAD"
 
 
-def test_enter_without_a_highlight_still_saves(admin_page, settings):
-    currency, _ = open_price(admin_page, settings)
-    currency.fill("xyz")
+def test_enter_picks_the_highlight_the_arrows_moved_to(admin_page, settings):
+    currency, dropdown = open_price(admin_page, settings)
+    type_in(currency, "us")
+    currency.press("ArrowDown")
+    second = dropdown.locator("[role=option]").nth(1).get_attribute("data-value")
+    expect(dropdown.locator("[aria-selected=true]")).to_have_attribute("data-value", second)
+    currency.press("Enter")
+    expect(currency).to_have_value(second)
+    assert second != "USD"
+
+
+def test_enter_on_the_open_list_without_a_highlight_only_closes_it(admin_page, settings):
+    # The input's CAD isn't suggested, so the list opens with nothing highlighted.
+    currency, dropdown = open_price(admin_page, settings, currencies={"AAA": "", "ZZZ": ""})
+    currency.click()
+    expect(dropdown).to_be_visible()
+    expect(dropdown.locator("[aria-selected=true]")).to_have_count(0)
+    admin_page.evaluate(WATCH_ENTER)
+    currency.press("Enter")
+    assert admin_page.evaluate(LEAKED) == {"enter": False, "submit": False}
+    expect(dropdown).to_be_hidden()
+    expect(currency).to_have_value("CAD")
+
+
+def test_after_typing_closes_the_list_the_second_enter_submits(admin_page, settings):
+    currency, dropdown = open_price(admin_page, settings)
+    type_in(currency, "xyz")
+    expect(dropdown).to_be_hidden()
+    admin_page.evaluate(WATCH_ENTER)
+    currency.press("Enter")
+    assert admin_page.evaluate(LEAKED) == {"enter": False, "submit": False}
+    currency.press("Enter")
+    assert admin_page.evaluate(LEAKED) == {"enter": True, "submit": True}
+    expect(currency).to_have_value("xyz")
+
+
+def test_enter_after_escape_saves(admin_page, settings):
+    currency, dropdown = open_price(admin_page, settings)
+    currency.click()
+    expect(dropdown).to_be_visible()
+    currency.press("Escape")
     currency.press("Enter")
     expect(admin_page.locator(".messagelist")).to_contain_text("was changed successfully")
-    assert Config.objects.get(name="PRICE").value == "1.00 XYZ"
+    assert Config.objects.get(name="PRICE").value == "1.00 CAD"
 
 
 def test_clicking_an_option_picks_it(admin_page, settings):
@@ -170,7 +220,7 @@ def test_clicking_an_option_picks_it(admin_page, settings):
 @pytest.mark.parametrize("leave", ["Escape", "Tab", "click away"])
 def test_escape_tab_and_clicking_away_never_pick(admin_page, settings, leave):
     currency, dropdown = open_price(admin_page, settings)
-    type_and_highlight(currency, "us")
+    type_in(currency, "us")
     expect(dropdown.locator("[aria-selected=true]")).to_have_count(1)
     if leave == "click away":
         admin_page.locator("h1").click()
@@ -325,7 +375,7 @@ def test_the_item_editor_picks_and_adds(admin_page, settings):
 
 def test_enter_on_a_highlight_does_not_add_the_item(admin_page, settings):
     currency = open_prices(admin_page, settings)
-    type_and_highlight(currency, "us")
+    type_in(currency, "us")
     admin_page.evaluate(WATCH_ENTER)
     currency.press("Enter")
     assert admin_page.evaluate(LEAKED) == {"enter": False, "submit": False}
