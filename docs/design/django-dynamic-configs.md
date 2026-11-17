@@ -558,8 +558,10 @@ name is an identifier, not a value), and `text` values and descriptions are alwa
 The admin ships **no templates** of its own; it uses stock `ModelAdmin` pages, so admin skins apply. Its scripts are
 optional and every page works without them: `dynamic_configs/admin.js` fills in defaults, saves clicks and keeps whole
 numbers whole,
-`dynamic_configs/json_editor.js` is the JSON editor and `dynamic_configs/list_editor.js` the list editor, with
-`dynamic_configs/admin.css`, which styles only the editors' own elements. Projects can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
+`dynamic_configs/json_editor.js` is the JSON editor, `dynamic_configs/list_editor.js` the list editor and
+`dynamic_configs/suggestions.js` the currency dropdown, with `dynamic_configs/admin.css`, which styles only the
+scripts' own elements. Projects can still override the standard templates
+(`admin/dynamic_configs/config/change_form.html`).
 
 - **`ConfigAdminMixin`** holds all the behaviour. **`ConfigAdmin`** is `ConfigAdminMixin` + `admin.ModelAdmin`, and is
   registered automatically by `dynamic_configs.admin.register_admin()` unless `REGISTER_ADMIN` is `False`; calling it
@@ -629,8 +631,10 @@ numbers whole,
     highlighted. Typing filters it, the codes that start with the text first and then the suggestions whose text has it,
     without regard to case; with no match it closes.
   - The arrows move the highlight, Enter picks it, and a click picks an option; a pick sets the code and sends `input`
-    and `change`. Escape closes the list. Leaving the input or pressing Tab closes it without picking, so a typed code
-    that isn't suggested stays as typed.
+    and `change`. Escape closes the list. Leaving the input, pressing Tab or a press anywhere else (a finger's press
+    that turns into a scroll never focuses the input) closes it without picking, so a typed code that isn't suggested
+    stays as typed. The highlight, and a hovered option, take the colours of the admin's own dropdowns (`--primary`,
+    `--primary-fg`), or the system's when colours are forced.
   - Enter with nothing highlighted does what it did (saves the page, or adds the list editor's item) and also closes
     an open list; a pick neither saves nor adds.
   - The list is appended to `<body>` and shown in the top layer (`popover="manual"`): Django's `.form-row` has
@@ -860,13 +864,14 @@ src/dynamic_configs/
     models.py           Config, ConfigDoesNotExist
     signals.py          post_save / post_delete cache handling
     admin.py            ConfigAdminMixin (with the list editor's check URL), ConfigAdmin, AdminZonedDateTimeWidget,
-                        AdminJSONTextarea, AdminListEditorWidget
+                        AdminJSONTextarea, AdminListEditorWidget, AdminCurrencyInput
     apps.py
     static/dynamic_configs/
         admin.js        the admin's optional script (type step, time zones, number steps)
         json_editor.js  the admin's JSON editor
         list_editor.js  the admin's list editor
-        admin.css       the editors' layout, and the JSON editor's colours
+        suggestions.js  the admin's currency dropdown
+        admin.css       the editors' layout, the JSON editor's colours, and the currency dropdown's look
     types/
         base.py         ConfigType: a type's definition, type check and text conversion
         registry.py     registry build, lookup, list and set variants
