@@ -40,6 +40,7 @@ from dynamic_configs.forms.datetime import ZonedDateTimeWidget
 from dynamic_configs.forms.fields import formfield_for
 from dynamic_configs.forms.json import JSONTextarea
 from dynamic_configs.forms.list import ListWidget, TypedLineListField, stored_texts
+from dynamic_configs.forms.money import CurrencyInput
 from dynamic_configs.models import Config
 from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.registry import get_registry
@@ -84,6 +85,20 @@ class AdminDecimalInput(forms.NumberInput):
         """The admin script, which counts the arrows' steps from multiples of the step."""
 
         js = (ADMIN_SCRIPT,)
+
+
+class AdminCurrencyInput(CurrencyInput):
+    """Money's currency input, marked for the suggestions script, which shows the datalist as the admin's dropdown."""
+
+    def __init__(self, attrs: dict[str, Any] | None = None) -> None:
+        """Keep ``attrs`` (its size and length) and add the mark."""
+        super().__init__(attrs={**(attrs or {}), "data-dynamic-configs-suggest": True})
+
+    class Media:
+        """The suggestions script, and the stylesheet with the dropdown's look."""
+
+        js = ("dynamic_configs/suggestions.js",)
+        css = {"all": (_STYLESHEET,)}
 
 
 class AdminJSONTextarea(admin_widgets.AdminTextareaWidget):
@@ -181,6 +196,8 @@ class ConfigAdminMixin:
         forms.Textarea: admin_widgets.AdminTextareaWidget,
         JSONTextarea: AdminJSONTextarea,
     }
+    # A combined field's parts the package owns, mapped to the admin's versions; matched by exact type, as above.
+    _ADMIN_PARTS: dict[type[forms.Widget], type[forms.Widget]] = {CurrencyInput: AdminCurrencyInput}
 
     list_display = ("name", "type_label", "value_preview", "description", "modified_on")
     list_filter = ("type",)
@@ -208,7 +225,8 @@ class ConfigAdminMixin:
         """Swap ``field``'s widget for the admin's version when it's one of Django's plain widgets, keeping its attrs.
 
         A combined field (``MultiValueField``) whose widget has one input per field gets the number inputs among them
-        marked the same way; its other parts are a project's own and stay as they are.
+        marked the same way, and money's currency input (``CurrencyInput``) gets the admin's dropdown; its other parts
+        are a project's own and stay as they are.
         """
         widget_class = cls._ADMIN_WIDGETS.get(type(field.widget)) or cls._number_widget_class(field, field.widget)
         if widget_class is not None:
@@ -217,7 +235,7 @@ class ConfigAdminMixin:
             parts = field.widget.widgets
             if len(parts) == len(field.fields):
                 for index, (part_field, part) in enumerate(zip(field.fields, parts, strict=True)):
-                    part_class = cls._number_widget_class(part_field, part)
+                    part_class = cls._number_widget_class(part_field, part) or cls._ADMIN_PARTS.get(type(part))
                     if part_class is not None:
                         parts[index] = part_class(attrs=part.attrs)
 

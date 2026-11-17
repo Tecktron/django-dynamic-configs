@@ -196,7 +196,13 @@ def test_the_admin_script_is_shipped():
 
 
 @pytest.mark.parametrize(
-    "path", ["dynamic_configs/json_editor.js", "dynamic_configs/list_editor.js", "dynamic_configs/admin.css"]
+    "path",
+    [
+        "dynamic_configs/json_editor.js",
+        "dynamic_configs/list_editor.js",
+        "dynamic_configs/suggestions.js",
+        "dynamic_configs/admin.css",
+    ],
 )
 def test_the_editors_files_are_shipped(path):
     # The stylesheet needs its own package-data pattern, which this catches under tox.
@@ -305,6 +311,34 @@ def test_the_admin_marks_a_list_editors_combined_number_part(admin_client, setti
     assert 'type="number"' in amount
     assert "data-dynamic-configs-decimal" in amount
     assert "data-dynamic-configs-decimal" not in currency
+
+
+def test_money_currency_gets_the_admin_currency_input(admin_client, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": MONEY_CURRENCY}
+    make("PRICE", "money_currency", "1.00 CAD")
+    content = admin_client.get(change_url("PRICE")).content.decode()
+    amount, currency = input_tag(content, "value_0"), input_tag(content, "value_1")
+    assert "data-dynamic-configs-suggest" in currency
+    assert 'size="3"' in currency
+    assert 'maxlength="3"' in currency
+    assert "dynamic_configs/suggestions.js" in content
+    assert "dynamic_configs/admin.css" in content
+    assert "data-dynamic-configs-decimal" in amount
+
+
+def test_a_list_of_money_currency_gets_it_in_the_item_editor(admin_client, settings):
+    settings.DYNAMIC_CONFIGS = {"TYPES": MONEY_CURRENCY}
+    make("PRICES", "list:money_currency", '["1.00 CAD"]')
+    content = admin_client.get(change_url("PRICES")).content.decode()
+    assert "data-dynamic-configs-suggest" in input_tag(content, "value__item_1")
+
+
+def test_a_projects_own_text_part_is_not_marked():
+    widget = forms.MultiWidget([forms.TextInput(), forms.TextInput()])
+    field = forms.MultiValueField((forms.CharField(), forms.CharField()), widget=widget, require_all_fields=False)
+    ConfigAdminMixin._use_admin_widget(field)
+    assert type(field.widget.widgets[0]) is forms.TextInput
+    assert type(field.widget.widgets[1]) is forms.TextInput
 
 
 def test_a_combined_field_with_a_different_number_of_inputs_is_left_alone():

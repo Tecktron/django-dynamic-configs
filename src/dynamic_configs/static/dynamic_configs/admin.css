@@ -1,6 +1,6 @@
 /*
- * The dynamic-configs admin's JSON and list editors (json_editor.js, list_editor.js): this styles the editors' own
- * elements. Without the scripts, none of this applies.
+ * The dynamic-configs admin's JSON and list editors (json_editor.js, list_editor.js) and suggestions dropdown
+ * (suggestions.js): this styles their own elements. Without the scripts, none of this applies.
  *
  * Colours are custom properties, so a project can change them in its own admin stylesheet:
  *
@@ -189,4 +189,35 @@ form .aligned .dynamic-configs-list-item .help {
     color: var(--link-fg, #447e9b);
     cursor: pointer;
     text-decoration: underline;
+}
+
+/* ---- The suggestions dropdown ------------------------------------------------------------------------------------ */
+
+/* A popover: undo the browser's centring, inset and padding; the script sets top and left from the input's box. */
+.dynamic-configs-suggestions {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    min-width: 16em;
+    max-height: 15em;
+    overflow-y: auto;
+    border: 1px solid var(--border-color, #ccc);
+    border-radius: 4px;
+    background: var(--body-bg, #fff);
+    color: var(--body-fg, #333);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 15%);
+    font-family: var(--font-family-primary, inherit);
+    font-size: 0.8125rem;
+}
+
+.dynamic-configs-suggestions [role="option"] {
+    padding: 4px 8px;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.dynamic-configs-suggestions [aria-selected="true"] {
+    background: var(--selected-bg, #e4e4e4);
 }

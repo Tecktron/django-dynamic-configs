@@ -15,8 +15,9 @@ MONEY_CURRENCY = {
 }
 CHANGE = "/admin/dynamic_configs/config/{}/change/"
 ADD = "/admin/dynamic_configs/config/add/?type={}"
-# What each input's list holds in the browser: the number of suggestions, or null when the list doesn't resolve.
-SUGGESTIONS = "element => element.list && element.list.options.length"
+# What each input's datalist holds in the browser: the number of suggestions, or null when it has none. Read by id: in
+# the admin, the suggestions script takes the input's list attribute away.
+SUGGESTIONS = 'element => document.getElementById(element.id + "_currencies")?.options.length ?? null'
 
 
 def use_types(settings, **options):
@@ -90,7 +91,7 @@ def test_a_list_of_money_has_a_datalist_per_input_with_unique_ids(admin_page, se
     assert admin_page.locator("input[name=value__item_1]").evaluate(SUGGESTIONS) >= 100
     ids = admin_page.locator("datalist").evaluate_all("lists => lists.map(list => list.id)")
     assert len(ids) == len(set(ids)) >= 1
-    for currency in admin_page.locator("input[maxlength='3'][list]").all():
+    for currency in admin_page.locator("input[data-dynamic-configs-suggest]").all():
         assert currency.evaluate(SUGGESTIONS) >= 100
 
 
