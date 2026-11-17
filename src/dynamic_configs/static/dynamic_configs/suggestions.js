@@ -71,6 +71,14 @@
             }
         }
 
+        // A press anywhere else closes it without picking: a finger's press on the input that turns into a scroll
+        // never gives it the focus, so no blur would.
+        function pressOutside(event) {
+            if (event.target !== input && !list.contains(event.target)) {
+                close();
+            }
+        }
+
         function close() {
             if (open) {
                 open = false;
@@ -79,6 +87,7 @@
                 input.removeAttribute("aria-activedescendant");
                 window.removeEventListener("scroll", place, true);
                 window.removeEventListener("resize", place);
+                document.removeEventListener("pointerdown", pressOutside, true);
             }
         }
 
@@ -105,6 +114,7 @@
                 input.setAttribute("aria-expanded", "true");
                 window.addEventListener("scroll", place, true);
                 window.addEventListener("resize", place);
+                document.addEventListener("pointerdown", pressOutside, true);
             }
             list.scrollTop = 0;
             place();

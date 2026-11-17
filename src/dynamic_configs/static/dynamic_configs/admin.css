@@ -218,6 +218,19 @@ form .aligned .dynamic-configs-list-item .help {
     cursor: pointer;
 }
 
-.dynamic-configs-suggestions [aria-selected="true"] {
-    background: var(--selected-bg, #e4e4e4);
+/* The keyboard's highlight and the hovered option, in the colours of the admin's own dropdowns (its autocomplete). */
+.dynamic-configs-suggestions [aria-selected="true"],
+.dynamic-configs-suggestions [role="option"]:hover {
+    background: var(--primary, #79aec8);
+    color: var(--primary-fg, #fff);
+}
+
+/* With forced colours (Windows' contrast themes, say) the browser would drop the highlight's background. */
+@media (forced-colors: active) {
+    .dynamic-configs-suggestions [aria-selected="true"],
+    .dynamic-configs-suggestions [role="option"]:hover {
+        forced-color-adjust: none;
+        background: Highlight;
+        color: HighlightText;
+    }
 }
