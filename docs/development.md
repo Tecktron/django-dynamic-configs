@@ -241,7 +241,7 @@ venv/bin/python scripts/update_currencies.py
 
 1. Bump `version` in `pyproject.toml` to the new version, `X.Y.Z`.
 2. In `CHANGELOG.md`, put the new version's entries under `## [X.Y.Z] - YYYY-MM-DD` (today's date), and leave an empty
-   `## [Unreleased]` above it. If `## [X.Y.Z]` is already there, as `## [0.1.0]` is before its release, set its date.
+   `## [Unreleased]` above it. If `## [X.Y.Z]` is already there, as `## [1.0.0]` is before its release, set its date.
 3. Commit both on `main`, then tag the commit and push the tag:
 
    ```

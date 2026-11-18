@@ -835,7 +835,7 @@ Hosted on Read the Docs, built with **Sphinx**:
   so they're never published.
 - The Changelog page includes `CHANGELOG.md`, which follows [Keep a Changelog](https://keepachangelog.com/): an
   Unreleased section, then one section per version with Added, Changed, Deprecated, Removed, Fixed and Security
-  headings as needed. 0.1.0 is the first release.
+  headings as needed. 1.0.0 is the first release.
 - The README stays short: what it is, installation, a quick start and a link to the docs. The reference material the
   README held while there was no docs site (the JSON editor's colours, the list editor, `STRIP_STRINGS`, a custom
   `form` and `raw_help_text` in the list editor, known limitations) moves to Admin and skins, and its Development
@@ -905,8 +905,8 @@ tests/
 ## Packaging and tooling
 
 - **setuptools** through `pyproject.toml` (no `setup.py`). Distribution `django-dynamic-configs`, import package
-  `dynamic_configs`, initial version `0.1.0`, `Development Status :: 3 - Alpha`. License: MIT, "Copyright (c) 2026
-  Tecktron". Author: `Tecktron` (name only, no email).
+  `dynamic_configs`, initial version `1.0.0`, `Development Status :: 5 - Production/Stable`. License: MIT,
+  "Copyright (c) 2026 Tecktron". Author: `Tecktron` (name only, no email).
 - `requires-python = ">=3.10"`; dependency `Django>=5.2`. Classifiers for Django 5.2, 6.0, 6.1 and each supported
   Python.
 - Extra: `simple-history` (`django-simple-history>=3.8`, the first release supporting Django 5.2; 3.11 added
