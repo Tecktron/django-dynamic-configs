@@ -1,7 +1,5 @@
 # django-dynamic-configs: design
 
-Status: draft for review, 2026-11-02.
-
 ## Purpose
 
 A reusable, public Django app for runtime configuration: typed values that can be **added** and edited in the Django
@@ -475,7 +473,7 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
 - **Large values:** Memcached's default item limit is 1 MB (servers can raise it with `-I`). A larger value is read
   from the database every time, and each read logs a warning.
 - **Per-process caches:** with Django's default `LocMemCache`, an edit only refreshes the cache of the process that
-  handled it; other processes see the old value until it expires. The README recommends a shared cache (Redis,
+  handled it; other processes see the old value until it expires. The Caching page recommends a shared cache (Redis,
   Memcached) or a short `TIMEOUT`.
 
 ## Failure handling
@@ -811,8 +809,8 @@ Opt-in: install `django-dynamic-configs[simple-history]` and add `"dynamic_confi
   latest wins: `.set()` beats a block applied before it, and a block opened after `.set()` beats it while open.
   (It isn't named `dynamic_configs`, which would hide the module inside tests that also call `dynamic_configs.get`.)
   The plugin imports nothing from Django at load time.
-- The plugin does not clear the project's cache between tests. The README tells projects to use `"CACHE": None` in
-  test settings, or overrides.
+- The plugin does not clear the project's cache between tests. The Caching and Testing pages tell projects to use
+  `"CACHE": None` in test settings, or overrides.
 - Django's `TestCase` never commits, so `on_commit` cache writes don't run there; tests that need them use
   `captureOnCommitCallbacks(execute=True)`.
 
@@ -826,27 +824,29 @@ Hosted on Read the Docs, built with **Sphinx**:
   fit the page instead of scrolling sideways.
 - Pages: Overview, Installation, Quick start, Reading and writing settings (the API), Types (built-in, list and set,
   custom, constraints as custom types), Worked example: the money types (writing a type, then extending it), Caching, Failure handling and logging, Admin and skins (including the JSON editor's colours and the list editor), simple-history,
-  Testing, API reference, Changelog, and Development (contributing, running tox, this design document).
+  Testing, API reference, Changelog, Security policy, and Development (contributing, running tox, this design
+  document).
 - `.readthedocs.yaml` pins the build (Python version, the package plus `docs/requirements.txt`, `fail_on_warning: true`).
 - `tox -e docs` builds it locally with warnings as errors (`sphinx-build -W`), and CI runs it, so broken references
   or docstrings fail the build.
 - Versioned docs: Read the Docs builds `latest` from `main` and a version per release tag.
 - `conf.py` excludes `design/plans/` (implementation plans, kept locally and ignored by git) and the build directory,
   so they're never published.
-- The Changelog page includes `CHANGELOG.md`, which follows [Keep a Changelog](https://keepachangelog.com/): an
-  Unreleased section, then one section per version with Added, Changed, Deprecated, Removed, Fixed and Security
-  headings as needed. 0.1.0 is the first release.
-- The README stays short: what it is, installation, a quick start and a link to the docs. The reference material the
-  README held while there was no docs site (the JSON editor's colours, the list editor, `STRIP_STRINGS`, a custom
-  `form` and `raw_help_text` in the list editor, known limitations) moves to Admin and skins, and its Development
-  section (virtual environment, browser, tests, tox and the umask note) to Development.
+- The Changelog page includes `CHANGELOG.md`, which follows [Keep a Changelog](https://keepachangelog.com/): one section
+  per version, newest first, with Added, Changed, Deprecated, Removed, Fixed and Security headings as needed. 1.0.0 is
+  the first release.
+- The README stays short: what it is, installation, a quick start, a link to the docs, and where to report a
+  vulnerability. The reference material the README held while there was no docs site (the JSON editor's colours, the
+  list editor, `STRIP_STRINGS`, a custom `form` and `raw_help_text` in the list editor, known limitations) moves to
+  Admin and skins, and its Development section (virtual environment, browser, tests, tox and the umask note) to
+  Development.
 
 ## Package layout
 
 The `src/` layout, so tests run against the installed package. Modules mirror Django's layout.
 
 ```
-pyproject.toml   tox.ini   MANIFEST.in   LICENSE   README.md   CHANGELOG.md   .readthedocs.yaml
+pyproject.toml   tox.ini   MANIFEST.in   LICENSE   README.md   CHANGELOG.md   SECURITY.md   .readthedocs.yaml
 .github/workflows/ci.yml   .github/workflows/release.yml   .github/workflows/currencies.yml
 scripts/update_currencies.py   (regenerates types/iso4217.py)
 docs/
@@ -905,17 +905,17 @@ tests/
 ## Packaging and tooling
 
 - **setuptools** through `pyproject.toml` (no `setup.py`). Distribution `django-dynamic-configs`, import package
-  `dynamic_configs`, initial version `0.1.0`, `Development Status :: 3 - Alpha`. License: MIT, "Copyright (c) 2026
-  Tecktron". Author: `Tecktron` (name only, no email).
+  `dynamic_configs`, initial version `1.0.0`, `Development Status :: 5 - Production/Stable`. License: MIT,
+  "Copyright (c) 2026 Tecktron". Author: `Tecktron` (name only, no email).
 - `requires-python = ">=3.10"`; dependency `Django>=5.2`. Classifiers for Django 5.2, 6.0, 6.1 and each supported
   Python.
 - Extra: `simple-history` (`django-simple-history>=3.8`, the first release supporting Django 5.2; 3.11 added
   Django 6.0, and pip resolves the newest release anyway).
 - Package data: `py.typed` and the static files (`static/dynamic_configs/*.js` and `*.css`); the suite checks they
   are found, which under tox (installing the built wheel) checks they're packaged.
-- The sdist also carries the whole test suite, `CHANGELOG.md` and `tox.ini` (`MANIFEST.in`), so the package can be
-  tested where it's built from the sdist; without it, setuptools picks up only `tests/test*.py`, which can't run
-  without `tests/settings.py`. The wheel holds only the package.
+- The sdist also carries the whole test suite, `CHANGELOG.md`, `SECURITY.md` and `tox.ini` (`MANIFEST.in`), so the
+  package can be tested where it's built from the sdist; without it, setuptools picks up only `tests/test*.py`, which
+  can't run without `tests/settings.py`. The wheel holds only the package.
 - Project URLs: Homepage, Documentation (Read the Docs), Source, Issues and Changelog (`CHANGELOG.md` on GitHub).
 - Development dependencies in `requirements.txt`: an editable install of the package plus coverage, pytest,
   pytest-django, pytest-mock (tests patch with its `mocker` fixture, not `unittest.mock`), pytest-playwright (the
@@ -1043,7 +1043,8 @@ Configured in `pyproject.toml`:
 
 ## README
 
-Short: what the package is, installation, a quick start, and a link to the documentation site.
+Short: what the package is, installation, a quick start, a link to the documentation site, and where to
+report a vulnerability.
 
 Badges: CI status, coverage (a static "coverage 100%" badge, which stays true because CI fails below 100%),
 documentation build (Read the Docs), PyPI version, supported Python versions, supported Django versions, license.

@@ -240,9 +240,11 @@ venv/bin/python scripts/update_currencies.py
 ## Releasing
 
 1. Bump `version` in `pyproject.toml` to the new version, `X.Y.Z`.
-2. In `CHANGELOG.md`, put the new version's entries under `## [X.Y.Z] - YYYY-MM-DD` (today's date), and leave an empty
-   `## [Unreleased]` above it. If `## [X.Y.Z]` is already there, as `## [0.1.0]` is before its release, set its date.
-3. Commit both on `main`, then tag the commit and push the tag:
+2. In `CHANGELOG.md`, put the new version's entries under `## [X.Y.Z] - YYYY-MM-DD` (today's date), or set the date
+   if that heading is already there. The changelog has no `## [Unreleased]` heading.
+3. Get both onto `main`. Its ruleset takes changes only through a pull request approved by a code owner, and its branch
+   protection requires signed commits; repository admins can bypass both. Then tag the commit on `main` and push the
+   tag:
 
    ```
    git tag vX.Y.Z
