@@ -1,14 +1,17 @@
 import logging
+import threading
 from datetime import datetime
 from datetime import timezone as dt_timezone
+from enum import Enum
 
 import pytest
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, connections, router, transaction
 
 import dynamic_configs
 from dynamic_configs import _overrides, cache
 from dynamic_configs.exceptions import ConfigTypeError, ConfigValueError
 from dynamic_configs.models import Config, ConfigDoesNotExist
+from tests.custom_types import Color
 
 pytestmark = pytest.mark.django_db
 
@@ -41,6 +44,65 @@ def test_no_cache_reads_the_database_and_refreshes_the_cache(django_capture_on_c
     with django_capture_on_commit_callbacks(execute=True):
         assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Fresh"
     assert cache.read("SITE_NAME") == ("str", "Fresh")
+
+
+def test_no_cache_of_a_missing_setting_caches_the_marker(django_capture_on_commit_callbacks):
+    cache.write("MISSING", ("str", "Stale"))
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get("MISSING", None, no_cache=True) is None
+    assert cache.read("MISSING") is cache.ABSENT
+
+
+def test_no_cache_read_caches_the_database_value_at_commit_not_its_own(django_capture_on_commit_callbacks):
+    # F17: a slow no_cache read (or get_or_create) refilled with what it had read, overwriting the newer entry a
+    # writer cached. It now reads the row again when its transaction commits.
+    make(value="Old")
+    with django_capture_on_commit_callbacks(execute=False) as slow_reads:
+        assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Old"
+        assert dynamic_configs.get_or_create("SITE_NAME", "str", "Other") == ("Old", False)
+    with django_capture_on_commit_callbacks(execute=True):
+        dynamic_configs.update("SITE_NAME", "New")
+    for callback in slow_reads:
+        callback()
+    assert cache.read("SITE_NAME") == ("str", "New")
+
+
+@pytest.mark.parametrize(
+    "read_past_the_cache",
+    [
+        lambda: dynamic_configs.get("SITE_NAME", no_cache=True),
+        lambda: dynamic_configs.get_or_create("SITE_NAME", "str", "Other"),
+    ],
+    ids=["no_cache", "get_or_create"],
+)
+def test_a_slow_plain_fill_after_a_read_past_the_cache_keeps_the_new_value(
+    read_past_the_cache, django_capture_on_commit_callbacks
+):
+    # Review: a plain get (inside atomic) reads the old value and defers its add; a writer commits the new one; a read
+    # past the cache commits. If that read only dropped the entry, the plain get's add then cached the old value.
+    make(value="Old")
+    with django_capture_on_commit_callbacks(execute=False) as slow_fill:
+        assert dynamic_configs.get("SITE_NAME") == "Old"
+    with django_capture_on_commit_callbacks(execute=True):
+        dynamic_configs.update("SITE_NAME", "New")
+    with django_capture_on_commit_callbacks(execute=True):
+        read_past_the_cache()
+    for callback in slow_fill:
+        callback()
+    assert cache.read("SITE_NAME") == ("str", "New")
+
+
+def test_a_slow_missing_fill_after_get_or_create_keeps_the_created_row(django_capture_on_commit_callbacks):
+    # Review: the same with a plain get that read "doesn't exist" before the setting was created.
+    with django_capture_on_commit_callbacks(execute=False) as slow_fill:
+        assert dynamic_configs.get("SITE_NAME", None) is None
+    with django_capture_on_commit_callbacks(execute=True):
+        make(value="Created")
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get_or_create("SITE_NAME", "str", "Other") == ("Created", False)
+    for callback in slow_fill:
+        callback()
+    assert cache.read("SITE_NAME") == ("str", "Created")
 
 
 def test_a_missing_setting_raises_without_a_default():
@@ -338,6 +400,28 @@ def test_a_value_too_deeply_nested_to_read_returns_the_default(caplog):
     assert caplog.records[0].levelno == logging.ERROR
 
 
+def test_a_deeply_nested_list_returns_the_default_in_a_thread_with_a_small_stack():
+    # Reading it used to overflow a 256 KB stack (a segfault on Python 3.12). It comes from the cache, so the thread
+    # needs no database connection.
+    cache.write("DEEP", ("list:str", "[" * 100_000 + "]" * 100_000))
+    found = []
+
+    def read():
+        try:
+            found.append(dynamic_configs.get("DEEP", ["default"]))
+        finally:
+            connections.close_all()
+
+    previous = threading.stack_size(256 * 1024)
+    try:
+        thread = threading.Thread(target=read)
+        thread.start()
+        thread.join()
+    finally:
+        threading.stack_size(previous)
+    assert found == [["default"]]
+
+
 def test_a_broken_custom_type_does_not_stop_other_configs_being_read(settings):
     settings.DYNAMIC_CONFIGS = {
         "TYPES": {"broken": {"type": "tests.custom_types.Missing", "serializer": "tests.custom_types.ColorSerializer"}}
@@ -373,3 +457,173 @@ def test_an_unreadable_value_is_never_written_to_the_log(settings, caplog):
     assert not record.exc_info
     assert "s3cret-token" not in caplog.text
     assert "ValueError" in record.getMessage()
+
+
+class Priority(int, Enum):
+    HIGH = 3
+
+
+def test_update_stores_an_int_subclass_as_its_number():
+    make("LEVEL", "int", "1")
+    dynamic_configs.update("LEVEL", Priority.HIGH)
+    assert Config.objects.get(name="LEVEL").value == "3"
+    assert dynamic_configs.get("LEVEL") == 3
+
+
+def test_get_or_create_refuses_a_lone_surrogate_and_creates_nothing():
+    with pytest.raises(ConfigValueError, match="can't be stored"):
+        dynamic_configs.get_or_create("SITE_NAME", "str", "\ud800")
+    assert not Config.objects.filter(name="SITE_NAME").exists()
+
+
+def test_the_docs_example_custom_type_saves_through_update_and_get_or_create(settings):
+    # Review Focus 1: the custom type in docs/types.md checks its rule in deserialize and serialize returns the text.
+    settings.DYNAMIC_CONFIGS = {
+        "TYPES": {"color": {"type": "tests.custom_types.Color", "serializer": "tests.custom_types.ColorSerializer"}}
+    }
+    assert dynamic_configs.get_or_create("BRAND", "color", Color("#1a2b3c")) == (Color("#1a2b3c"), True)
+    dynamic_configs.update("BRAND", Color("#ffffff"))
+    assert dynamic_configs.get("BRAND") == Color("#ffffff")
+    with pytest.raises(ConfigValueError, match="can't be stored: Enter a hex color"):
+        dynamic_configs.update("BRAND", Color("red"))
+    assert dynamic_configs.get("BRAND") == Color("#ffffff")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_get_with_default_never_raises_with_autocommit_off(caplog):
+    # F20: the cache fill's on_commit raised TransactionManagementError outside atomic with autocommit off.
+    make("MAX_RETRIES", "int", "3")
+    cache.delete("MAX_RETRIES")
+    caplog.set_level(logging.DEBUG, logger="dynamic_configs")
+    transaction.set_autocommit(False)
+    try:
+        assert dynamic_configs.get("MAX_RETRIES", 0) == 3
+        assert dynamic_configs.get("MAX_RETRIES", 0, no_cache=True) == 3
+        assert dynamic_configs.get_or_create("MAX_RETRIES", "int", 1) == (3, False)
+    finally:
+        transaction.rollback()
+        transaction.set_autocommit(True)
+    assert cache.read("MAX_RETRIES") is cache.NOT_CACHED
+    message = "Left the cache entry for config 'MAX_RETRIES' as it is: autocommit is off outside a transaction"
+    assert caplog.text.count(message) == 3
+
+
+def test_a_non_string_cache_setting_reads_uncached(settings, caplog):
+    # F21: a non-string CACHE made every get raise TypeError, default or not.
+    make("MAX_RETRIES", "int", "3")
+    settings.DYNAMIC_CONFIGS = {"CACHE": 3}
+    assert dynamic_configs.get("MAX_RETRIES", 0) == 3
+    assert dynamic_configs.get("MAX_RETRIES") == 3
+    assert "Cache alias 3 isn't configured; reading configs without a cache" in caplog.text
+
+
+def test_a_cache_entry_with_an_unhashable_type_is_a_miss(django_capture_on_commit_callbacks):
+    # F22: an unhashable type key made get raise TypeError despite a default.
+    make("MAX_RETRIES", "int", "2")
+    backend = cache.get_cache()
+    backend.set(cache.cache_key("MAX_RETRIES", backend), [["int"], "1"])
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get("MAX_RETRIES", 0) == 2
+
+
+def test_an_unrecognised_cache_entry_is_replaced(django_capture_on_commit_callbacks, django_assert_num_queries):
+    # F23: the refill used add, so an unrecognised entry stayed and every get read the database until it expired. The
+    # read now drops it, so the usual add fills the slot.
+    make("MAX_RETRIES", "int", "2")
+    backend = cache.get_cache()
+    backend.set(cache.cache_key("MAX_RETRIES", backend), "garbage")
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get("MAX_RETRIES") == 2
+    assert cache.read("MAX_RETRIES") == ("int", "2")
+    with django_assert_num_queries(0):
+        assert dynamic_configs.get("MAX_RETRIES") == 2
+
+
+def test_a_newer_entry_cached_after_an_unrecognised_one_is_dropped_is_kept(mocker, django_capture_on_commit_callbacks):
+    # The refill after an unrecognised entry must not overwrite an entry a writer cached once it was dropped.
+    make("MAX_RETRIES", "int", "2")
+    backend = cache.get_cache()
+    key = cache.cache_key("MAX_RETRIES", backend)
+    backend.set(key, "garbage")
+    real_delete = backend.delete
+
+    def delete_then_a_writer_caches(*args, **kwargs):
+        result = real_delete(*args, **kwargs)
+        backend.set(key, ("int", "3"))
+        return result
+
+    mocker.patch.object(backend, "delete", side_effect=delete_then_a_writer_caches)
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dynamic_configs.get("MAX_RETRIES") == 2
+    assert cache.read("MAX_RETRIES") == ("int", "3")
+
+
+reads_past_the_cache = pytest.mark.parametrize(
+    "read_past_the_cache",
+    [
+        lambda: dynamic_configs.get("SITE_NAME", no_cache=True),
+        lambda: dynamic_configs.get_or_create("SITE_NAME", "str", "Other"),
+    ],
+    ids=["no_cache", "get_or_create"],
+)
+
+
+def route_reads_to_the_replica(mocker):
+    """Seed the setting on both databases and route reads to ``replica``, writes to ``default``."""
+    for alias in ("default", "replica"):
+        Config.objects.using(alias).create(name="SITE_NAME", type="str", value="Example")
+    mocker.patch.object(router, "db_for_read", return_value="replica")
+    mocker.patch.object(router, "db_for_write", return_value="default")
+
+
+@reads_past_the_cache
+@pytest.mark.django_db(databases=["default", "replica"])
+def test_reads_past_the_cache_refresh_it_from_the_primary(
+    read_past_the_cache, mocker, django_capture_on_commit_callbacks
+):
+    # With a primary/replica router, a re-read on a lagging replica could set a stale value over a writer's entry.
+    route_reads_to_the_replica(mocker)
+    write_from_database = mocker.patch.object(cache, "write_from_database")
+    with django_capture_on_commit_callbacks(execute=True):
+        read_past_the_cache()
+    write_from_database.assert_called_once_with("SITE_NAME", "default", gone=cache.ABSENT)
+
+
+@reads_past_the_cache
+@pytest.mark.django_db(transaction=True, databases=["default", "replica"])
+def test_a_read_past_the_cache_on_a_replica_never_caches_a_rolled_back_write(read_past_the_cache, mocker):
+    # Review focus: transaction=True, so the replica's connection is outside the caller's transaction, as in
+    # production. Waiting for the replica's commit ran the re-read at once, on the primary connection still inside
+    # the uncommitted atomic(), and cached the value it then rolled back.
+    route_reads_to_the_replica(mocker)
+    try:
+        with transaction.atomic(using="default"):
+            dynamic_configs.update("SITE_NAME", "Uncommitted")
+            read_past_the_cache()
+            raise RuntimeError("roll back")
+    except RuntimeError:
+        pass
+    assert Config.objects.using("default").get(name="SITE_NAME").value == "Example"
+    assert dynamic_configs.get("SITE_NAME") == "Example"
+
+
+def test_update_opens_its_transaction_on_the_routers_write_alias(mocker):
+    make("MAX_RETRIES", "int", "3")
+    mocker.patch("dynamic_configs.api.router.db_for_write", return_value="default")
+    atomic = mocker.spy(transaction, "atomic")
+    dynamic_configs.update("MAX_RETRIES", 5)
+    atomic.assert_any_call(using="default")
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda name: dynamic_configs.update(name, 1),
+        lambda name: dynamic_configs.delete(name),
+        lambda name: dynamic_configs.get_or_create(name, "int", 1),
+    ],
+    ids=["update", "delete", "get_or_create"],
+)
+def test_update_delete_and_get_or_create_check_the_name_first(call, django_assert_num_queries):
+    with django_assert_num_queries(0), pytest.raises(ConfigValueError, match="Invalid config name 'site name'"):
+        call("site name")

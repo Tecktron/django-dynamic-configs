@@ -1,3 +1,4 @@
+import decimal
 import logging
 
 import pytest
@@ -12,6 +13,7 @@ from dynamic_configs.types.registry import (
     reset_registry,
     set_variant,
 )
+from dynamic_configs.types.serializers import BaseSerializer
 from tests.custom_types import Color, ColorField, ColorSerializer
 
 COLOR = {
@@ -32,6 +34,13 @@ def test_custom_types_are_loaded_from_dotted_paths():
     assert color.form_class is ColorField
     assert (color.label, color.help_text, color.listable) == ("Color", "A hex color, e.g. #1a2b3c.", True)
     assert color.raw_help_text == "A hex color typed with its #, e.g. #1a2b3c."
+
+
+def test_a_serializer_not_inheriting_base_still_loads():
+    assert not issubclass(ColorSerializer, BaseSerializer)
+    color = load_custom_type("color", PLAIN)
+    assert isinstance(color.serializer, ColorSerializer)
+    assert color.from_text(color.to_text(Color("#1a2b3c"))) == Color("#1a2b3c")
 
 
 def test_label_help_text_form_and_listable_are_optional():
@@ -239,3 +248,57 @@ def test_a_compare_function_becomes_a_key():
 def test_without_a_key_a_type_sorts_only_if_its_values_have_an_order():
     assert load_custom_type("color", COLOR).sort_key is None
     assert not load_custom_type("color", COLOR).sortable
+
+
+MONEY = {"type": "decimal.Decimal", "serializer": "dynamic_configs.types.money.MoneySerializer"}
+
+
+def test_options_are_passed_to_the_serializer():
+    money = load_custom_type("money", {**MONEY, "options": {"rounding": decimal.ROUND_HALF_UP}})
+    assert money.serializer.rounding == decimal.ROUND_HALF_UP
+
+
+def test_options_may_name_the_rounding_as_text():
+    money = load_custom_type("money", {**MONEY, "options": {"rounding": "ROUND_HALF_UP"}})
+    assert money.serializer.rounding == decimal.ROUND_HALF_UP
+
+
+@pytest.mark.parametrize("options", [["rounding"], {1: "x"}, "ROUND_UP"])
+def test_options_must_be_a_dict_with_text_keys(options):
+    with pytest.raises(TypeConfigError) as raised:
+        load_custom_type("money", {**MONEY, "options": options})
+    assert raised.value.check_id == "dynamic_configs.E001"
+    assert "['options'] must be a dict of keyword arguments" in str(raised.value)
+
+
+def test_options_the_serializer_doesnt_take_are_e003():
+    with pytest.raises(TypeConfigError) as raised:
+        load_custom_type("money", {**MONEY, "options": {"colour": "SECRET-VALUE"}})
+    assert raised.value.check_id == "dynamic_configs.E003"
+    assert "MoneySerializer" in str(raised.value)
+    assert "SECRET-VALUE" not in str(raised.value)
+
+
+def test_an_unknown_rounding_is_e003():
+    with pytest.raises(TypeConfigError) as raised:
+        load_custom_type("money", {**MONEY, "options": {"rounding": "ROUND_SIDEWAYS"}})
+    assert raised.value.check_id == "dynamic_configs.E003"
+    assert "ROUND_SIDEWAYS" not in str(raised.value)
+
+
+def test_a_serializer_that_needs_arguments_without_options_keeps_its_message():
+    entry = {"type": "decimal.Decimal", "serializer": "tests.custom_types.NeedsArgumentSerializer"}
+    with pytest.raises(TypeConfigError, match="must be creatable with no arguments") as raised:
+        load_custom_type("money", entry)
+    assert raised.value.check_id == "dynamic_configs.E003"
+
+
+def test_a_custom_type_key_too_long_for_its_list_variant_is_refused():
+    assert load_custom_type("a" * 59, COLOR).key == "a" * 59
+    with pytest.raises(TypeConfigError, match="at most 59 characters") as error:
+        load_custom_type("a" * 60, COLOR)
+    assert error.value.check_id == "dynamic_configs.E001"
+    registry = build_registry({"a" * 60: COLOR, "a" * 59: COLOR}, strict=False)
+    assert "a" * 59 in registry
+    assert f"list:{'a' * 59}" in registry
+    assert "a" * 60 not in registry

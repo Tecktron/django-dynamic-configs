@@ -8,9 +8,12 @@ from django import forms
 from django.core.exceptions import ValidationError
 
 from dynamic_configs.conf import get_settings
-from dynamic_configs.forms.list import SET_HELP, TypedLineListField
-from dynamic_configs.types.base import ConfigType, Serializer
+from dynamic_configs.constants import SET_HELP
+from dynamic_configs.forms.list import TypedLineListField
+from dynamic_configs.forms.money import MoneyCurrencyField, MoneyField
+from dynamic_configs.types.base import ConfigType
 from dynamic_configs.types.serializers import (
+    BaseSerializer,
     DaysSerializer,
     HoursSerializer,
     MinutesSerializer,
@@ -18,15 +21,18 @@ from dynamic_configs.types.serializers import (
     WeeksSerializer,
 )
 
-_DURATION_SERIALIZERS = {
-    "seconds": SecondsSerializer,
-    "minutes": MinutesSerializer,
-    "hours": HoursSerializer,
-    "days": DaysSerializer,
-    "weeks": WeeksSerializer,
-}
 _BOOLEAN_HELP = "Checked means true."
 _NULL_BOOLEAN_HELP = "Unknown leaves the setting empty, which needs Allow null checked."
+
+
+class StrField(forms.CharField):
+    """The built-in ``str`` type's field: a text input that treats untouched text as unchanged, spaces and all."""
+
+    def has_changed(self, initial: Any, data: Any) -> bool:
+        """Compare the text shown with what was submitted before it's stripped, so untouched text stays as stored."""
+        if self.disabled:
+            return False
+        return str(initial if initial is not None else "") != str(data if data is not None else "")
 
 
 class SerializerField(forms.CharField):
@@ -35,7 +41,7 @@ class SerializerField(forms.CharField):
     This is the admin field for custom types that don't name a ``form``.
     """
 
-    def __init__(self, serializer: Serializer, **kwargs: Any) -> None:
+    def __init__(self, serializer: BaseSerializer, **kwargs: Any) -> None:
         """Use ``serializer`` to read and show the value."""
         self.serializer = serializer
         super().__init__(**kwargs)
@@ -60,11 +66,19 @@ class SerializerField(forms.CharField):
 class DurationUnitField(SerializerField):
     """A duration entered as a plain number of one unit (``seconds``, ``minutes``, ``hours``, ``days``, ``weeks``)."""
 
+    _DURATION_SERIALIZERS = {
+        "seconds": SecondsSerializer,
+        "minutes": MinutesSerializer,
+        "hours": HoursSerializer,
+        "days": DaysSerializer,
+        "weeks": WeeksSerializer,
+    }
+
     def __init__(self, unit: str, **kwargs: Any) -> None:
         """Read and show the duration as a number of ``unit``."""
         self.unit = unit
         kwargs.setdefault("widget", forms.TextInput(attrs={"inputmode": "decimal"}))
-        super().__init__(_DURATION_SERIALIZERS[unit](), **kwargs)
+        super().__init__(self._DURATION_SERIALIZERS[unit](), **kwargs)
 
 
 def strips_typed_strings(*, item: bool) -> bool:
@@ -92,8 +106,12 @@ def formfield_for(
     :param allow_null: whether the config may be empty; a boolean then gets a three-way (yes/no/unknown) field
     :param item: whether the field edits one item of a list or set (the admin's item editor), which decides whether a
         typed string is stripped (``STRIP_STRINGS``, which covers only ``str`` and custom types without a ``form``)
-    :param kwargs: options for the field, such as ``required``, ``label`` and ``help_text``
-    :returns: a ``TypedLineListField`` for list and set types, the type's ``form_class``, or a ``SerializerField``
+    :param kwargs: options for the field, such as ``required``, ``label`` and ``help_text``; a ``rounding`` is added
+        when the type's serializer has one and its ``form`` is ``MoneyField``, ``MoneyCurrencyField`` or a subclass,
+        and so are its ``currencies`` when its ``form`` is ``MoneyCurrencyField`` or a subclass
+    :returns: a ``TypedLineListField`` for list and set types; for a type without a ``form`` a ``SerializerField``;
+        otherwise the type's ``form_class`` (a ``NullBooleanField`` instead of a ``BooleanField`` when ``allow_null``,
+        and a ``StrField`` for the built-in ``str``)
     :rtype: forms.Field
     """
     if config_type.container is not None:
@@ -112,11 +130,21 @@ def formfield_for(
         # The built-in type's help describes typed text ("true or false (yes/no, …)"), which list items take but a
         # checkbox or select doesn't; a custom type's own help is its author's.
         kwargs["help_text"] = _NULL_BOOLEAN_HELP if allow_null else _BOOLEAN_HELP
+    if config_type.key == "str" and form_class is forms.CharField:
+        form_class = StrField
     if allow_null and form_class is forms.BooleanField:
         # A checkbox can't be empty, so a boolean that allows None needs a yes/no/unknown choice.
         form_class = forms.NullBooleanField
+    rounding = getattr(config_type.serializer, "rounding", None)
+    if rounding is not None and issubclass(form_class, (MoneyField, MoneyCurrencyField)):
+        # The money fields let the extra places through to be rounded by the serializer, rather than refusing them
+        # first. Any other form keeps its own validation: it doesn't know the keyword.
+        kwargs["rounding"] = rounding
+    currencies = getattr(config_type.serializer, "currencies", None)
+    if currencies is not None and issubclass(form_class, MoneyCurrencyField):
+        kwargs["currencies"] = currencies
     field = form_class(**kwargs)
-    if config_type.key == "str" and form_class is forms.CharField:
+    if config_type.key == "str" and form_class is StrField:
         # Only the built-in str follows STRIP_STRINGS; every other type's own form field (a custom form, a duration,
         # multi-line text, a project's replacement str with its own form) keeps its own strip.
         field.strip = strips_typed_strings(item=item)

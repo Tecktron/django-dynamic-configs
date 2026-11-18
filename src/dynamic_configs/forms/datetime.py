@@ -50,16 +50,16 @@ def _offset_label(offset: timedelta) -> str:
     return f"{'-' if total < 0 else '+'}{hours}:{minutes:02d}"
 
 
-def _offered(zone: str) -> bool:
-    """Return whether the zone select offers ``zone``."""
-    return zone in {name for name, _ in zone_choices()}
-
-
 class ZonedDateTimeWidget(forms.MultiWidget):
     """A date input, a time input and a time zone select; subclasses swap in other date and time widgets."""
 
     date_widget: type[forms.Widget] = forms.DateInput
     time_widget: type[forms.Widget] = forms.TimeInput
+
+    @staticmethod
+    def _offered(zone: str) -> bool:
+        """Return whether the zone select offers ``zone``."""
+        return zone in {name for name, _ in zone_choices()}
 
     def __init__(self, attrs: dict[str, Any] | None = None) -> None:
         """Label each part, since the three share the field's one label."""
@@ -78,7 +78,7 @@ class ZonedDateTimeWidget(forms.MultiWidget):
         """
         context = super().get_context(name, value, attrs)
         zone = timezone.get_default_timezone_name()
-        if _offered(zone):
+        if self._offered(zone):
             context["widget"]["subwidgets"][2]["attrs"]["data-server-zone"] = zone
         return context
 
@@ -88,7 +88,7 @@ class ZonedDateTimeWidget(forms.MultiWidget):
         UTC stands in when the select doesn't offer the current zone, or the value can't be moved into it.
         """
         zone = timezone.get_current_timezone_name()
-        if not _offered(zone):
+        if not self._offered(zone):
             # A fixed offset (as per-user offset middleware activates) isn't a choice: nothing would be selected, the
             # browser would submit UTC, and saving untouched would move the value.
             zone = "UTC"
@@ -120,6 +120,30 @@ class ZonedDateTimeField(forms.MultiValueField):
         """Build the field from a date, a time and a zone."""
         fields = (forms.DateField(), forms.TimeField(), forms.ChoiceField(choices=zone_choices()))
         super().__init__(fields, **kwargs)
+
+    @staticmethod
+    def _shown(widget: forms.Widget, part: Any) -> str:
+        """Return the text ``widget`` shows for ``part``; a select shows its chosen values as a list."""
+        shown = widget.format_value(part)
+        if isinstance(shown, list):
+            shown = shown[0] if shown else None
+        return "" if shown is None else str(shown)
+
+    def has_changed(self, initial: Any, data: Any) -> bool:
+        """Return whether the date, time and zone differ from what the widget showed for ``initial``.
+
+        Compared as shown, not as parsed: the time input shows whole seconds, so a stored fraction of a second isn't
+        a change the admin made, and an empty value shows only the zone. Anything else typed is compared as Django does.
+        """
+        # No initial value too: the widget still shows its zone, which the page posts back.
+        if (initial is None or isinstance(initial, datetime)) and isinstance(data, list) and len(data) == 3:
+            shown = [
+                self._shown(widget, part)
+                for part, widget in zip(self.widget.decompress(initial), self.widget.widgets, strict=True)
+            ]
+            if [part or "" for part in data] == shown:
+                return False
+        return super().has_changed(initial, data)
 
     def compress(self, data_list: list[Any]) -> datetime | None:
         """Return the datetime in the chosen zone; None when there's no date and no time.

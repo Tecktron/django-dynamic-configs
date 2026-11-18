@@ -181,3 +181,34 @@ def test_with_use_tz_off_the_help_says_which_zone(settings):
     field = datetime_field(help_text="A date and time as YYYY-MM-DD HH:MM.")
     assert type(field) is forms.SplitDateTimeField
     assert field.help_text == "A date and a time. Times are in the server's time zone (America/New_York)."
+
+
+def test_a_disabled_field_never_reports_a_change():
+    field = ZonedDateTimeField(required=False, disabled=True)
+    assert field.has_changed(WINTER, ["2030-05-05", "01:02:03", "UTC"]) is False
+
+
+@pytest.mark.parametrize(
+    ("initial", "data", "changed"),
+    [
+        (None, ["2026-01-15", "12:00"], True),
+        (None, ["", ""], False),
+        (None, "2026-01-15", True),
+        # Only a list is the widget's post; a tuple is compared part by part, and the zone isn't blank.
+        (None, ("", "", "America/New_York"), True),
+        # An initial value that isn't a datetime is a list of parts already.
+        (["2026-01-15", "12:00:00", "UTC"], ["2026-01-15", "12:00:00", "UTC"], False),
+    ],
+)
+def test_data_that_isnt_the_widgets_three_parts_is_compared_as_django_does(initial, data, changed):
+    assert ZonedDateTimeField(required=False).has_changed(initial, data) is changed
+
+
+def test_three_parts_that_differ_from_what_the_widget_showed_are_a_change():
+    field = ZonedDateTimeField(required=False)
+    assert field.has_changed(WINTER, ["2026-01-15", "13:00:00", "UTC"]) is True
+
+
+def test_three_parts_equal_to_what_the_widget_showed_are_no_change():
+    field = ZonedDateTimeField(required=False)
+    assert field.has_changed(WINTER, ["2026-01-15", "07:00:00", "America/New_York"]) is False

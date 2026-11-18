@@ -21,8 +21,10 @@ page_size = dynamic_configs.get("PAGE_SIZE", 20)
 A stored value is unreadable when its type's serializer rejects it (a row edited by hand, say, or a custom type whose
 rules got stricter). Its type isn't registered when the type was removed from `TYPES`, or its entry there is broken:
 a broken entry doesn't stop other settings being read, but it's logged as an error and skipped, and settings of that
-type read as unregistered until it's fixed (`manage.py check` says what's wrong). In the admin, such a setting shows
-its stored text read-only (see [Admin and skins](admin.md#unregistered-types)).
+type read as unregistered until it's fixed (`manage.py check` says what's wrong). In the admin, a setting whose type
+isn't registered shows its stored text read-only (see [Admin and skins](admin.md#unregistered-types)), and one that's
+unreadable opens with an empty value field and a notice with the reason and the stored text, which a save won't
+overwrite until you enter a new value (see [Admin and skins](admin.md#an-unreadable-value)).
 
 If a logging handler of yours itself calls `get` (to decide what to redact, say), it can't recurse while the
 database or cache is down: a `get` that runs inside the package's own logging doesn't log.
@@ -47,7 +49,7 @@ LOGGING = {
 |-----------|------------------------------------------------------------------------------------------------|
 | `DEBUG`   | cache hits, misses and refreshes; database reads; the registry being built or rebuilt          |
 | `INFO`    | writes made through the API: a setting created by `get_or_create`, changed by `update`, deleted by `delete` |
-| `WARNING` | a cache error (falling through to the database); a database error answered with the default    |
+| `WARNING` | a cache error (falling through to the database); a database error answered with the default; items the admin's Sort can't order |
 | `ERROR`   | a stored value that can't be deserialized; a stored type that is no longer registered          |
 
 - **Setting values are never logged, at any level**, because settings may hold secrets (API keys, tokens). Messages
@@ -59,5 +61,5 @@ LOGGING = {
 - Changes made in the admin aren't logged by the package: Django's admin keeps its own log of them.
 - Problems in the configuration are reported by Django's system checks at startup (see
   [System checks](installation.md#system-checks)). Since a server may not run the checks, two are also logged when
-  they're met at run time: a broken `TYPES` entry, skipped, as an error, and a `CACHE` alias that isn't in `CACHES`
+  they're met at run time: a broken `TYPES` entry, skipped, as an error, and a `CACHE` that isn't an alias in `CACHES`
   as a warning.

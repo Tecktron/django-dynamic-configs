@@ -53,6 +53,13 @@ Generated from the package's docstrings. The functions in `dynamic_configs.api` 
    :members:
 ```
 
+## Constants
+
+```{eval-rst}
+.. automodule:: dynamic_configs.constants
+   :members:
+```
+
 ## Form fields
 
 ```{eval-rst}

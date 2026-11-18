@@ -275,3 +275,72 @@ def test_a_form_without_a_description_field_still_works():
             fields = ("value", "allow_null")
 
     assert "description" not in ValueOnly().fields
+
+
+def test_an_unreadable_value_opens_with_a_notice_of_why_and_what_was_stored():
+    # F44: the stored text is shown (escaped, in a <pre>) under the empty field.
+    form = opened(make("MAX_RETRIES", "int", "<b>three</b>"))
+    assert form.initial["value"] is None
+    assert form.unreadable == "Enter a whole number, such as 42."
+    help_text = str(form.fields["value"].help_text)
+    assert "The stored value can't be read: Enter a whole number, such as 42. It's shown below;" in help_text
+    assert "<pre>&lt;b&gt;three&lt;/b&gt;</pre>" in help_text
+    assert help_text.endswith("A whole number, e.g. 42.")
+
+
+def test_the_reason_for_an_unexpected_error_names_only_its_class(mocker):
+    mocker.patch("dynamic_configs.forms.config.ListSerializer.deserialize", side_effect=RecursionError("secret-text"))
+    form = opened(make("PORTS", "list:int", "[[1]]"))
+    assert form.unreadable == "Reading the stored text failed with RecursionError."
+    assert "secret-text" not in str(form.fields["value"].help_text)
+
+
+@pytest.mark.parametrize("text", ["not json", "[1, 2]", '{"a": "b"}'])
+def test_a_list_that_isnt_an_array_of_strings_gets_the_notice(text):
+    assert opened(make("PORTS", "list:int", text)).unreadable is not None
+
+
+def test_a_list_that_is_an_array_of_strings_gets_no_notice():
+    form = opened(make("PORTS", "list:int", '["1", "x"]'))
+    assert form.unreadable is None
+    assert str(form.fields["value"].help_text) == ""
+
+
+def test_a_readable_or_empty_value_gets_no_notice():
+    assert opened(make("MAX_RETRIES", "int", "3")).unreadable is None
+    assert opened(make("NOTE", "str", None, allow_null=True)).unreadable is None
+
+
+def test_an_unchanged_unreadable_value_is_refused_and_a_new_one_replaces_it():
+    config = make("MAX_RETRIES", "int", "abc")
+    form = change_form(config, value="")
+    assert form.errors["value"] == ["Enter a value to replace the unreadable one."]
+    form = change_form(config, value="7")
+    assert form.is_valid(), form.errors
+    assert form.save().value == "7"
+
+
+def test_an_unchanged_empty_value_keeps_its_stored_text():
+    # F43: "" and [] are empty values, not None.
+    keep = {"description": "x", "allow_null": "on"}
+    assert change_form(make("NOTE", "str", "", allow_null=True), **keep).save().value == ""
+    assert change_form(make("HOSTS", "list:str", "[]", allow_null=True), **keep).save().value == "[]"
+    assert change_form(make("LATER", "str", None, allow_null=True), **keep).save().value is None
+
+
+def test_an_unchanged_null_gets_the_empty_value_rules_when_allow_null_is_turned_off():
+    form = change_form(make("MAX_RETRIES", "int", None, allow_null=True), allow_null="on")
+    assert form.is_valid()
+    form = change_form(make("OTHER", "int", None, allow_null=True), allow_null="")
+    assert form.is_valid() is False
+    assert form.errors["value"] == ["This field is required."]
+
+
+def test_a_disabled_str_field_is_never_changed():
+    # Django's own rule, which StrField keeps: a disabled field's data is ignored.
+    field = change_form_for(make("NOTE", "str", " padded "))(instance=make("OTHER", "str", " x ")).fields["value"]
+    field.disabled = True
+    assert field.has_changed(" x ", "something else") is False
+    field.disabled = False
+    assert field.has_changed(" x ", " x ") is False
+    assert field.has_changed(" x ", "x") is True

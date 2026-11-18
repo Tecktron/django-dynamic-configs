@@ -19,6 +19,7 @@ from django.db import connection
 
 import dynamic_configs
 from dynamic_configs import cache
+from dynamic_configs.models import Config
 from tests import conftest, real_cache
 
 BACKENDS = {
@@ -268,3 +269,19 @@ def test_a_second_process_sees_creates_updates_and_deletes(reader):
     assert reader.ask("SITE_NAME") == {"get": "Second", "cached": "('str', 'Second')"}
     dynamic_configs.delete("SITE_NAME")
     assert reader.ask("SITE_NAME") == {"get": None, "cached": "ABSENT"}
+
+
+@real_server_only
+@pytest.mark.django_db(transaction=True)
+def test_a_second_process_reads_the_database_value_after_a_stale_save(reader):
+    # F10 on a real server: a stale copy saving only its description used to cache its own, older value.
+    dynamic_configs.get_or_create("SITE_NAME", "str", "First")
+    stale = Config.objects.get(name="SITE_NAME")
+    dynamic_configs.update("SITE_NAME", "Second")
+    stale.description = "The site's name."
+    stale.save(update_fields=["description"])
+    assert reader.ask("SITE_NAME") == {"get": "Second", "cached": "('str', 'Second')"}
+    # A no_cache read caches what the database holds when it commits, which the second process then reads.
+    cache.write("SITE_NAME", ("str", "Stale"))
+    assert dynamic_configs.get("SITE_NAME", no_cache=True) == "Second"
+    assert reader.ask("SITE_NAME") == {"get": "Second", "cached": "('str', 'Second')"}

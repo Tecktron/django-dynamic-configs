@@ -60,6 +60,12 @@ def test_the_item_editor_brings_its_widgets_scripts(admin_client):
     assert "admin/js/admin/DateTimeShortcuts.js" in content
 
 
+def test_a_whole_number_item_editor_is_marked_for_the_admin_script(admin_client):
+    content = admin_client.get(f"{URL}add/?type=list:int").content.decode()
+    assert re.search(r'<input type="number" name="value__item"[^>]* data-dynamic-configs-int', content)
+    assert "dynamic_configs/admin.js" in content
+
+
 def test_the_item_editor_and_the_raw_textarea_each_have_their_own_help(admin_client):
     content = admin_client.get(f"{URL}add/?type=list:bool").content.decode()
     item = re.search(r'<div class="dynamic-configs-list-item" hidden>(.*?)</div></div>', content, re.S).group(1)
@@ -135,6 +141,15 @@ def test_a_request_that_cant_be_read_is_an_error(admin_client, items):
     assert answer(admin_client, "list:int", "sort", items=items, direction="ascending") == {
         "errors": ["The request couldn't be read. Reload the page and try again."]
     }
+
+
+def test_a_request_with_nested_items_is_refused_without_being_parsed(admin_client, mocker):
+    loads = mocker.spy(json, "loads")
+    items = "[" * 100_000
+    reply = answer(admin_client, "list:int", "sort", items=items, direction="ascending")
+    assert reply == {"errors": ["The request couldn't be read. Reload the page and try again."]}
+    # The test client parses the reply with json.loads too; only the posted text matters.
+    assert items not in [call.args[0] for call in loads.call_args_list]
 
 
 @pytest.mark.parametrize("position", ["²", "9" * 5000, "-1", "x", "1" * 10])

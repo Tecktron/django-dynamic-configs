@@ -17,8 +17,12 @@ modules Django loads early, such as an app's `apps.py`.
 
 ## Names
 
-A setting's name must match `^[A-Z][A-Z0-9_]*$`: a capital letter, then capital letters, digits and underscores
-(`SITE_NAME`, `MAX_UPLOAD_MB`, `FEATURE_2FA`). A name can't be changed once the setting exists.
+A setting's name must match `\A[A-Z][A-Z0-9_]*\Z`: a capital letter, then capital letters, digits and underscores
+(`SITE_NAME`, `MAX_UPLOAD_MB`, `FEATURE_2FA`), and be at most 255 characters. A name can't be changed once the
+setting exists.
+
+`update`, `delete` and `get_or_create` check the name before they query, and raise `ConfigValueError` for a bad one.
+`delete` of a bad name raises too, rather than returning `False`.
 
 ## `get`
 
@@ -35,7 +39,9 @@ Returns the setting's value, as its type's Python type, or `None` for an empty s
   the default, and is logged (see [Failure handling and logging](failures.md)).
 - A name that doesn't match the name pattern can never be saved, so `get` treats it as missing without touching the
   cache or the database.
-- `no_cache=True` skips the cache read and reads the database, then refreshes the cache entry with what it read.
+- `no_cache=True` skips the cache read and reads the database. When the transaction on the primary database
+  commits, the cache entry is refreshed with what it holds when the callback re-reads it (see [Caching](caching.md),
+  which names the remaining gaps).
 - Overrides from the test helpers come first (see [Testing](testing.md)).
 
 ## `get_or_create`
@@ -46,8 +52,8 @@ get_or_create(name, type, value, *, description="", allow_null=False)
 
 Returns `(value, created)`.
 
-- It always reads the database, then refreshes the cache, so code that declares its settings this way sees what an
-  admin has changed.
+- It always reads the database, so code that declares its settings this way sees what an admin has changed. Like
+  `get(name, no_cache=True)`, it refreshes the cache entry from the primary database when the transaction commits.
 - When the setting exists, it returns the stored value and `created=False`; `type`, `value`, `description` and
   `allow_null` are not used, except that a setting stored with a different type raises `ConfigTypeError`.
 - When it doesn't exist, it checks the name, the type key and the value, creates the setting, and returns
@@ -66,7 +72,8 @@ Changes an existing setting, inside a transaction that locks its row (`select_fo
 - `allow_null=None` keeps the setting's flag; `True` or `False` changes it in the same save.
 - `new_value=None` is accepted only when the resulting flag is `True`.
 - It raises `ConfigDoesNotExist` if the setting is missing, `ConfigTypeError` if the value fails the type check, and
-  `ConfigValueError` if the type's serializer rejects the value or the setting's type is no longer registered.
+  `ConfigValueError` if the type's serializer rejects the value or can't read it back, or the setting's type is no longer
+  registered.
 
 ## `delete`
 
@@ -86,7 +93,8 @@ sync functions with `asgiref.sync.sync_to_async`, so they behave exactly alike.
 Admin saves and the API go through the model's `save` and `delete`, which keep the cache in step. If you change
 `Config` rows yourself, use the model's `save()` and `delete()` (or `QuerySet.delete()`) too:
 `QuerySet.update()`, `bulk_create()` and `bulk_update()` don't send Django's signals, so the cache keeps the old value
-until it expires (see [Caching](caching.md)).
+until it expires (see [Caching](caching.md)). Nor does the historical `Config` model in a data migration: after one
+that changes settings, refresh their cache entries with `get(name, default=None, no_cache=True)`.
 
 ## Exceptions
 

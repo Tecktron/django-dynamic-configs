@@ -32,7 +32,7 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
 
     :param name: the config's name, such as ``"SITE_NAME"``
     :param default: returned when the config doesn't exist or can't be read
-    :param no_cache: skip the cache read (the cache entry is still refreshed with what's read)
+    :param no_cache: skip the cache read; the entry is refreshed from the primary database when its transaction commits
     :returns: the typed value, or None for an empty ``allow_null`` config
     :raises ConfigDoesNotExist: the config doesn't exist and no default was passed
     :raises ConfigValueError: the stored value can't be read (or its type isn't registered) and no default was passed
@@ -62,9 +62,13 @@ def get(name: str, default: Any = _NO_DEFAULT, *, no_cache: bool = False) -> Any
                     exc_info=True,
                 )
                 return default
-            # Cached only once the read's transaction commits; a plain read only fills an empty slot, while
-            # no_cache=True refreshes whatever is there.
-            cache.write_on_commit(name, entry, using=router.db_for_read(Config), overwrite=no_cache)
+            # Cached only once the transaction commits. A plain read only fills an empty slot, so a slow reader
+            # can't replace the newer entry a writer cached; no_cache=True caches the row as the primary database
+            # holds it when its transaction commits, as writers do.
+            if no_cache:
+                cache.refresh_on_commit(name)
+            else:
+                cache.write_on_commit(name, entry, using=router.db_for_read(Config))
     if entry is cache.ABSENT:
         if not has_default:
             raise ConfigDoesNotExist(f"Config {name!r} does not exist.")
@@ -129,8 +133,8 @@ def get_or_create(
 ) -> tuple[Any, bool]:
     """Return the config ``name``, creating it with ``value`` if it doesn't exist.
 
-    Always reads the database (then refreshes the cache), so code that declares its settings this way sees what an
-    admin has changed.
+    Always reads the database (then, once the transaction commits, caches the row as the database holds it), so code
+    that declares its settings this way sees what an admin has changed.
 
     :param name: the config's name (UPPER_SNAKE_CASE)
     :param type: a registered type key, such as ``"int"`` or ``"list:str"``
@@ -148,6 +152,7 @@ def get_or_create(
     found, override = _overrides.lookup(name)
     if found:
         return override, False
+    _validate_name(name)
     try:
         config = Config.objects.get(name=name)
         created = False
@@ -156,7 +161,7 @@ def get_or_create(
     if not created:
         if config.type != type:
             raise ConfigTypeError(f"Config {name!r} already exists with type {config.type!r}, not {type!r}.")
-        cache.write_on_commit(name, (config.type, config.value), using=config._state.db, overwrite=True)
+        cache.refresh_on_commit(name)
     return _decode(name, config.type, config.value), created
 
 
@@ -181,9 +186,11 @@ def update(name: str, new_value: Any, *, allow_null: bool | None = None) -> None
     :param allow_null: None keeps the config's flag; True or False updates it in the same save
     :raises ConfigDoesNotExist: the config doesn't exist
     :raises ConfigTypeError: the value has the wrong type, or is None when None isn't allowed
-    :raises ConfigValueError: the serializer rejects the value, or the config's type isn't registered
+    :raises ConfigValueError: the name is invalid, the serializer rejects the value, or the config's type isn't registered
     """
-    with transaction.atomic():
+    _validate_name(name)
+    # The alias select_for_update runs on, so the lock and the transaction are on the same database.
+    with transaction.atomic(using=router.db_for_write(Config)):
         try:
             config = Config.objects.select_for_update().get(name=name)
         except Config.DoesNotExist:
@@ -204,7 +211,9 @@ def delete(name: str) -> bool:
     :param name: the config's name
     :returns: True if it was deleted, False if it didn't exist
     :rtype: bool
+    :raises ConfigValueError: the name is invalid
     """
+    _validate_name(name)
     # QuerySet.delete() sends post_delete for each row (a receiver is connected), so the cache is updated.
     deleted, _ = Config.objects.filter(name=name).delete()
     if deleted:

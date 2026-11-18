@@ -83,7 +83,7 @@ Plain `tox` runs these environments:
 
   ```
   git ls-files -co --exclude-standard | tar -cf - -T - | docker run --rm -i --ipc=host --user pwuser \
-      mcr.microsoft.com/playwright/python:v1.64.1-noble bash -c '
+      mcr.microsoft.com/playwright/python:v1.65.1-noble bash -c '
           set -e
           umask 022
           mkdir ~/src
@@ -95,10 +95,14 @@ Plain `tox` runs these environments:
               -x testenv:browser-webkit-django61.base_python=python3'
   ```
 
-  The image provides the libraries of its Playwright version; if tox installs a newer Playwright whose browsers need
-  more, use the image tag of that version.
+  The image tag must match the Playwright version tox installs, because the image provides the libraries that version's
+  browsers need. tox doesn't pin Playwright, so check it after the environments are built:
+  `.tox/browser-webkit-django61/bin/python -m pip show playwright` (1.65.1 at the time of writing), and change the tag
+  to match.
 - **`extras`**: the suite with django-simple-history installed and its app enabled in the test settings
   (`DYNAMIC_CONFIGS_TEST_EXTRAS=1`).
+- **`extras-oldest`**: the same on the oldest Django and django-simple-history the package supports, so the shipped
+  migration is checked against both ends.
 - **`lint`**: ruff's check and format check.
 - **`docs`**: builds this documentation site with warnings as errors.
 - **`coverage`**: combines the coverage of every test environment and enforces 100%.
@@ -200,11 +204,44 @@ GitHub Actions runs `ci.yml` on pushes to `main` and on pull requests:
 
 There's no coverage service: the 100% rule already blocks any drop, and the job's log names the missing lines.
 
+### The currency list
+
+`currencies.yml` keeps `src/dynamic_configs/types/iso4217.py`, the ISO 4217 codes that `money_currency` suggests, up to
+date. It runs on the 1st of each month at 06:17 UTC, and can be started by hand from the Actions tab. It runs
+`scripts/update_currencies.py`, which fetches SIX Group's List One. When the suggested currencies are unchanged, the run
+ends with a notice. When they changed, it runs `tox -e lint` and the type, form and script tests, commits the module as
+`github-actions[bot]` to the `update-currencies` branch (force-pushed, so a new update replaces one nobody merged), and
+opens a pull request that lists the added, removed and renamed currencies. If one is already open, the push updates it
+and the workflow refreshes its summary. A fetch or parse error fails the run. A fork's scheduled run skips, and so
+does a manual run from any branch but `main`.
+
+- Once, in the repository's Settings, Actions, General, turn on "Allow GitHub Actions to create and approve pull
+  requests"; without it the workflow can push the branch but not open the pull request.
+- CI doesn't start on a pull request that a workflow opened, or on a push the workflow made to one. Close and reopen
+  the pull request to run CI, again after each update, then merge it as any other.
+- Closing an update pull request without merging doesn't stop it: next month's run opens it again while SIX's list
+  still differs from the module.
+- If SIX reverts a change while an update pull request is open, the next run reports "unchanged" and leaves that pull
+  request alone; close it by hand.
+- GitHub disables scheduled workflows in a public repository after 60 days without activity. If the monthly run stops
+  appearing, re-enable it from the Actions tab.
+- A schedule uses the workflow file on the default branch, and GitHub offers a manual run only once the workflow is on
+  the default branch (the run then uses the file on the branch you pick), so the first real run comes after the
+  workflow is merged to `main`.
+
+To update the list by hand, run the script from the project's virtual environment, then review and commit the change:
+
+```
+venv/bin/python scripts/update_currencies.py
+```
+
+`--from FILE` reads a List One file you've downloaded instead of fetching it.
+
 ## Releasing
 
 1. Bump `version` in `pyproject.toml` to the new version, `X.Y.Z`.
-2. In `CHANGELOG.md`, rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` (today's date), and start a new, empty
-   `## [Unreleased]` above it.
+2. In `CHANGELOG.md`, put the new version's entries under `## [X.Y.Z] - YYYY-MM-DD` (today's date), and leave an empty
+   `## [Unreleased]` above it. If `## [X.Y.Z]` is already there, as `## [0.1.0]` is before its release, set its date.
 3. Commit both on `main`, then tag the commit and push the tag:
 
    ```

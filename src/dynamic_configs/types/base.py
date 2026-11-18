@@ -6,22 +6,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 from dynamic_configs.exceptions import ConfigTypeError, ConfigValueError
-
-# bool is a subclass of int in Python, so True would otherwise pass as a number.
-_NUMBER_TYPES = (int, float, Decimal)
-
-
-class Serializer(Protocol):
-    """Converts a value to the text stored in the database and back, raising ValueError when it isn't allowed."""
-
-    def serialize(self, value: Any) -> str:
-        """Return the text to store for ``value``."""
-
-    def deserialize(self, text: str) -> Any:
-        """Return the value stored as ``text``."""
+from dynamic_configs.types.serializers import BaseSerializer
 
 
 @dataclass(frozen=True)
@@ -32,10 +20,13 @@ class ConfigType:
     their items.
     """
 
+    # bool is a subclass of int in Python, so True would otherwise pass as a number.
+    _NUMBER_TYPES = (int, float, Decimal)
+
     key: str
     label: str
     python_type: type | tuple[type, ...]
-    serializer: Serializer
+    serializer: BaseSerializer
     help_text: str = ""
     listable: bool = True
     # Help for typing one item as text (a list's raw mode), when the type's input isn't typed as one line; "" uses
@@ -87,19 +78,36 @@ class ConfigType:
         return items if self.container == "list" else frozenset(items)
 
     def to_text(self, value: Any) -> str:
-        """Return the text to store for ``value``.
+        """Return the text to store for ``value``, after reading it back.
+
+        The text is serialized and then read with :meth:`from_text`, so a write succeeds only when every later read
+        can read it. A rule in a serializer's ``deserialize`` therefore holds on every write, as one in ``serialize``
+        does.
 
         :param value: the value to store
         :returns: the serialized text
         :raises ConfigTypeError: the value, or an item, has the wrong type
-        :raises ConfigValueError: the serializer rejects the value, or a set type was given duplicates
+        :raises ConfigValueError: the serializer rejects the value, a set type was given duplicates, or the text
+            can't be read back (it holds a lone surrogate, or the serializer's ``deserialize`` refuses it)
         """
         # Containers are serialized from the ordered item list, so a set entered as a list keeps its order.
         checked = self._coerce_items(value) if self.container else self._coerce_scalar(value)
         try:
-            return self.serializer.serialize(checked)
+            text = self.serializer.serialize(checked)
         except ValueError as error:
             raise ConfigValueError(str(error)) from error
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError:
+            # The database refuses it (a 500 in the admin), so refuse it here, before any write.
+            raise ConfigValueError(
+                "The value can't be stored: it contains text that isn't valid Unicode (a lone surrogate)."
+            ) from None
+        try:
+            self.from_text(text)
+        except ConfigValueError as error:
+            raise ConfigValueError(f"The value can't be stored: {error}") from error
+        return text
 
     def from_text(self, text: str) -> Any:
         """Return the value stored as ``text``.
@@ -121,12 +129,15 @@ class ConfigType:
     def _coerce_scalar(self, value: Any) -> Any:
         """Apply the type check to a single value."""
         expected = self.python_type
-        if isinstance(value, bool) and expected in _NUMBER_TYPES:
+        if isinstance(value, bool) and expected in self._NUMBER_TYPES:
             raise self._wrong_type(value)
         if expected is date and isinstance(value, datetime):
             raise self._wrong_type(value)
         if isinstance(value, int) and expected in (float, Decimal):
-            return expected(value)
+            try:
+                return expected(value)
+            except OverflowError:
+                raise ConfigValueError("That number is too large for a float.") from None
         if isinstance(value, expected):
             return value
         raise self._wrong_type(value)

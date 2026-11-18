@@ -27,14 +27,22 @@ def test_listing():
   the database. The setting doesn't have to exist, and the value isn't type-checked.
 - `update` and `delete` aren't overridden: they change the database as usual.
 - Overrides layer, so an inner block wins, and they're removed when the block ends, even if it raises.
-- They don't leak between threads or asyncio tasks, and they apply in the async variants (`aget`, `aget_or_create`).
-- It decorates functions and coroutine functions.
+- They don't leak between threads or asyncio tasks, and they apply in the async variants (`aget`, `aget_or_create`). One
+  instance can be open in several tasks at once; each task's block ends on its own. One exception: on Python 3.14 and
+  later with `sys.flags.thread_inherit_context` on (the default on free-threaded builds), a thread started inside a
+  block starts with a copy of its context, so it sees the overrides.
+- It decorates functions, coroutine functions, generator functions and async generator functions. A decorated
+  generator runs under the overrides each time it resumes, so they hold while it's iterated, not only while it's
+  created. The code that iterates it doesn't see them between items. A block the generator opens itself holds across
+  its `yield`s until it ends, and the code iterating it sees that block meanwhile, as in any generator, so
+  `@contextmanager` functions and pytest yield fixtures work as usual.
 
 ### On a class
 
-On a class, like `override_settings`, it covers the whole class: its `test*` methods, inherited ones included, and
-the setup and teardown hooks of unittest, Django and pytest (`setUp`, `setUpClass`, `setUpTestData`, `setup_method`,
-`setup_class` and their teardowns).
+On a class, like `override_settings`, it covers the whole class: its `test*` methods, inherited ones included, the
+setup and teardown hooks of unittest, Django and pytest (`setUp`, `asyncSetUp`, `setUpClass`, `setUpTestData`,
+`setup_method`, `setup_class` and their teardowns), and the cleanups registered with `addCleanup`, `addAsyncCleanup`
+or `enterContext`.
 
 ```python
 from django.test import TestCase
@@ -48,8 +56,9 @@ class ListingTests(TestCase):
         ...
 ```
 
-A subclass's values win over a decorated base's. With two decorators stacked on one class, the inner one wins, as on
-functions.
+Subclasses are covered too, decorated or not: a subclass's own `test*` methods and hooks see the base's overrides. A
+subclass's own decorator layers on top, so its values win over a decorated base's. With two decorators stacked on one
+class, the inner one wins, as on functions.
 
 ## The pytest plugin
 
@@ -65,9 +74,29 @@ def test_page_size(config_overrides):
     assert dynamic_configs.get("PAGE_SIZE") == 5
 ```
 
-Each `.set()` adds to the overrides already set. The fixture isn't named `dynamic_configs`, which would hide the
-module inside tests that also call `dynamic_configs.get`. The plugin imports nothing from Django when pytest starts,
-so it works in projects whose Django settings load later.
+Each `.set()` adds to the overrides already set. A `.set()` inside a `with override_configs(...)` block, or in a test
+of a decorated class, still holds after the block ends, for the rest of the test. The latest wins: `.set()` beats a
+block or class decorator that names the same setting and was applied before it, and a block opened after `.set()` beats
+it until the block ends:
+
+```python
+import dynamic_configs
+from dynamic_configs.test import override_configs
+
+
+def test_precedence(config_overrides):
+    with override_configs(PAGE_SIZE=5):
+        config_overrides.set(PAGE_SIZE=10)
+        assert dynamic_configs.get("PAGE_SIZE") == 10
+    assert dynamic_configs.get("PAGE_SIZE") == 10
+    with override_configs(PAGE_SIZE=20):
+        assert dynamic_configs.get("PAGE_SIZE") == 20
+    assert dynamic_configs.get("PAGE_SIZE") == 10
+```
+
+The fixture isn't named `dynamic_configs`, which would hide the module inside tests that also call
+`dynamic_configs.get`. The plugin imports nothing from Django when pytest starts, so it works in projects whose Django
+settings load later.
 
 ## The cache in tests
 

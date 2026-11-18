@@ -1,6 +1,7 @@
 // The admin's JSON editor: a Format link, Enter that keeps the indent, a note saying whether the JSON is valid, and
 // colours. It never parses values: every token keeps the exact text that was typed, so numbers too large or too
-// precise for JavaScript are never rounded. Every page works without this script.
+// precise for JavaScript are never rounded (a number is read only to check it fits a float, as the server does). Every
+// page works without this script.
 "use strict";
 {
     const FIELD = "textarea[data-dynamic-configs-json]";
@@ -89,7 +90,8 @@
 
     // Check that the tokens make one JSON object or array, nested at most ``maxDepth`` levels, as the server requires,
     // and mark the strings used as keys. Returns null when they do, or the problem: ``{message, token}`` (``token`` is
-    // null at the end of the text; ``lead`` replaces "Invalid JSON" when the JSON is valid but refused), or
+    // null at the end of the text; ``lead`` replaces "Invalid JSON" when the JSON is valid but refused, and may come
+    // without a message), or
     // ``{message, plain: true}`` for a message shown without a position. A stack instead of recursion, so deep nesting
     // can't overflow.
     function check(tokens, maxDepth) {
@@ -112,9 +114,16 @@
         };
         const isOpening = (token) => token.kind === "punctuation" && (token.text === "{" || token.text === "[");
         const isScalar = (token) => ["string", "number", "literal"].includes(token.kind);
+        // The server reads a number with a fraction or exponent as a float and refuses one that overflows (1e400);
+        // whole numbers it reads exactly, however long.
+        const tooLarge = (token) =>
+            token.kind === "number" && /[.eE]/.test(token.text) && !Number.isFinite(Number(token.text));
         const value = (token) => {
             if (isOpening(token)) {
                 return opened(token);
+            }
+            if (tooLarge(token)) {
+                return { lead: "A number in the JSON is too large for a float", token };
             }
             if (isScalar(token)) {
                 valueDone();
@@ -331,6 +340,26 @@
         "paddingLeft",
     ];
 
+    // Append the text to ``parent`` with each space and tab in a span of its own, which the whitespace view marks (only
+    // while it's on, so the spans change nothing otherwise). Each mark is the character itself, so the copy's text and
+    // layout stay the textarea's. One node per call: a call given one argument per node overflows on a large document.
+    function appendMarked(parent, text) {
+        let start = 0;
+        for (const match of text.matchAll(/[ \t]/g)) {
+            if (match.index > start) {
+                parent.append(text.slice(start, match.index));
+            }
+            const mark = document.createElement("span");
+            mark.className = match[0] === " " ? `${PREFIX}-space` : `${PREFIX}-tab`;
+            mark.textContent = match[0];
+            parent.append(mark);
+            start = match.index + 1;
+        }
+        if (start < text.length) {
+            parent.append(text.slice(start));
+        }
+    }
+
     // Put a coloured copy of the field's text behind it, or return null when the page lacks the stylesheet.
     function colourer(field) {
         const wrapper = document.createElement("div");
@@ -383,9 +412,11 @@
             if (!on) {
                 return;
             }
-            const spans = tokens.map((token) => {
+            const fragment = document.createDocumentFragment();
+            for (const token of tokens) {
                 if (token.kind === "space") {
-                    return token.text;
+                    appendMarked(fragment, token.text);
+                    continue;
                 }
                 const span = document.createElement("span");
                 const kind = token.kind === "invalid" ? "invalid" : token.kind;
@@ -393,11 +424,12 @@
                 if (problem?.token === token) {
                     span.classList.add(`${PREFIX}-invalid`);
                 }
-                span.textContent = token.text;
-                return span;
-            });
+                appendMarked(span, token.text);
+                fragment.append(span);
+            }
             // An empty last line has no height in the copy, as it does in the textarea, without something on it.
-            copy.replaceChildren(...spans, "​");
+            fragment.append("​");
+            copy.replaceChildren(fragment);
             layOut();
             checkAlignment();
         };
@@ -440,10 +472,30 @@
         status.className = `${PREFIX}-status`;
         status.id = `${field.id || field.name}_json_status`;
         status.setAttribute("aria-live", "polite");
-        tools.append(formatLink, " ", status);
+        tools.append(formatLink, " ");
 
         const paint = colourer(field);
-        (field.closest(`.${PREFIX}-editor`) ?? field).after(tools);
+        const wrapper = field.closest(`.${PREFIX}-editor`);
+        // The whitespace is shown in the colours, so the checkbox comes with them (and the stylesheet hides it if they
+        // turn off). It has no name, so it's never posted.
+        if (paint) {
+            const showWhitespace = document.createElement("input");
+            showWhitespace.type = "checkbox";
+            showWhitespace.addEventListener("change", () => {
+                wrapper.classList.toggle(`${PREFIX}-whitespace`, showWhitespace.checked);
+            });
+            const label = document.createElement("label");
+            label.className = `${PREFIX}-show-whitespace`;
+            label.append(showWhitespace, " Show whitespace");
+            tools.append(label, " ");
+        }
+        tools.append(status);
+        // The field (with its colours) and its tools in one block, so that a form row laying its children out side by
+        // side (Django 5.2's) keeps the tools under the field.
+        const block = document.createElement("div");
+        block.className = `${PREFIX}-field`;
+        (wrapper ?? field).before(block);
+        block.append(wrapper ?? field, tools);
         const describedBy = field.getAttribute("aria-describedby");
         field.setAttribute("aria-describedby", describedBy ? `${describedBy} ${status.id}` : status.id);
 
@@ -451,8 +503,11 @@
         const maxDepth = Number.parseInt(field.dataset.dynamicConfigsJsonMaxDepth, 10) || Infinity;
         let tokens = [];
         let problem = null;
+        // The text the note and the colours show.
+        let checked = null;
         const update = () => {
             const text = field.value;
+            checked = text;
             tokens = tokenize(text);
             problem = check(tokens, maxDepth);
             if (!text.trim()) {
@@ -464,14 +519,32 @@
             } else {
                 const at = lineAndColumn(text, problem.token ? problem.token.start : text.length);
                 const lead = problem.lead ?? "Invalid JSON";
-                status.textContent = `${lead} at line ${at.line}, column ${at.column}: ${problem.message}.`;
+                const why = problem.message ? `: ${problem.message}` : "";
+                status.textContent = `${lead} at line ${at.line}, column ${at.column}${why}.`;
             }
             status.classList.toggle(`${PREFIX}-has-error`, Boolean(problem));
             paint?.(tokens, problem);
         };
+        // Bring the note and the colours up to the textarea's text, unless they show it already.
+        const sync = () => {
+            if (field.value !== checked) {
+                update();
+            }
+        };
+        // Input redraws at most once per animation frame: Format inserts its text as typing would, and Chromium fires
+        // an input event per line, so redrawing the whole document for each one froze the tab.
+        let frame = null;
+        const syncSoon = () => {
+            frame ??= requestAnimationFrame(() => {
+                frame = null;
+                sync();
+            });
+        };
 
         formatLink.addEventListener("click", (event) => {
             event.preventDefault();
+            // The note may be a frame behind the text.
+            sync();
             if (!field.value.trim() || (problem && problem.plain)) {
                 return;
             }
@@ -486,9 +559,23 @@
                 replaceText(field, 0, field.value.length, formatted);
             }
         });
+        // A link presses on Enter by itself; as a button, Format presses on Space too, without scrolling the page.
+        formatLink.addEventListener("keydown", (event) => {
+            if (event.key !== " ") {
+                return;
+            }
+            event.preventDefault();
+            if (!event.repeat) {
+                formatLink.click();
+            }
+        });
         field.addEventListener("keydown", newLine);
         field.addEventListener("beforeinput", closingBracket);
-        field.addEventListener("input", update);
+        field.addEventListener("input", syncSoon);
+        // After Back the browser can put the edited text back once this script has drawn its copy, with no input
+        // event (from the back/forward cache, or restoring the form): check the text again.
+        window.addEventListener("pageshow", sync);
+        window.addEventListener("load", sync, { once: true });
         update();
     }
 

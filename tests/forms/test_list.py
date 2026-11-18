@@ -1,3 +1,5 @@
+import json
+import logging
 from dataclasses import replace
 from datetime import date, datetime
 from datetime import timezone as dt_timezone
@@ -7,15 +9,12 @@ from django.core.exceptions import ValidationError
 from django.http import QueryDict
 
 from dynamic_configs.forms.list import (
-    EMPTY_ITEM_NOTE,
-    ITEMS_SUFFIX,
-    MODE_SUFFIX,
     LineListField,
     ListWidget,
     StoredTexts,
     TypedLineListField,
     UnreadableItems,
-    split_lines,
+    stored_texts,
 )
 from dynamic_configs.types.registry import build_registry
 
@@ -151,7 +150,7 @@ def test_a_trailing_line_break_is_an_empty_last_item():
 
 def test_lines_split_only_at_line_breaks():
     # Review focus: Windows line endings split, U+2028 (which str.splitlines splits at) doesn't.
-    assert split_lines("a\r\nb\rc\nd e") == ["a", "b", "c", "d e"]
+    assert LineListField.split_lines("a\r\nb\rc\nd e") == ["a", "b", "c", "d e"]
     assert typed("str").clean("a\r\nb") == ["a", "b"]
 
 
@@ -161,6 +160,14 @@ def test_lines_split_only_at_line_breaks():
 def test_stored_texts_are_read_exactly():
     texts = StoredTexts(["  INV-", "", "PO-"])
     assert typed("str").clean(texts) == ["  INV-", "", "PO-"]
+
+
+def test_stored_texts_of_nested_text_is_none_without_parsing_it(mocker):
+    # A hand-edited row; the admin shows it through stored_texts, so it mustn't overflow a small stack.
+    loads = mocker.spy(json, "loads")
+    assert stored_texts("[" * 100_000 + "]" * 100_000) is None
+    assert loads.call_count == 0
+    assert stored_texts('["a", "b"]') == ["a", "b"]
 
 
 def test_stored_texts_keep_line_breaks():
@@ -216,7 +223,9 @@ def test_no_value_is_no_items(empty):
 def test_the_widget_reads_the_textarea_unless_the_mode_says_list():
     widget = ListWidget()
     assert widget.value_from_datadict(query(value="a\nb"), {}, "value") == "a\nb"
-    data = query(value="ignored", **{f"value{MODE_SUFFIX}": "list", f"value{ITEMS_SUFFIX}": '["a", ""]'})
+    data = query(
+        value="ignored", **{f"value{ListWidget.MODE_SUFFIX}": "list", f"value{ListWidget.ITEMS_SUFFIX}": '["a", ""]'}
+    )
     read = widget.value_from_datadict(data, {}, "value")
     assert isinstance(read, StoredTexts)
     assert read == ["a", ""]
@@ -226,10 +235,17 @@ def test_the_widget_reads_the_textarea_unless_the_mode_says_list():
 # which aren't strings, on a large one.
 @pytest.mark.parametrize("items", ["not json", '{"a": 1}', '["a", 2]', "[" * 100000 + "]" * 100000, None])
 def test_list_mode_data_that_isnt_an_array_of_strings_is_unreadable(items):
-    data = query(**{f"value{MODE_SUFFIX}": "list"})
+    data = query(**{f"value{ListWidget.MODE_SUFFIX}": "list"})
     if items is not None:
-        data[f"value{ITEMS_SUFFIX}"] = items
+        data[f"value{ListWidget.ITEMS_SUFFIX}"] = items
     assert isinstance(ListWidget().value_from_datadict(data, {}, "value"), UnreadableItems)
+
+
+def test_posted_list_items_with_nesting_are_unreadable_without_being_parsed(mocker):
+    loads = mocker.spy(json, "loads")
+    data = query(**{f"value{ListWidget.MODE_SUFFIX}": "list", f"value{ListWidget.ITEMS_SUFFIX}": "[" * 100_000})
+    assert isinstance(ListWidget().value_from_datadict(data, {}, "value"), UnreadableItems)
+    assert loads.call_count == 0
 
 
 def test_the_widget_shows_items_one_per_line_and_says_raw():
@@ -287,7 +303,7 @@ def test_a_list_of_one_empty_item_is_read_only_and_saved_as_a_list():
     html = ListWidget().render("value", StoredTexts([""]))
     assert "readonly" in html
     assert 'name="value__mode" value="list"' in html
-    assert EMPTY_ITEM_NOTE in html
+    assert ListWidget.EMPTY_ITEM_NOTE in html
     assert "line break" not in html
 
 
@@ -387,6 +403,19 @@ def test_items_sort_by_value_in_either_direction():
 def test_items_that_cant_be_compared_cant_be_sorted():
     with pytest.raises(ValidationError, match="These items can't be sorted."):
         typed("color").sorted_texts(["#bbbbbb", "#aaaaaa"], descending=False)
+
+
+def test_a_failing_sort_key_logs_a_warning(caplog):
+    # F69: the admin said only "These items can't be sorted."; the log now says which type and what failed.
+    with caplog.at_level(logging.DEBUG, logger="dynamic_configs"), pytest.raises(ValidationError):
+        typed("color").sorted_texts(["#bbbbbb", "#aaaaaa"], descending=False)
+    [record] = [record for record in caplog.records if record.name.startswith("dynamic_configs")]
+    assert record.levelno == logging.WARNING
+    assert "color" in record.getMessage()
+    assert "TypeError" in record.getMessage()
+    assert "#bbbbbb" not in caplog.text
+    assert "#aaaaaa" not in caplog.text
+    assert record.config_type == "color"
 
 
 def test_raw_lines_become_stored_texts_or_line_errors():

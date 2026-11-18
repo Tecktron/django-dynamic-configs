@@ -1,5 +1,8 @@
 import importlib
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -19,7 +22,17 @@ def test_app_is_installed_with_a_readable_name():
     assert apps.get_app_config("dynamic_configs").verbose_name == "Dynamic configs"
 
 
-def test_the_api_loads_lazily():
+def test_importing_the_package_doesnt_import_models():
+    # F24: run in a fresh interpreter without Django settings, where this test's own imports can't have loaded the
+    # models already, and where importing them would raise.
+    env = {name: value for name, value in os.environ.items() if name != "DJANGO_SETTINGS_MODULE"}
+    code = "import sys, dynamic_configs; print(sorted(m for m in sys.modules if m.startswith('dynamic_configs')))"
+    result = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True)  # noqa: S603
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "['dynamic_configs']"
+
+
+def test_the_api_is_importable_from_the_package():
     api = importlib.import_module("dynamic_configs.api")
     assert dynamic_configs.get is api.get
 

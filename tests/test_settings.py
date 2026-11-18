@@ -25,7 +25,10 @@ def reload_settings(monkeypatch):
 def test_postgres_is_chosen_by_an_environment_variable(reload_settings):
     """DYNAMIC_CONFIGS_TEST_POSTGRES selects PostgreSQL, with the connection left to libpq's variables."""
     settings = reload_settings(DYNAMIC_CONFIGS_TEST_POSTGRES="1")
-    assert settings.DATABASES == {"default": {"ENGINE": "django.db.backends.postgresql", "NAME": "dynamic_configs"}}
+    assert settings.DATABASES == {
+        "default": {"ENGINE": "django.db.backends.postgresql", "NAME": "dynamic_configs"},
+        "replica": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"},
+    }
 
 
 def test_simple_history_is_turned_on_by_an_environment_variable(reload_settings):

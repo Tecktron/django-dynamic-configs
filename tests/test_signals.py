@@ -1,6 +1,12 @@
-import pytest
-from django.db import transaction
+import json
+import logging
+import threading
 
+import pytest
+from django.core.management import call_command
+from django.db import DEFAULT_DB_ALIAS, DatabaseError, InterfaceError, connections, transaction
+
+import dynamic_configs
 from dynamic_configs import cache
 from dynamic_configs.models import Config
 
@@ -41,3 +47,124 @@ def test_a_rolled_back_save_never_reaches_the_cache(django_capture_on_commit_cal
             pass
     assert callbacks == []
     assert cache.read("SITE_NAME") is cache.NOT_CACHED
+
+
+def test_saving_only_the_description_caches_the_database_value(django_capture_on_commit_callbacks):
+    # F10: a stale copy saving only its description cached its own, older value.
+    Config.objects.create(name="SITE_NAME", type="str", value="Old")
+    stale = Config.objects.get(name="SITE_NAME")
+    with django_capture_on_commit_callbacks(execute=True):
+        dynamic_configs.update("SITE_NAME", "New")
+    stale.description = "The site's name."
+    with django_capture_on_commit_callbacks(execute=True):
+        stale.save(update_fields=["description"])
+    assert cache.read("SITE_NAME") == ("str", "New")
+
+
+def test_saving_a_row_with_a_python_value_caches_the_stored_text(
+    caplog, django_assert_num_queries, django_capture_on_commit_callbacks
+):
+    # F18: the int 5 was cached while the database held "5", so cached reads failed.
+    row = Config.objects.create(name="MAX_RETRIES", type="int", value="1")
+    row.value = 5
+    with django_capture_on_commit_callbacks(execute=True):
+        row.save()
+    with django_assert_num_queries(0):
+        assert dynamic_configs.get("MAX_RETRIES") == 5
+    assert [record for record in caplog.records if record.levelno >= logging.ERROR] == []
+
+
+def test_a_save_and_a_delete_in_one_transaction_cache_no_value(mocker, django_capture_on_commit_callbacks):
+    # Review focus: the save's on-commit re-read finds no row, so it caches nothing; the delete caches the marker.
+    backend_set = mocker.spy(cache.get_cache(), "set")
+    with django_capture_on_commit_callbacks(execute=True), transaction.atomic():
+        config = Config.objects.create(name="SITE_NAME", type="str", value="Example")
+        config.delete()
+    assert cache.read("SITE_NAME") is cache.ABSENT
+    assert not any(isinstance(call.args[1], (tuple, list)) for call in backend_set.call_args_list)
+
+
+def test_deleting_then_recreating_in_one_transaction_caches_the_new_row(django_capture_on_commit_callbacks):
+    Config.objects.create(name="SITE_NAME", type="str", value="Old")
+    with django_capture_on_commit_callbacks(execute=True), transaction.atomic():
+        Config.objects.filter(name="SITE_NAME").delete()
+        Config.objects.create(name="SITE_NAME", type="str", value="New")
+    assert cache.read("SITE_NAME") == ("str", "New")
+
+
+def delete_from_another_connection(name):
+    """Delete the row with plain SQL on a second connection (a thread has its own), sending no signals."""
+
+    def run():
+        try:
+            with connections[DEFAULT_DB_ALIAS].cursor() as cursor:
+                cursor.execute("DELETE FROM dynamic_configs_config WHERE name = %s", [name])
+        finally:
+            connections.close_all()
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_row_deleted_before_the_commit_callback_is_not_cached(mocker):
+    # Review focus: transaction=True, so the save really commits, and a second connection (on SQLite, the shared
+    # in-memory test database; on PostgreSQL, a second session) deletes the row before the save's callback runs.
+    real_on_commit = transaction.on_commit
+
+    def on_commit(func, using=None, robust=False):
+        def delete_first():
+            delete_from_another_connection("SITE_NAME")
+            func()
+
+        real_on_commit(delete_first, using=using, robust=robust)
+
+    mocker.patch.object(transaction, "on_commit", on_commit)
+    with transaction.atomic():
+        Config.objects.create(name="SITE_NAME", type="str", value="Example")
+    assert not Config.objects.filter(name="SITE_NAME").exists()
+    assert cache.read("SITE_NAME") is cache.NOT_CACHED
+
+
+# InterfaceError (a closed connection) isn't a DatabaseError; both are django.db.Error.
+@pytest.mark.parametrize("error", [DatabaseError("down"), InterfaceError("closed")], ids=["database", "interface"])
+def test_a_database_error_in_the_commit_callback_is_logged_and_drops_the_entry(
+    error, mocker, caplog, django_capture_on_commit_callbacks
+):
+    with django_capture_on_commit_callbacks(execute=False) as callbacks:
+        Config.objects.create(name="SITE_NAME", type="str", value="Example")
+    # A slow reader's fill landed between the save and its callback.
+    cache.write("SITE_NAME", ("str", "Old"))
+    mocker.patch("django.db.models.query.QuerySet.first", side_effect=error)
+    callbacks[0]()
+    assert cache.read("SITE_NAME") is cache.NOT_CACHED
+    assert [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING] == [
+        "Database read failed for config 'SITE_NAME' after a commit; dropped its cache entry"
+    ]
+
+
+def test_loaddata_caches_the_loaded_value(tmp_path, django_capture_on_commit_callbacks):
+    # F15: loaddata saves raw rows, and the signal still caches them.
+    fixture = tmp_path / "configs.json"
+    saved = "2026-01-01T00:00:00Z"
+    fields = {"type": "str", "value": "Loaded", "created_on": saved, "modified_on": saved}
+    fixture.write_text(json.dumps([{"model": "dynamic_configs.config", "pk": "SITE_NAME", "fields": fields}]))
+    cache.write("SITE_NAME", ("str", "Old"))
+    with django_capture_on_commit_callbacks(execute=True):
+        call_command("loaddata", str(fixture), verbosity=0)
+    assert cache.read("SITE_NAME") == ("str", "Loaded")
+
+
+def test_an_inner_savepoint_rolled_back_leaves_the_outer_value_cached(django_capture_on_commit_callbacks):
+    # F15
+    Config.objects.create(name="SITE_NAME", type="str", value="Old")
+    with django_capture_on_commit_callbacks(execute=True), transaction.atomic():
+        dynamic_configs.update("SITE_NAME", "Outer")
+        try:
+            with transaction.atomic():
+                dynamic_configs.update("SITE_NAME", "Inner")
+                raise RuntimeError("roll back the savepoint")
+        except RuntimeError:
+            pass
+    assert cache.read("SITE_NAME") == ("str", "Outer")

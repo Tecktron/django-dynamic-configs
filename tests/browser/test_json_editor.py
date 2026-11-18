@@ -1,5 +1,9 @@
 """The admin's JSON editor (json_editor.js), in a real browser."""
 
+import json
+import re
+import time
+
 import pytest
 from playwright.sync_api import expect
 
@@ -7,6 +11,9 @@ from dynamic_configs.models import Config
 
 LIGHT_KEY = "rgb(4, 81, 165)"
 DARK_KEY = "rgb(156, 220, 254)"
+LIGHT_WHITESPACE = "rgb(153, 153, 153)"
+DARK_WHITESPACE = "rgb(106, 106, 106)"
+MARKS = ".dynamic-configs-json-space, .dynamic-configs-json-tab"
 
 
 @pytest.fixture
@@ -31,6 +38,19 @@ def colours(page):
 
 def click_format(page):
     page.get_by_role("button", name="Format").click()
+
+
+def show_whitespace(page):
+    return page.get_by_role("checkbox", name="Show whitespace")
+
+
+def box(locator):
+    return locator.evaluate("element => element.getBoundingClientRect().toJSON()")
+
+
+def text_of(locator):
+    """The element's text exactly, where Playwright's text assertions collapse runs of spaces."""
+    return locator.evaluate("element => element.textContent")
 
 
 def test_format_indents_without_changing_any_value(editor):
@@ -215,6 +235,15 @@ def wait_until_lined_up(page):
     )
 
 
+IN_SYNC = """() => document.querySelector(".dynamic-configs-json-highlight").textContent
+    === document.querySelector("textarea[name=value]").value + "\\u200b" """
+
+
+def wait_until_in_sync(page, timeout=5000):
+    """Wait until the coloured copy holds the textarea's text exactly (and its last line's placeholder)."""
+    page.wait_for_function(IN_SYNC, timeout=timeout)
+
+
 def test_the_colours_line_up_with_the_text_and_scroll_with_it(editor):
     # Long enough to scroll, with a line long enough to wrap.
     lines = [f'  "key{n}": "{"word " * (40 if n == 3 else 1)}",' for n in range(60)]
@@ -235,11 +264,15 @@ def test_the_colours_line_up_with_the_text_and_scroll_with_it(editor):
 
 
 def test_the_colours_turn_off_when_the_copy_cant_line_up(editor):
+    # Visible while the colours are on; checked before the rule below, which turns them off at the next line-up check.
+    expect(show_whitespace(editor)).to_be_visible()
     # A skin's rule the script can't follow: the copy's text no longer wraps where the textarea's does.
     editor.add_style_tag(content=".dynamic-configs-json-highlight { letter-spacing: 6px !important; }")
     textarea(editor).fill('{"long": "' + "word " * 60 + '"}')
     expect(textarea(editor)).not_to_have_css("color", "rgba(0, 0, 0, 0)")
     expect(colours(editor)).to_be_hidden()
+    # The whitespace is shown in the colours, so its checkbox goes with them.
+    expect(show_whitespace(editor)).to_be_hidden()
     # The rest of the editor still works.
     expect(status(editor)).to_have_text("Valid JSON.")
 
@@ -249,6 +282,7 @@ def test_without_the_stylesheet_the_field_stays_plain_but_still_checks(admin_pag
     Config.objects.create(name="FLAGS", type="json", value='{"beta": true}')
     admin_page.goto("/admin/dynamic_configs/config/FLAGS/change/")
     expect(colours(admin_page)).to_have_count(0)
+    expect(show_whitespace(admin_page)).to_have_count(0)
     expect(textarea(admin_page)).not_to_have_css("color", "rgba(0, 0, 0, 0)")
     textarea(admin_page).fill('{"a":1}')
     click_format(admin_page)
@@ -273,6 +307,67 @@ def test_a_projects_own_colours_win(editor):
     expect(colours(editor).locator(".dynamic-configs-json-key").first).to_have_css("color", "rgb(1, 2, 3)")
 
 
+def test_whitespace_shows_only_while_its_box_is_ticked(editor):
+    textarea(editor).fill('{\n  "a": 1\n}')
+    mark = colours(editor).locator(".dynamic-configs-json-space").first
+    expect(show_whitespace(editor)).not_to_be_checked()
+    expect(mark).to_have_css("background-image", "none")
+    show_whitespace(editor).check()
+    expect(mark).to_have_css("background-image", re.compile(re.escape(LIGHT_WHITESPACE)))
+    show_whitespace(editor).uncheck()
+    expect(mark).to_have_css("background-image", "none")
+
+
+def test_every_space_and_tab_is_marked_strings_included(editor):
+    text = '{\n\t"a b": "c  d",\n  "e": [1, 2]\n}'
+    textarea(editor).fill(text)
+    copy = colours(editor)
+    expect(copy.locator(".dynamic-configs-json-space")).to_have_count(text.count(" "))
+    expect(copy.locator(".dynamic-configs-json-tab")).to_have_count(text.count("\t"))
+    # One character each, and the copy's text is still exactly the textarea's (and its last line's placeholder).
+    assert copy.locator(MARKS).evaluate_all("marks => marks.map(mark => mark.textContent).join('')") == "".join(
+        char for char in text if char in " \t"
+    )
+    assert text_of(copy) == text + "​"
+    # A string keeps its colour around its marks.
+    assert text_of(copy.locator(".dynamic-configs-json-string")) == '"c  d"'
+    assert text_of(copy.locator(".dynamic-configs-json-key").first) == '"a b"'
+
+
+def test_the_marks_keep_the_colours_lined_up(editor):
+    show_whitespace(editor).check()
+    # Long enough to scroll, with indents, and a line of spaces long enough to wrap.
+    lines = [f'  "key{n}": "{"word  " * (40 if n == 3 else 1)}",' for n in range(60)]
+    textarea(editor).fill("{\n" + "\n".join(lines) + '\n  "end": [\n\t1\n  ]\n}\n')
+    wait_until_lined_up(editor)
+    textarea(editor).evaluate("t => { t.scrollTop = t.scrollHeight; }")
+    editor.wait_for_function("() => document.querySelector('.dynamic-configs-json-highlight').scrollTop > 0")
+    wait_until_lined_up(editor)
+    expect(colours(editor)).to_be_visible()
+
+
+def test_whitespace_marks_have_a_dark_colour(editor):
+    show_whitespace(editor).check()
+    mark = colours(editor).locator(".dynamic-configs-json-space").first
+    editor.emulate_media(color_scheme="dark")
+    expect(mark).to_have_css("background-image", re.compile(re.escape(DARK_WHITESPACE)))
+
+
+def test_the_whitespace_box_isnt_part_of_the_form(editor):
+    fields = "t => [...new FormData(t.form).keys()]"
+    posted = textarea(editor).evaluate(fields)
+    show_whitespace(editor).check()
+    assert textarea(editor).evaluate(fields) == posted
+
+
+def test_the_tools_sit_under_the_field(editor):
+    # Django 5.2 lays a form row's children out side by side, which put the tools in a narrow column beside the field.
+    field = box(textarea(editor))
+    tools = box(editor.locator(".dynamic-configs-json-tools"))
+    assert tools["top"] >= field["bottom"]
+    assert abs(tools["left"] - field["left"]) < 1
+
+
 def test_the_add_page_has_the_editor(admin_page):
     admin_page.goto("/admin/dynamic_configs/config/add/?type=json")
     textarea(admin_page).fill('{"a":1}')
@@ -286,3 +381,90 @@ def test_nesting_is_checked_against_the_servers_limit_without_crashing(editor):
     # Far past the limit: the check uses a stack, so it can't overflow, and it points at the bracket that goes over.
     textarea(editor).fill("[" * 5000 + "]" * 5000)
     expect(status(editor)).to_have_text("The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.")
+
+
+def test_after_back_the_copy_matches_the_textarea(editor, browser_name):
+    if browser_name == "firefox":
+        pytest.skip(
+            "Playwright's Firefox loads the page afresh after Back, with the stored value rather than the edited text, "
+            "so there is no restored text for the copy to fall behind."
+        )
+    # Chromium and WebKit put the edited text back after the script has drawn its copy, without an input event.
+    edited = '{"beta": false,}'
+    error = "Invalid JSON at line 1, column 16: expected a property name in double quotes."
+    textarea(editor).fill(edited)
+    expect(status(editor)).to_have_text(error)
+    editor.goto("/admin/")
+    editor.go_back()
+    # What Save would post.
+    expect(textarea(editor)).to_have_value(edited)
+    wait_until_in_sync(editor)
+    expect(status(editor)).to_have_text(error)
+
+
+def test_format_of_a_thousand_lines_is_quick(editor, browser_name):
+    # Format inserts the text as typing would; Chromium fires an input event per line, and redrawing the whole
+    # document for each one froze the tab for 46 s.
+    data = {f"key{n}": n for n in range(998)}
+    pretty = json.dumps(data, indent=2)
+    assert pretty.count("\n") + 1 == 1000
+    textarea(editor).fill(json.dumps(data, separators=(",", ":")))
+    wait_until_in_sync(editor)
+    started = time.monotonic()
+    click_format(editor)
+    expect(textarea(editor)).to_have_value(pretty, timeout=120_000)
+    wait_until_in_sync(editor, timeout=120_000)
+    expect(status(editor)).to_have_text("Valid JSON.")
+    elapsed = time.monotonic() - started
+    if browser_name != "chromium":
+        pytest.skip(f"The time bound is set for Chromium, the engine that was slow; formatting took {elapsed:.1f} s.")
+    assert elapsed < 5
+
+
+def test_typing_a_burst_leaves_the_copy_in_sync(editor):
+    field = textarea(editor)
+    field.fill('{"beta": true')
+    field.press("End")
+    burst = ', "burst": "' + "abcdefghijkl" * 3 + '"}'
+    assert len(burst) == 50
+    editor.keyboard.type(burst, delay=0)
+    # The script redraws at most once per animation frame; a frame callback asked for now runs after its own.
+    editor.evaluate("() => new Promise(resolve => requestAnimationFrame(resolve))")
+    assert editor.evaluate(IN_SYNC)
+    assert text_of(status(editor)) == "Valid JSON."
+
+
+def test_a_300_kb_document_is_coloured(admin_page):
+    # Over a hundred thousand spans and pieces of text, more than one call can take as arguments.
+    numbers = list(range(35_000))
+    Config.objects.create(name="BIG", type="json", value=json.dumps(numbers))
+    admin_page.goto("/admin/dynamic_configs/config/BIG/change/")
+    assert textarea(admin_page).evaluate("t => t.value.length") == len(json.dumps(numbers, indent=2))
+    copy = colours(admin_page)
+    expect(copy.locator(".dynamic-configs-json-number").last).to_have_text(str(numbers[-1]))
+    expect(copy.locator(".dynamic-configs-json-punctuation").last).to_have_text("]")
+    assert admin_page.evaluate(IN_SYNC)
+    expect(status(admin_page)).to_have_text("Valid JSON.")
+
+
+def test_space_presses_format(editor):
+    # Tall enough to scroll, which Space would otherwise do.
+    editor.evaluate("() => { document.body.style.minHeight = '400vh'; }")
+    link = editor.get_by_role("button", name="Format")
+    for key in ("Space", "Enter"):
+        textarea(editor).fill('{"a":1}')
+        link.focus()
+        scrolled = editor.evaluate("() => window.scrollY")
+        link.press(key)
+        expect(textarea(editor)).to_have_value('{\n  "a": 1\n}')
+        assert editor.evaluate("() => window.scrollY") == scrolled
+
+
+def test_a_number_too_large_is_not_valid(editor):
+    # The server reads a number with a fraction or exponent as a float, and refuses one that overflows to infinity.
+    textarea(editor).fill('{"a": 1e400}')
+    expect(status(editor)).to_have_text("A number in the JSON is too large for a float at line 1, column 7.")
+    expect(colours(editor).locator(".dynamic-configs-json-invalid")).to_have_text("1e400")
+    # Whole numbers are read exactly, however large.
+    textarea(editor).fill('{"a": 1' + "0" * 400 + "}")
+    expect(status(editor)).to_have_text("Valid JSON.")

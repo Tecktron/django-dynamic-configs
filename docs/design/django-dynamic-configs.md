@@ -46,12 +46,15 @@ adding a custom type would get a spurious migration. The admin form and the API 
 
 ## Types
 
-### Serializer protocol
+### Serializer interface
 
-A serializer is a class with two methods. It is instantiated once, with no arguments, when the registry is built.
+A serializer is a subclass of `BaseSerializer` (`types/serializers.py`) that overrides its two methods. It is
+instantiated by the system checks and by each registry build, with the type's `options` as keyword arguments, or with no
+arguments when it has none. The registry also accepts any class with callable `serialize` and `deserialize`, so a
+serializer that doesn't inherit `BaseSerializer` still works; inheriting it is the way to write one.
 
 ```python
-class ColorSerializer:
+class ColorSerializer(BaseSerializer):
     def serialize(self, value: Color) -> str: ...  # raises ValueError when the value is invalid
     def deserialize(self, text: str) -> Color: ...  # raises ValueError when the text is invalid
 ```
@@ -59,9 +62,15 @@ class ColorSerializer:
 Raising `ValueError` is the validation mechanism, in both directions:
 
 - From `deserialize`: the admin shows it as a form error, and a stored value that fails it is "unreadable" (see
-  Failure handling).
+  Failure handling). A write that fails it is refused too, as below.
 - From `serialize`: `get_or_create` and `update` raise `ConfigValueError` (the value has the right type but isn't
   allowed, such as a NaN float or a `str` containing a newline).
+
+Every write (`ConfigType.to_text`) serializes the value and then reads the text back with `deserialize`, so a value is
+stored only if every later `get` can read it. A failure raises `ConfigValueError` ("The value can't be stored: " and
+the reading error's message, never the value). Text that isn't valid UTF-8 (a lone surrogate) is refused first. A set
+whose items read back equal is refused by the read-back. A serializer writes the plain value, not a subclass's own
+text: `str(int(value))`, `repr(float(value))`, `str(Decimal(value))` and `str.__str__(value)`.
 
 Constraints such as "a positive number of hours" are expressed as a custom type whose serializer rejects bad values.
 
@@ -105,7 +114,7 @@ Durations are per-unit types, which are clearer for admins than a free-form dura
 for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are written without a trailing `.0` (`"2"`, not
 `"2.0"`).
 
-A `json` value nests at most 128 levels deep (`JSON_MAX_DEPTH` in `types/serializers.py`; each object or array is a
+A `json` value nests at most 128 levels deep (`dynamic_configs.constants.JSON_MAX_DEPTH`; each object or array is a
 level, so `[[1]]` is 2). Saving refuses a deeper value ("The value can't be stored as JSON: it's nested too deeply (the
 limit is 128 levels)."), and reading refuses deeper text ("The JSON is nested too deeply: the limit is 128 levels."),
 so a hand-edited row that deep is unreadable like any other. Both are checked before Python's `json` runs: reading
@@ -114,8 +123,14 @@ contains itself still gets its own message. Python's `json` recurses once per le
 runs out, so without a fixed limit the depth that works depends on where the code runs. Measured on Python 3.14.4: 605
 levels in a thread with a 128 KB stack, 3,336 with 512 KB, 6,977 with 1 MB, 57,949 in an 8 MB main thread, and no
 limit with an unlimited stack. 128 is the limit Rust's serde_json uses (.NET uses 64, Ruby 100), and RFC 8259 §9
-allows parsers to set one. Lists use their own parsing, which already treats anything but a flat array of strings as
-unreadable.
+allows parsers to set one. A list's stored text is a flat array of strings, so `ListSerializer`, the list editor's
+posted items and the admin's item endpoint refuse nesting (`JSONSerializer.nests_deeper_than(text, 1)`) before
+`json.loads` runs. Object keys must be text, since `json.dumps` would rewrite `{2025: 0.2}` as `{"2025": 0.2}` and could
+merge two keys; a number too large for a float (`1e400`) or a whole number over Python's digit limit is refused with its
+own message.
+
+A duration is kept to the microsecond. Its serializer reads its own text back and refuses a value that wouldn't read
+back exactly ("That duration can't be stored exactly in weeks."), and refuses text finer than a microsecond.
 
 Every type, built-in or custom, has a short `help_text` (for example "YYYY-MM-DD" for `date`, "one number of hours,
 e.g. 1.5" for `hours`). The admin shows help that describes the input on screen:
@@ -206,8 +221,8 @@ with a line break; the list editor can, so `list:text` and `set:text` exist.)
 
 ### Custom types
 
-Declared in Django settings; every value is a dotted path except `label`, `help_text`, `raw_help_text` and
-`listable`:
+Declared in Django settings; every value is a dotted path except `options` (a dict), `label`, `help_text`,
+`raw_help_text` and `listable`:
 
 ```python
 DYNAMIC_CONFIGS = {
@@ -215,6 +230,7 @@ DYNAMIC_CONFIGS = {
         "color": {
             "type": "myapp.colors.Color",                 # required
             "serializer": "myapp.colors.ColorSerializer",  # required
+            "options": {"shade": "dark"},                  # optional: keyword arguments for the serializer
             "form": "myapp.forms.ColorField",              # optional: a django.forms.Field subclass
             "label": "Color",                              # optional, defaults to the key
             "help_text": "Pick a color",                   # optional, defaults to "": help for the form's input
@@ -227,22 +243,33 @@ DYNAMIC_CONFIGS = {
 }
 ```
 
-- Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants).
+- Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants), and be at most 59
+  characters: `Config.type`'s 64 less the `list:` prefix, so the list and set variants fit. A longer key is E001.
 - A listable custom type gets a set variant only if its class is hashable (`__hash__` isn't `None`).
 - A key that matches a built-in replaces that built-in.
+- `options`, an optional dict of keyword arguments for the serializer, set per type: the registry creates it as
+  `serializer_class(**options)`, or with no arguments when the key is absent. A value that isn't a dict with string
+  keys is E001; a serializer that raises any exception when it's created (an unknown option, a refused value) is
+  E003, naming the serializer and the error, never the options' values. The form field's keyword arguments come from
+  `formfield_for`, which also passes `rounding=` when the type's serializer has a `rounding` attribute that isn't
+  None and the type's `form` is `MoneyField`, `MoneyCurrencyField` or a subclass of either, and `currencies=` when the
+  serializer has a `currencies` attribute that isn't None and the form is `MoneyCurrencyField` or a subclass. Any other
+  form gets neither and keeps its own validation.
 - Without `form`, the admin uses `SerializerField(serializer)`: a text input that calls `deserialize` to clean and
   `serialize` to display.
 - A `form` field is instantiated with `required=False`, `label` and `help_text`. The admin form applies the
   empty-value rules itself (see Admin), so they hold even when `allow_null` changes in the same save; the cleaned
   value must pass the type check.
-- The serializer is the one check every path runs. A list item's `form` runs only when the item is added or updated
-  in the list editor; raw mode, the field without JavaScript, saving and code check items with the serializer alone.
-  So a rule a value must always follow belongs in `deserialize`, and `form` shapes how the value is entered.
+- The serializer is the check every path runs: every write calls `serialize` and then `deserialize`. A list item's
+  `form` runs only when the item is added or updated in the list editor; raw mode, the field without JavaScript,
+  saving and code check items with the serializer alone. So a rule a value must always follow belongs in the
+  serializer (in `deserialize`, or in both methods), and `form` shapes how the value is entered.
 - `sort_key` or `sort_compare`, not both, sets how the admin's list editor sorts a list of the type. A compare
   function is turned into a key with `functools.cmp_to_key` when the registry loads, so `ConfigType` holds one
   optional `sort_key`. With neither, a list sorts by the values themselves if the class defines an order (its own
   `__lt__`, or a dataclass with `order=True`); otherwise the list editor has no Sort button. A key that fails on some
-  value doesn't break the page: the editor says "These items can't be sorted." and leaves the list alone.
+  value doesn't break the page: the editor says "These items can't be sorted." and leaves the list alone. The failure
+  is logged as a warning naming the type and the exception's class, never an item.
 
 ### Included example types: money
 
@@ -280,22 +307,52 @@ DYNAMIC_CONFIGS = {
 - **More than 2 decimal places is rejected, never rounded.** The test is by digits, not value: more than 2 digits
   after the decimal point is rejected even when the extra digits are zeros, so `9.990` and `9.999` are both rejected.
   For a `Decimal` from code this means an exponent below -2 (`Decimal("9.990").as_tuple().exponent == -3`).
-- Amounts are always stored and displayed with exactly 2 places: `10` is stored as `"10.00"`.
+- Amounts are always stored and displayed with exactly 2 places: `10` is stored as `"10.00"`. Zero has no sign:
+  `-0`, or a negative amount that rounds to zero, is stored as `"0.00"`.
 - `MoneySerializer.serialize` applies the same rule to values from code (`Decimal("9.999")` raises
   `ConfigValueError`).
-- `MoneyField` is a `DecimalField(decimal_places=2)`.
+- **Rounding is opt-in, per type.** `MoneySerializer(rounding=None)` takes `None` (the rule above) or one of decimal's
+  eight constants (`ROUND_UP`, `ROUND_DOWN`, `ROUND_CEILING`, `ROUND_FLOOR`, `ROUND_HALF_UP`, `ROUND_HALF_DOWN`,
+  `ROUND_HALF_EVEN`, `ROUND_05UP`, in `MoneySerializer.ROUNDINGS`); anything else raises `ValueError`, which is
+  E003. A type sets it with `"options": {"rounding": decimal.ROUND_HALF_UP}` (the constants are strings, so
+  `"ROUND_HALF_UP"` works too). Entered text and values from code are then rounded to 2 places by that rule, so
+  `9.946` is stored as `"9.95"`. The rounding is passed to `quantize`, so the thread's context doesn't decide it.
+- `MoneyField` is a `DecimalField(decimal_places=2)`. With `rounding` set (passed by `formfield_for`), it has no
+  `decimal_places`, keeps `step="0.01"`, and the serializer rounds.
 
 **`money_currency`: an amount and a currency, built on `money`**
 
 - Python type `Money`: a frozen dataclass (`amount: Decimal`, `currency: str`), so it's immutable and hashable. Its
   `__post_init__` validates both parts (the amount by the `money` rule, the currency as exactly 3 uppercase letters)
-  and raises `ValueError`, so an invalid `Money` can't be created. `str(Money(...))` is `"9.99 CAD"`.
+  and raises `ValueError`, so an invalid `Money` can't be created. `str(Money(...))` is `"9.99 CAD"`. `Money` never
+  rounds: `Money(Decimal("9.946"), "CAD")` is refused, so code gives it an amount already rounded.
 - `MoneyCurrencySerializer` **subclasses `MoneySerializer`** and reuses its amount parsing and formatting, adding the
-  currency code. Stored text is `"9.99 CAD"`; on input the code is uppercased (`"9.99 cad"` is accepted).
-- `MoneyCurrencyField` is a `MultiValueField` combining `MoneyField` (the amount) with a 3-character currency input,
-  shown side by side with no JavaScript.
-- Currency codes are checked for shape (3 letters), not against the ISO 4217 list, so there is no data file to keep
-  current.
+  currency code. Stored text is `"9.99 CAD"`; on input the code is uppercased (`"9.99 cad"` is accepted). It takes
+  the same `rounding` and rounds the amount of entered text before it creates `Money`.
+- `MoneyCurrencyField` is a `MultiValueField` combining `MoneyField` (the amount; the widget uses `MoneyField`'s own
+  number input) with a 3-character currency input (`CurrencyInput`, a `TextInput`), shown side by side with no
+  JavaScript. The currency input has a `list` attribute pointing at a `<datalist>` of suggested currencies, rendered in
+  the same `<span>` as the inputs (so the admin's flex layout keeps them together). Each option's text is
+  `CODE - Label`, or the code alone when the label is empty.
+- **Currency suggestions.** `MoneyCurrencySerializer(rounding=None, currencies=None)` takes the codes to suggest:
+  `None` gives the ISO 4217 list in `types/iso4217.py`; a list of codes is labelled from that list when it knows them
+  (an unknown code is suggested without a label); a mapping of code to label is used as given; empty gives no
+  suggestions. Codes are 3 capital letters A to Z and labels are plain `str` (a lazily translated label is refused); a
+  bare string or anything else raises `ValueError`, which is E003. The serializer's `currencies` attribute is the
+  resulting mapping, and `formfield_for` passes it (even `{}`) to `MoneyCurrencyField`, and its subclasses, when it
+  isn't `None`; so a project's own serializer exposing `currencies` must make it a mapping of code to label (the field
+  draws its `.items()`). The type sets it with `"options": {"currencies": ["CAD", "USD"]}`.
+- **Suggestions only, never a check.** Entered currencies are validated for shape (3 letters) alone, so `XYZ` is
+  accepted. A stale list only means a new code isn't suggested yet.
+- **The generated list.** `types/iso4217.py` is generated by `scripts/update_currencies.py` from SIX Group's List One
+  (the ISO 4217 maintenance agency's published list, the `SOURCE` constant): `PUBLISHED` (the list's date) and
+  `CURRENCIES` (code to name, as ISO publishes it). Funds, precious metals, bond market units, `XTS` (testing) and
+  `XXX` (no currency) are left out. The `currencies.yml` workflow runs the script on the 1st of each month, and opens
+  a pull request when the suggested list has changed (see GitHub Actions, under Testing, coverage and CI).
+- **Amounts have 2 places, whatever the currency.** ISO 4217 gives some currencies 0 decimal places (JPY, KRW) and some
+  3 (KWD, BHD). That is a known limit, and on purpose: a one-size-fits-most choice for an example whose job is to show
+  how to extend the package by writing and registering your own types. A project that needs each currency's minor units
+  writes its own type (ISO's list gives them as `CcyMnrUnts`).
 - `Money` defines no order, since amounts in different currencies don't compare, so its entry gives the list editor a
   `sort_key`: `by_currency_then_amount` (in `types/money.py`) sorts by currency, then amount
   (`10.00 CAD, 5.00 USD, 20.00 USD`). It's the worked example of the key. `money` is a `Decimal`, which already sorts
@@ -315,13 +372,15 @@ Django system checks validate the configuration at startup (`manage.py check`, a
 
 | Check                   | Condition                                                                |
 |-------------------------|--------------------------------------------------------------------------|
-| `dynamic_configs.E001`  | `DYNAMIC_CONFIGS` or `TYPES` has the wrong shape, an invalid key, an entry missing `type`/`serializer`, an entry with both `sort_key` and `sort_compare` or one that isn't callable, or `STRIP_STRINGS` isn't `True`, `False` or `None` |
+| `dynamic_configs.E001`  | `DYNAMIC_CONFIGS` or `TYPES` has the wrong shape, an invalid key, an entry missing `type`/`serializer`, an `options` that isn't a dict with string keys, an entry with both `sort_key` and `sort_compare` or one that isn't callable, a `TIMEOUT` that isn't `None` or a whole number of seconds (0 or more), a `REGISTER_ADMIN` that isn't `True` or `False`, a `CACHE` that isn't a string or `None`, or `STRIP_STRINGS` isn't `True`, `False` or `None` |
 | `dynamic_configs.E002`  | a dotted path can't be imported                                          |
-| `dynamic_configs.E003`  | a serializer lacks a callable `serialize` or `deserialize`               |
+| `dynamic_configs.E003`  | a serializer isn't a class, can't be created (with its `options`, if any: it needs arguments, or raises when created, such as a bad `rounding` or `currencies`), or lacks a callable `serialize` or `deserialize` |
 | `dynamic_configs.E004`  | `form` is not a `django.forms.Field` subclass                            |
 | `dynamic_configs.E005`  | `CACHE` names an alias that isn't in `CACHES`                            |
+| `dynamic_configs.E006`  | an admin using `ConfigAdminMixin` has a base class before the mixin in its MRO that defines `history_form_view` and isn't a `ConfigAdminMixin` subclass, so its view would run instead of the mixin's (see the django-simple-history integration) |
 | `dynamic_configs.W001`  | (warning) an admin using `ConfigAdminMixin` sets `fields`, `fieldsets` or `readonly_fields`, which the mixin ignores (see Admin) |
 | `dynamic_configs.E101`  | the simple-history sub-app is installed but `simple_history` isn't in `INSTALLED_APPS` |
+| `dynamic_configs.E102`  | the simple-history sub-app is installed and `SIMPLE_HISTORY_HISTORY_ID_USE_UUID` is set (the shipped migration has integer ids) |
 
 ## Public API
 
@@ -339,13 +398,13 @@ aget(...), aget_or_create(...), aupdate(...), adelete(...)  # async, same argume
 ```
 
 - **`get`** returns the deserialized value, or `None` for an empty `allow_null` setting. When the setting doesn't
-  exist and no default was passed, it raises `ConfigDoesNotExist`. `no_cache=True` skips the cache read, then
-  refreshes the cache entry with what it read.
+  exist and no default was passed, it raises `ConfigDoesNotExist`. `no_cache=True` skips the cache read; when the
+  transaction on the primary database commits, the entry is refreshed from it (see Caching).
 - Names that don't match the name pattern can never be saved, so `get` treats them as missing without touching the
   cache or the database.
-- **`get_or_create`** always reads the database, then refreshes the cache. When the setting exists, it returns the
-  stored value and `created=False`; if the stored type differs from `type`, it raises `ConfigTypeError`. When it
-  doesn't exist, it validates the name, the type key and the value, creates the setting, and returns
+- **`get_or_create`** always reads the database, then refreshes the cache on commit. When the setting exists, it
+  returns the stored value and `created=False`; if the stored type differs from `type`, it raises `ConfigTypeError`.
+  When it doesn't exist, it validates the name, the type key and the value, creates the setting, and returns
   `(value, True)`. Concurrent creation is handled by Django's `get_or_create`.
 - **`update`** changes an existing setting inside a transaction (`select_for_update`). `allow_null=None` keeps the
   setting's flag; `True` or `False` updates it in the same save. `new_value=None` is accepted only when the
@@ -372,23 +431,49 @@ Defined in `dynamic_configs/exceptions.py`, except `ConfigDoesNotExist`, which n
 ## Caching
 
 - **Enabled** when `DYNAMIC_CONFIGS["CACHE"]` names a cache alias (default `"default"`) whose backend isn't
-  `DummyCache`. `None` disables caching.
+  `DummyCache`. `None` disables caching. A value that isn't a configured alias (a non-string included) is logged as
+  a warning and reads run without a cache.
 - **Per key:** `dynamic_configs:v1:<name>` holds the tuple `(type_key, stored_text)`, never a deserialized object,
   so custom classes are never pickled into the cache. `v1` lets a later release change the format safely.
   A name long enough to push the cache's full key past 250 characters (Memcached's limit) is keyed by its start and a
-  hash of the whole name instead.
+  hash of the whole name instead. A `KEY_PREFIX` so long that even that key doesn't fit means Memcached caches
+  nothing (every read goes to the database); backends that only warn about long keys still cache.
+- **Anything else in the slot** (not a `(str, str | None)` pair or the marker, such as an unhashable type key) is
+  dropped and read as a miss, so the usual refill (`add`) fills the slot without overwriting a newer entry.
 - **Missing settings** are cached as a marker, so `get(name, default)` for a nonexistent setting doesn't query the
   database on every call.
 - **Timeout:** `DYNAMIC_CONFIGS["TIMEOUT"]`, default `300` seconds; `None` means no expiry (Django's semantics).
 - **On save:** a `post_save` signal deletes the entry immediately (so reads inside the transaction go to the
-  database), then replaces it with the new value when the transaction commits (`transaction.on_commit`), so a
-  rolled-back save never reaches the cache.
-- **On delete:** `post_delete` does the same, writing the missing marker on commit.
+  database). When the transaction commits (`transaction.on_commit`), it reads the row again on the save's database
+  and caches what the database holds (`set`), or nothing if the row is gone by then. So a rolled-back save never
+  reaches the cache, `save(update_fields=[...])` from a stale copy or a Python value assigned to `value` never
+  caches what the instance holds. Two writers committing out of order leave the newer row cached unless their
+  callbacks overlap: the window narrows to one callback's re-read and `set` (the cache has no compare-and-set).
+- **On delete:** `post_delete` does the same, caching the missing marker on commit (or the row, if another
+  transaction has created it again by then).
+- **Reads past the cache refresh it:** `get(no_cache=True)` and `get_or_create` (for an existing setting) register
+  the receivers' re-read on commit, both waiting for the commit and re-reading on `router.db_for_write` (the
+  primary). A lagging replica can't put a stale value over a writer's entry. A replica's connection isn't in the
+  caller's transaction, so waiting on it would re-read at once, inside the primary's uncommitted transaction, and
+  could cache a value that is then rolled back. They cache the row as the database holds it then (`set`), or the
+  missing marker if it's gone. So they never cache what they read earlier, and a slower plain read's `add` finds
+  the slot filled. The same overlap window as writers' applies.
+- **Plain reads fill an empty slot only:** a plain `get` that misses caches what it read with `add` on commit, so it
+  never replaces an entry. But if the slot is empty when it commits (expired or evicted) and the setting changed
+  after its read, as can happen in a long transaction, it caches the value it read until the next save or refresh,
+  or expiry.
+- With autocommit off outside a transaction, `on_commit` can't run, so reads skip their cache write (logged at
+  DEBUG).
+- A failed re-read after a commit is logged as a warning and drops the entry; it never fails the commit.
 - If the cache is down while a setting is saved or deleted, the failure is logged as a warning and the save still
   succeeds; the old entry, if one is left, expires after `TIMEOUT`.
 - Admin saves, `update`, `delete` and `get_or_create` all go through the model's `save`/`delete`, so they all trigger
-  this. `QuerySet.update()`, `bulk_create()` and `bulk_update()` bypass signals; the README documents this.
+  this. `QuerySet.update()`, `bulk_create()` and `bulk_update()` bypass signals, and so does a data migration's
+  historical `Config` model (refresh with `get(name, default=None, no_cache=True)` after the migration has run); the
+  docs say so.
   (`QuerySet.delete()` does send `post_delete` for each row, because a receiver is connected.)
+- **Large values:** Memcached's default item limit is 1 MB (servers can raise it with `-I`). A larger value is read
+  from the database every time, and each read logs a warning.
 - **Per-process caches:** with Django's default `LocMemCache`, an edit only refreshes the cache of the process that
   handled it; other processes see the old value until it expires. The README recommends a shared cache (Redis,
   Memcached) or a short `TIMEOUT`.
@@ -427,7 +512,10 @@ Each module logs to its own logger under `dynamic_configs` (`logging.getLogger(_
   for config %r; reading from the database"). Exceptions are logged with `exc_info`.
 - Every record carries `extra={"config_name": ...}` (and `"config_type"` where known), so structured log handlers can
   filter on them.
-- System check failures are reported through Django's checks framework, not logged.
+- System check failures are reported through Django's checks framework. Two are also logged at run time, because checks
+  don't run under gunicorn or uwsgi: an invalid `TYPES` setting or entry (logged at `ERROR` and skipped, naming the
+  check id) and a `CACHE` alias that isn't in `CACHES` (see Caching). Every other check is reported only by the
+  framework.
 
 ## Code documentation
 
@@ -468,9 +556,12 @@ name is an identifier, not a value), and `text` values and descriptions are alwa
 ## Admin
 
 The admin ships **no templates** of its own; it uses stock `ModelAdmin` pages, so admin skins apply. Its scripts are
-optional and every page works without them: `dynamic_configs/admin.js` fills in defaults and saves clicks,
-`dynamic_configs/json_editor.js` is the JSON editor and `dynamic_configs/list_editor.js` the list editor, with
-`dynamic_configs/admin.css`, which styles only the editors' own elements. Projects can still override the standard templates (`admin/dynamic_configs/config/change_form.html`).
+optional and every page works without them: `dynamic_configs/admin.js` fills in defaults, saves clicks and keeps whole
+numbers whole,
+`dynamic_configs/json_editor.js` is the JSON editor, `dynamic_configs/list_editor.js` the list editor and
+`dynamic_configs/suggestions.js` the currency dropdown, with `dynamic_configs/admin.css`, which styles only the
+scripts' own elements. Projects can still override the standard templates
+(`admin/dynamic_configs/config/change_form.html`).
 
 - **`ConfigAdminMixin`** holds all the behaviour. **`ConfigAdmin`** is `ConfigAdminMixin` + `admin.ModelAdmin`, and is
   registered automatically by `dynamic_configs.admin.register_admin()` unless `REGISTER_ADMIN` is `False`; calling it
@@ -480,13 +571,19 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   since the add page's two steps and the locked name and type depend on them. So the `fields`, `fieldsets` and
   `readonly_fields` options are ignored, and `dynamic_configs.W001` warns when one is set; a subclass changes them by
   overriding those methods and calling `super()`.
+- The mixin comes first among an admin's base classes. `dynamic_configs.E006` (from the mixin's `check()`, without
+  importing simple_history) reports a base before it that defines `history_form_view` and isn't a
+  `ConfigAdminMixin` subclass, since that base's view would run instead of the mixin's.
 - **List page:** name, type label, a value preview (list and set items joined with `, `, long values truncated),
   description and modified time. A list or set whose stored text isn't a JSON array of strings (a hand-edited row)
   previews as that text. Search on name and description; filter by type.
 - **Add page:** two steps, so the value can use its type's own field. The first step asks only for the type (a
   select of registered types, including list and set variants); Save moves to the second step at
   `add/?type=<key>`, which shows the name, the type (read-only), the value in its type's form field, `allow_null` and
-  the description, as on the change page. With the admin script, choosing a type moves on without clicking Save. An
+  the description, as on the change page. With the admin script, choosing a type with the mouse moves on without
+  clicking Save. From the keyboard, the arrows and typing only change the choice (on a closed select most browsers
+  fire `change` at each one), and Enter moves on: a `keydown` on the select marks keyboard use, so its `change`
+  doesn't submit, and a `pointerdown` clears the mark. Save stays for the page without the script. An
   unknown `?type=` shows the first step again, and other query parameters (a popup's, say) are kept. A boolean gets
   the yes/no/unknown choice on this page, since whether the config allows None isn't known until it's saved.
 - **Change page:** name and type are read-only; the value uses its type's form field (checkbox, date picker, the list
@@ -494,7 +591,21 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
 - On both pages, an empty value is saved as `None` when `allow_null` is set. When it isn't set, an empty value is the
   empty string for `str` and `text`, an empty list or set for list and set types, and a "required" error for every
   other type. (So
-  a `str` setting with `allow_null` can't hold the empty string through the admin; code can still `update` it to `""`.)
+  a `str` setting with `allow_null` can't be saved as the empty string through the admin; code can still `update` it
+  to `""`.)
+- **A save never changes a value the admin didn't touch.** On the change page a value left as the page showed it
+  (compared with what was posted, as the widget shows it: a datetime's time input shows whole seconds, a `str` shows
+  its spaces) is kept as stored, so `""` and `[]` set from code aren't turned into `None` by a description-only save.
+  Turning `allow_null` off in the same save gives a stored `None` the empty-value rules.
+- **Unreadable stored value:** a scalar the serializer rejects, or a list or set whose stored text isn't a JSON array
+  of strings, opens as an empty field with a notice in the field's help: "The stored value can't be read: {reason}.
+  It's shown below; enter a new value to replace it.", then the stored text, escaped, in a `<pre>`. The reason is the
+  serializer's message (or the class of what reading raised) and never contains the value. Saving with the field
+  unchanged is refused ("Enter a value to replace the unreadable one."). A list whose text is a JSON array of strings
+  keeps opening in the list editor, so the bad item can be fixed.
+- **Adding never overwrites:** the add saves with an insert inside a savepoint. A name taken between the form's check
+  and the save (an `IntegrityError` with that row present) shows as the name field's "already exists" error, and the
+  request's own transaction stays usable; any other `IntegrityError` is raised.
 - **Whitespace:** on both pages the name is stripped, and `text` values and descriptions are kept exactly as typed.
   Strings typed in a single-line input (`str` values and items, and custom types without a `form`) follow
   `STRIP_STRINGS` (see Configuration): by default a single value is stripped and a list or set item is kept exactly.
@@ -502,32 +613,89 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   picker, styled textarea), and the zoned datetime widget gets the admin's date and time pickers, keeping their
   attributes. A type's own widget is never replaced, even one built on `Textarea`. List and set values get the list
   editor's widget (`AdminListEditorWidget`).
+- **Whole numbers:** a whole-number field (an `IntegerField`, but not `FloatField` or `DecimalField`, which Django
+  makes its subclasses) with Django's plain `NumberInput` gets `AdminIntegerInput`, marked `data-dynamic-configs-int`,
+  with `admin.js`. The script trims a decimal to its whole part (`1.7` to `1`, `-1.7` to `-1`, `-0.5` to `0`) as text,
+  so a whole part too long for a JavaScript number isn't rounded: on `change`, which the browser fires on leaving the
+  input and right after each step of its arrows and spin buttons, and on Enter, in the capture phase, before the form
+  submits or the list editor adds the item. A value with an exponent (`1e3`) is left to the server, which refuses it.
+- **Decimals:** a `DecimalField` (`MoneyField` included) with Django's plain `NumberInput` gets `AdminDecimalInput`,
+  marked `data-dynamic-configs-decimal`, with `admin.js`. Nothing is trimmed: money with rounding keeps
+  `step="0.01"` but takes more places, and the change form's `novalidate` lets them through to the server. The
+  number part of a combined field (a `MultiValueField` with one input per field), such as `money_currency`'s amount,
+  is marked the same way, as is a whole-number part; the combined field's other parts are left as they are.
+- **Currency suggestions:** `CurrencyInput` (the exact class, as a part of a combined field) gets `AdminCurrencyInput`,
+  marked `data-dynamic-configs-suggest`, with `suggestions.js` and `admin.css`. The script takes the input's own
+  `<datalist>` and shows it as a list in the admin's colours, the same in every browser:
+  - It opens on the first press of the input, and on the up or down arrow, with every suggestion and the input's code
+    highlighted. Typing filters it, the codes that start with the text first and then the suggestions whose text has it,
+    without regard to case, and highlights the first; with no match it closes. Typed away to nothing, it lists every
+    suggestion with none highlighted.
+  - The arrows move the highlight, Enter picks it, and a click picks an option; a pick sets the code and sends `input`
+    and `change`. Escape closes the list. Leaving the input, pressing Tab or a press anywhere else (a finger's press
+    that turns into a scroll never focuses the input) closes it without picking, so a typed code that isn't suggested
+    stays as typed. The highlight, and a hovered option, take the colours of the admin's own dropdowns (`--primary`,
+    `--primary-fg`), or the system's when colours are forced.
+  - Enter on the open list, or on one that typing closed, picks the highlight, or with none only closes the list; it
+    neither saves the page nor adds the list editor's item, so the next Enter does that. After Escape, Tab, leaving the
+    input or a press elsewhere, Enter does what it did.
+  - The list is appended to `<body>` and shown in the top layer (`popover="manual"`): Django's `.form-row` has
+    `overflow: hidden`, which would clip a list drawn beside the input. It is placed from the input's box, below it, or
+    above it when it doesn't fit below and there's more room above, and follows scrolling and resizing.
+  - The input keeps the focus; it gets the combobox role and `aria-expanded`, `aria-controls` and
+    `aria-activedescendant`, and the list the listbox role. The input's own `list` attribute is removed so the browser's
+    popup stays shut. Option text is set with `textContent`.
+  - Without the script, or in a browser with no `showPopover`, the native datalist stays.
+- **Steps:** on load the script drops a whole-number or decimal input's `value` attribute, keeping the value shown.
+  With no `min`, the browser counts the arrows' steps from that attribute, so after the server refused an int's
+  `1.7`, up went to `2.7`, and money's `1.234`, to `1.244`; now they count from multiples of the step (`2`, `1.24`).
+  The server's "unchanged" check compares posted data, which is the value shown, so it isn't affected.
 - **JSON editor:** the `json` type's textarea (`AdminJSONTextarea`) gets `json_editor.js` and `admin.css`:
-  - A **Format** link re-indents the value, two spaces per level, and on invalid JSON, or JSON nested too deeply,
-    changes nothing and moves the cursor to the problem.
+  - A **Format** link re-indents the value, two spaces per level, and on invalid JSON, JSON nested too deeply or a
+    number too large, changes nothing and moves the cursor to the problem. It has the button role, so Enter and Space
+    press it (Space without scrolling the page).
   - **Enter** keeps the line's indent, adds a level after `{` or `[`, and between a pair of brackets puts the closing
     one on its own line. Tab is left alone, so it still moves to the next field.
   - A **closing bracket** typed on a line of nothing but indent steps back a level (two spaces or a tab), in the same
-    undo step. It goes by the character typed (`beforeinput`), not the key, so AltGr layouts get it too. A bracket
-    committed through an input method (IME), as some phone keyboards do, arrives as `insertCompositionText`, which
-    can't be cancelled, so it doesn't adjust the indent.
+    undo step. It goes by the character typed (`beforeinput`), not the key, so a layout that types the bracket without
+    a key press of its own, as AltGr layouts may, gets it too. That is tested in Chromium and WebKit with inserted
+    text, not with a real AltGr layout; in Firefox it isn't tested. A bracket committed through an input method (IME),
+    as some phone keyboards do, arrives as `insertCompositionText`, which can't be cancelled, so it doesn't adjust the
+    indent.
   - A **note** under the field says "Valid JSON." or where and why it isn't ("Invalid JSON at line 2, column 7:
     expected ":"."); a lone number or string gets the server's own "Enter a JSON object or array.". JSON nested past
     the server's limit gets "The JSON is nested too deeply at line 1, column 129: the limit is 128 levels.", at the
     bracket that goes over: the widget writes the limit on the textarea (`data-dynamic-configs-json-max-depth`), so
-    the script never has its own copy. An empty field gets no note.
+    the script never has its own copy. A number with a fraction or exponent too large for a float (`1e400`), which
+    the server refuses, gets "A number in the JSON is too large for a float at line 1, column 7.", the server's words
+    with the position. An empty field gets no note.
   - **Colours:** a copy of the text, built only with `textContent`, sits behind the textarea, whose own text is made
     transparent. Keys, strings, numbers, `true`/`false`/`null` and punctuation each have a colour, and the token where
     the JSON breaks is underlined. The script copies the textarea's font, padding and size onto the copy and follows
     its scrolling and resizing; if a stylesheet overrides those styles on the copy, or the two differ in height once
     the textarea scrolls, the colours turn off and the plain textarea shows. Without `admin.css` the colours never
     start, and Format and the note still work.
+  - **Redrawing:** input redraws the copy and the note at most once per animation frame, from the textarea's text at
+    that frame. Format inserts its text as typing would, and Chromium fires an input event per line, so redrawing on
+    each one froze the tab (46 s for 1,000 lines). Format itself first checks the text as it stands. The copy is built
+    in a `DocumentFragment`, one node at a time, never with one argument per node, which overflows past about 120,000
+    nodes (about 200 KB of pretty JSON). After Back the browser can put the edited text back once the script has drawn
+    its copy, with no input event, so the script checks the text again on `pageshow` and once on `load`.
+  - **Show whitespace**, a checkbox beside Format (no `name`, so never posted; off when the page opens), marks every
+    space with a dot and every tab with a line, inside strings too. The copy always wraps each space and tab in a span
+    of its own (`-space`, `-tab`) holding the character itself, so its text and layout stay the textarea's; the
+    checkbox only toggles a class that draws the marks as backgrounds. The marks follow the colours: the checkbox is
+    added only with them and hidden when they turn off. The admin's textarea font is proportional (a space is about
+    3.4px at 13px), so the dots are small enough to stay apart.
+  - The field and its tools sit in one block (`.dynamic-configs-json-field`): Django 5.2 lays a form row's children
+    out side by side, which put the tools in a narrow column beside the field.
   - The colours are custom properties (`--dynamic-configs-json-key`, `-string`, `-number`, `-literal`,
-    `-punctuation`, `-error`) that a project can set in its own admin stylesheet. The light set has at least 4.5:1
-    contrast on white; the dark set follows `prefers-color-scheme`, and Django's admin theme toggle (`data-theme`)
+    `-punctuation`, `-error`, `-whitespace`) that a project can set in its own admin stylesheet. The light set has at
+    least 4.5:1 contrast on white, except the whitespace marks, which are decoration and fainter on purpose; the dark set follows `prefers-color-scheme`, and Django's admin theme toggle (`data-theme`)
     overrides either way, as in Django's own admin CSS.
   - The script never parses values: it tokenizes the text and rebuilds it token by token, so integers too large for
-    JavaScript (`12345678901234567890`) keep their exact text, and edits go through the browser's undo. Saving stores
+    JavaScript (`12345678901234567890`) keep their exact text, and edits go through the browser's undo. It reads a
+    number only to check that one with a fraction or exponent fits a float, as the server does. Saving stores
     numbers as Python's `json` reads them: integers exactly, other numbers as floats, so `1.10` is saved as `1.1`. The checker uses a stack, not recursion, so deep nesting can't overflow it. (django-prettyjson and
     django-json-widget were considered and dropped: both re-encode the value through JavaScript numbers, which rounds
     large integers, and the second also blocks a strict Content Security Policy with inline scripts.)
@@ -567,7 +735,8 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
     while the item editor holds an unfinished change, a selected item edited but not updated or a new value typed
     but not added: "You have an unsaved change to an item: click Update or Clear." (Applying it silently could save
     an item halfway through being changed; dropping it would lose work.) Raw mode won't open then either, for the same
-    reason, and shows the same warning.
+    reason, and shows the same warning. Saving while an Add or Update is waiting for the server warns too, since the
+    item isn't in the list yet; the warning goes when the answer finishes the change.
   - **The check URL** is `<admin>/dynamic_configs/config/list-item/<type key>/`, a view on `ConfigAdminMixin`. It's
     keyed by the list or set type, not the config, so the add page can use it before the config exists. It sits
     behind the admin's login and CSRF check, needs add or change permission on configs, takes only POSTs, answers
@@ -590,7 +759,7 @@ optional and every page works without them: `dynamic_configs/admin.js` fills in 
   - Only the config admin has the editor: the check URL belongs to it and its permissions. `TypedLineListField` in a
     project's own forms keeps the textarea, the raw format.
 - **Unregistered type:** a row whose type is no longer registered shows its stored text read-only, with a message
-  saying the type is missing from settings.
+  saying the type is missing from settings (queued only for a user who may view or change the row).
 - Permissions are Django's standard add/change/delete/view permissions; the list editor's check URL needs add or
   change permission.
 
@@ -608,19 +777,38 @@ Opt-in: install `django-dynamic-configs[simple-history]` and add `"dynamic_confi
   button.
 - Changes through `update`, `delete` and `get_or_create` are recorded too; the user comes from simple_history's
   `HistoryRequestMiddleware` when it's installed.
-- Check `dynamic_configs.E101`: the sub-app is installed but `simple_history` isn't in `INSTALLED_APPS`.
+- Restoring a version (a POST to simple_history's page of a past version) goes through
+  `ConfigAdminMixin.history_form_view` first, for any admin combining the mixin before `SimpleHistoryAdmin`. A version
+  whose type differs from the config's, or isn't registered (the only test for a deleted config), isn't restored, since
+  a config's type never changes: the History page shows an error message and nothing is saved. A version that doesn't
+  exist is left to simple_history's 404.
+- The shipped migration assumes simple_history's defaults for the settings that shape the historical model.
+  `SIMPLE_HISTORY_HISTORY_ID_USE_UUID` isn't supported (every save would fail on the integer `history_id`);
+  `SIMPLE_HISTORY_DATE_INDEX` (`False` or `"Composite"`) and `SIMPLE_HISTORY_HISTORY_CHANGE_REASON_USE_TEXT_FIELD`
+  leave a pending migration in the sub-app; the docs point such projects to `MIGRATION_MODULES`.
+- Checks `dynamic_configs.E101`: the sub-app is installed but `simple_history` isn't in `INSTALLED_APPS`; and
+  `dynamic_configs.E102`: `SIMPLE_HISTORY_HISTORY_ID_USE_UUID` is set.
 
 ## Test helpers
 
-- **`dynamic_configs.test.override_configs(**values)`**: a context manager and decorator (for functions, methods and
-  classes). Overridden values are returned by `get` and `get_or_create` (as `(value, False)`) without touching the
-  cache or the database. Restored in a `finally` block. Built on `contextvars`, so overrides don't leak between
-  threads or async tasks, and they propagate into the async variants. On a class, like `override_settings`, it covers
-  the whole class: its `test*` methods, inherited ones included, and the setup and teardown hooks of unittest, Django
-  and pytest (`setUp`, `setUpClass`, `setUpTestData`, `setup_method`, `setup_class` and their teardowns). A
-  subclass's values win over a decorated base's; stacked on one class, the inner decorator wins, as on functions.
+- **`dynamic_configs.test.override_configs(**values)`**: a context manager and decorator (for functions, coroutine
+  functions, generator and async generator functions, methods and classes). Overridden values are returned by `get` and
+  `get_or_create` (as `(value, False)`) without touching the cache or the database. Restored in a `finally` block. Built
+  on `contextvars`, so overrides don't leak between threads or async tasks, and they propagate into the async variants.
+  On Python 3.14 and later with `sys.flags.thread_inherit_context` on (the default on free-threaded builds), a thread
+  started inside a block starts with a copy of its context, so it sees the overrides. One instance can be open in
+  several tasks at once: its tokens are kept per context. A decorated generator runs under the overrides each time it
+  resumes, not across its `yield`s; a block it opens itself holds across them, and its caller sees that block meanwhile,
+  as in any generator. On a class, like `override_settings`, it covers the whole class: its `test*` methods, inherited
+  ones included, the setup and teardown hooks of unittest, Django and pytest (`setUp`, `asyncSetUp`, `setUpClass`,
+  `setUpTestData`, `setup_method`, `setup_class` and their teardowns), and cleanups registered with `addCleanup` (which
+  `addAsyncCleanup` and `enterContext` use). Subclasses, decorated or not, get the same through an `__init_subclass__`
+  hook. A subclass's values win over a decorated base's; stacked on one class, the inner decorator wins, as on
+  functions.
 - **pytest plugin** (`dynamic_configs/test/pytest_plugin.py`, registered under the `pytest11` entry point): a
   `config_overrides` fixture whose `.set(**values)` applies overrides for the rest of the test, cleared at teardown.
+  Inside a `with override_configs(...)` block, or a decorated test, `.set()` still holds after the block ends. The
+  latest wins: `.set()` beats a block applied before it, and a block opened after `.set()` beats it while open.
   (It isn't named `dynamic_configs`, which would hide the module inside tests that also call `dynamic_configs.get`.)
   The plugin imports nothing from Django at load time.
 - The plugin does not clear the project's cache between tests. The README tells projects to use `"CACHE": None` in
@@ -659,7 +847,8 @@ The `src/` layout, so tests run against the installed package. Modules mirror Dj
 
 ```
 pyproject.toml   tox.ini   MANIFEST.in   LICENSE   README.md   CHANGELOG.md   .readthedocs.yaml
-.github/workflows/ci.yml   .github/workflows/release.yml
+.github/workflows/ci.yml   .github/workflows/release.yml   .github/workflows/currencies.yml
+scripts/update_currencies.py   (regenerates types/iso4217.py)
 docs/
     conf.py   index.md   (one .md per page listed under Documentation site)
     design/django-dynamic-configs.md
@@ -669,19 +858,22 @@ src/dynamic_configs/
     cache.py            cache access and the missing marker
     conf.py             DYNAMIC_CONFIGS with defaults
     checks.py           system checks
+    constants.py        constants more than one module uses (JSON_MAX_DEPTH, SET_HELP, ADMIN_SCRIPT, list and set key
+                        prefixes)
     exceptions.py
     log.py              logging helper with the re-entrancy guard
     _overrides.py       overrides for the current context (read by the API, set by the test helpers)
     models.py           Config, ConfigDoesNotExist
     signals.py          post_save / post_delete cache handling
     admin.py            ConfigAdminMixin (with the list editor's check URL), ConfigAdmin, AdminZonedDateTimeWidget,
-                        AdminJSONTextarea, AdminListEditorWidget
+                        AdminJSONTextarea, AdminListEditorWidget, AdminCurrencyInput
     apps.py
     static/dynamic_configs/
-        admin.js        the admin's optional script (type step, time zones)
+        admin.js        the admin's optional script (type step, time zones, number steps)
         json_editor.js  the admin's JSON editor
         list_editor.js  the admin's list editor
-        admin.css       the editors' layout, and the JSON editor's colours
+        suggestions.js  the admin's currency dropdown
+        admin.css       the editors' layout, the JSON editor's colours, and the currency dropdown's look
     types/
         base.py         ConfigType: a type's definition, type check and text conversion
         registry.py     registry build, lookup, list and set variants
@@ -689,12 +881,13 @@ src/dynamic_configs/
         serializers.py  built-in serializers
         money.py        Money, MoneySerializer, MoneyCurrencySerializer, by_currency_then_amount (example types, not
                         registered by default)
+        iso4217.py      the ISO 4217 currencies the money example suggests (generated by scripts/update_currencies.py)
     forms/
         list.py         LineListField, TypedLineListField (a list of stored texts, or one item per line)
         json.py         JSONTextField, JSONTextarea
         datetime.py     ZonedDateTimeField, ZonedDateTimeWidget, datetime_field
         fields.py       SerializerField, DurationUnitField, formfield_for
-        money.py        MoneyField, MoneyCurrencyField
+        money.py        MoneyField, MoneyCurrencyWidget, MoneyCurrencyField
         config.py       ConfigTypeForm, ConfigAddForm, add_form_for, ConfigChangeForm, change_form_for (the admin's model forms)
     test/
         __init__.py     override_configs
@@ -769,7 +962,9 @@ Plus:
   environments in Playwright's Docker image (`mcr.microsoft.com/playwright/python`, non-root, `--ipc=host`, with a
   `base_python` override for the image's Python 3.12).
 - `extras`: newest Django and Python, with django-simple-history installed and its app enabled in the test settings
-  (`tests/settings.py` reads an environment variable).
+  (`tests/settings.py` reads an environment variable). `extras-oldest` runs the same on the oldest Django (5.2) and
+  django-simple-history (3.8) the package supports, on Python 3.12, so the shipped migration is checked against
+  the models both generate.
 - `postgres`: newest Django and Python against PostgreSQL, with `psycopg[binary]`; `tests/settings.py` switches to
   PostgreSQL when an environment variable says so, and the connection comes from libpq's standard `PG*` variables,
   which tox passes through. Every other environment, and every local run, uses SQLite: the package's ORM use is
@@ -795,9 +990,9 @@ Plus:
 - `docs`: builds the documentation site with warnings as errors.
 - `coverage`: combines every environment's data and enforces the threshold.
 
-Plain `tox` runs the matrix, the browser environments, `extras`, `lint`, `docs` and `coverage`. `postgres` (it needs a
-PostgreSQL server), `redis`, `redis-json` and `memcached` (each needs a server of its own) and `djangomain` (it installs
-Django from GitHub each time) run only when named (`tox -e postgres`), and always in CI.
+Plain `tox` runs the matrix, the browser environments, `extras`, `extras-oldest`, `lint`, `docs` and `coverage`.
+`postgres` (it needs a PostgreSQL server), `redis`, `redis-json` and `memcached` (each needs a server of its own) and
+`djangomain` (it installs Django from GitHub each time) run only when named (`tox -e postgres`), and always in CI.
 
 ### Coverage
 
@@ -834,12 +1029,17 @@ Configured in `pyproject.toml`:
   - `coverage` job: after `test`; combines the artifacts, prints the report (with any missing lines), fails under
     100%, and saves the HTML report as an artifact to download. No coverage service: the 100% rule already blocks any
     drop, and the job's log names the missing lines.
+- **`currencies.yml`**, on the 1st of each month (and by hand): runs `scripts/update_currencies.py`, which fetches SIX
+  Group's ISO 4217 List One and regenerates `types/iso4217.py`. When the suggested currencies are unchanged it ends with
+  a notice; when they changed it runs the lint and the type, form and script tests, pushes the module to the
+  `update-currencies` branch, and opens a pull request listing the added, removed and renamed currencies. Its
+  maintainer's notes are in `docs/development.md`.
 - **`release.yml`**, on pushing a `v*` tag: checks the tag matches the package version, builds the sdist and wheel,
   and publishes to PyPI through trusted publishing (environment `pypi`, `id-token: write`), so no token is stored.
   Also runnable by hand (`workflow_dispatch`) as a dry run: the tag check is skipped, `version` is rewritten in the
   runner's copy to `<version>.dev<run number>` (nothing is committed), and a separate job publishes to TestPyPI
   through the `testpypi` environment. Each publish job is guarded by its trigger (`pypi` only for a `v*` tag push,
-  `testpypi` only for a manual run), so a manual run can't reach PyPI nor a tag TestPyPI.
+  `testpypi` only for a manual run on `main`), so a manual run can't reach PyPI nor a tag TestPyPI.
 
 ## README
 

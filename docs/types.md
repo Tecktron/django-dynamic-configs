@@ -27,11 +27,20 @@ Durations are one type per unit, which is clearer for admins than a free-form du
 for an `hours` setting and code reads `timedelta(hours=1.5)`. Numbers are written without a trailing `.0` (`"2"`, not
 `"2.0"`).
 
-A `str` must be a single line; use `text` for several lines. A `json` value must be an object or an array: a lone
-number or string is rejected ("Enter a JSON object or array."), and so are NaN and infinity. The admin shows a
-`json` value pretty-printed (`indent=2`) in the [JSON editor](admin.md#the-json-editor).
+A duration is kept to the microsecond, as a `timedelta` is. Text finer than that ("0.0000001" seconds) is refused: "A
+duration is kept to the microsecond; that one is finer." (The only fractions of a microsecond it reads are the text it
+wrote itself, such as `"3.0000115740740743"` days for 3 days and 1 second.) A value is stored only if its text reads
+back as exactly that value, so one the unit can't write exactly (the largest `timedelta`, or a very long duration with a
+fraction of a second, in `weeks`) is refused: "That duration can't be stored exactly in weeks."
 
-A `json` value may nest at most 128 levels deep (`dynamic_configs.types.serializers.JSON_MAX_DEPTH`). Each object or
+A `str` must be a single line; use `text` for several lines. A `json` value must be an object or an array: a lone
+number or string is rejected ("Enter a JSON object or array."), and so are NaN and infinity, a number too large for a
+float (`1e400`) and a whole number with more digits than Python reads (4,300 by default). Object keys must be text:
+`{2025: 0.2}` is refused ("The value can't be stored as JSON: object keys must be text, not int."), since JSON would
+rewrite the key as `"2025"` and could merge two keys. The admin shows a `json` value pretty-printed (`indent=2`) in
+the [JSON editor](admin.md#the-json-editor).
+
+A `json` value may nest at most 128 levels deep (`dynamic_configs.constants.JSON_MAX_DEPTH`). Each object or
 array is one level, so `[[1]]` is 2 levels deep, and brackets inside strings don't count. A deeper value is refused
 when it's saved ("The value can't be stored as JSON: it's nested too deeply (the limit is 128 levels)."), and the admin
 says the same about deeper text ("The JSON is nested too deeply: the limit is 128 levels."). A deeper stored value,
@@ -69,7 +78,8 @@ The `datetime` type follows Django's time zone settings.
   `TIME_ZONE`. So `17:00` with no zone, under `TIME_ZONE = "America/New_York"`, means 17:00 New York time. An aware
   datetime keeps its zone. The value is stored in UTC (`2026-11-02T22:00:00+00:00`), so the instant is kept, and read
   back as an aware datetime in UTC, as Django's ORM returns them. A local time that's ambiguous or doesn't exist
-  around a daylight-saving change, given from code, is resolved by Python's `zoneinfo` rules (`fold=0`).
+  around a daylight-saving change, given from code, is resolved by Python's `zoneinfo` rules: a caller's `fold` is
+  honoured, and a naive time that doesn't set one has `fold=0`.
 - **`USE_TZ = False`**: an aware datetime is converted to `TIME_ZONE` and made naive, which is Django's own convention
   for this mode; values are stored and returned naive.
 
@@ -94,6 +104,8 @@ is also hashable, it gets a set variant too, keyed `set:<key>` and labelled `Set
 - **Stored text:** a JSON array of each item's stored text, such as `["1", "2"]` for `list:int`. Set types keep the
   order the items were first entered, so the admin page doesn't reshuffle them. Custom types get the same treatment
   through their own serializer.
+  The text is a flat array, so nesting in it ("[[...") is refused before it's parsed ("The list can't be read: an item
+  is itself a list or object.").
 - **Duplicates:** a set type rejects duplicates rather than dropping them, compared after parsing, so `1` and `01`
   are the same item in a `set:int`.
 - **Admin input:** the [list editor](admin.md#the-list-editor).
@@ -111,7 +123,7 @@ values themselves when the type defines an order. `str` and `text` sort ignoring
 ## Custom types
 
 A custom type is a Python class and a serializer, declared in `DYNAMIC_CONFIGS["TYPES"]`. Every value is a dotted path
-except `label`, `help_text`, `raw_help_text` and `listable`:
+except `options` (a dict), `label`, `help_text`, `raw_help_text` and `listable`:
 
 ```python
 DYNAMIC_CONFIGS = {
@@ -119,6 +131,7 @@ DYNAMIC_CONFIGS = {
         "color": {
             "type": "myapp.colors.Color",                 # required
             "serializer": "myapp.colors.ColorSerializer",  # required
+            "options": {"shade": "dark"},                  # optional: keyword arguments for the serializer
             "form": "myapp.forms.ColorField",              # optional: a django.forms.Field subclass
             "label": "Color",                              # optional, defaults to the key
             "help_text": "Pick a color",                   # optional, defaults to "": help for the form's input
@@ -131,7 +144,13 @@ DYNAMIC_CONFIGS = {
 }
 ```
 
-- Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants).
+- `options` is a dict of keyword arguments for the serializer, set per type: the registry creates it as
+  `ColorSerializer(**options)`, or with no arguments when there's no `options`. The keys must be strings. A serializer
+  that doesn't take an option, or refuses one, is reported by the system checks (the money types use it for
+  `rounding`).
+- Keys must match `^[A-Za-z][A-Za-z0-9_]*$` (no `:`, which is reserved for list and set variants), and be at most 59
+  characters, so that the `list:` variant fits the 64-character `type` column. A longer key is refused (system check
+  `E001`).
 - A key that matches a built-in replaces that built-in.
 - A listable custom type gets a set variant only if its class is hashable (`__hash__` isn't `None`).
 - Mistakes are reported by the system checks at startup (see [System checks](installation.md#system-checks)).
@@ -140,20 +159,33 @@ DYNAMIC_CONFIGS = {
 
 ### The serializer
 
-A serializer is a class with two methods. It's created once, with no arguments, when the types are loaded.
+A serializer turns a value into the text stored in the database and back. Write one by subclassing
+`dynamic_configs.types.serializers.BaseSerializer` and overriding its two methods. It's created with the entry's
+`options` as keyword arguments, or none, by the system checks and by each build of the type registry (it isn't created
+just once).
 
 ```python
-class ColorSerializer:
+from dynamic_configs.types.serializers import BaseSerializer
+
+
+class ColorSerializer(BaseSerializer):
     def serialize(self, value: Color) -> str: ...  # raises ValueError when the value is invalid
     def deserialize(self, text: str) -> Color: ...  # raises ValueError when the text is invalid
 ```
 
+A class with these two methods that doesn't inherit `BaseSerializer` is still accepted, but inheriting it is the way to
+write one.
+
 Raising `ValueError` is how a serializer rejects a value, in both directions:
 
 - From `deserialize`: the admin shows it as a form error, and a stored value that fails it is unreadable (see
-  [Failure handling and logging](failures.md)).
+  [Failure handling and logging](failures.md)). A write that fails it is refused too, as below.
 - From `serialize`: `get_or_create` and `update` raise `ConfigValueError` (the value has the right type but isn't
   allowed).
+
+Every write serializes the value and then reads the text back with `deserialize`. It's stored only if both steps
+succeed, so a value that was stored can always be read. The error says "The value can't be stored: " and then why the
+text can't be read. Text that isn't valid Unicode (a lone surrogate such as `"\ud800"`) is refused the same way.
 
 Error messages are shown to admins as form errors. Don't put the value itself in them: settings may hold secrets.
 
@@ -167,9 +199,10 @@ created with `required=False`, `label` and `help_text`. The admin form applies t
 [Admin and skins](admin.md#empty-values)), so they hold even when `allow_null` changes in the same save, and the
 cleaned value must pass the type check.
 
-The serializer is the one check every path runs. A list item's `form` runs only when the item is added or updated in
-the list editor; raw mode, the field without JavaScript, saving and code check items with the serializer alone. So a
-rule a value must always follow belongs in `deserialize`, and `form` shapes how the value is entered.
+The serializer is the check every path runs: every write calls `serialize` and then `deserialize`. A list item's
+`form` runs only when the item is added or updated in the list editor; raw mode, the field without JavaScript, saving
+and code check items with the serializer alone. So a rule a value must always follow belongs in the serializer (in
+`deserialize`, or in both methods), and `form` shapes how the value is entered.
 
 ### Help text
 

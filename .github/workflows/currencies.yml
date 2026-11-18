@@ -1,0 +1,84 @@
+name: Currencies
+
+# Checks SIX Group's ISO 4217 list once a month and opens a pull request when the suggested currencies changed.
+# A schedule uses the file on the default branch. A manual run uses the file on the branch it's started from, but
+# the workflow has to be on the default branch for GitHub to offer it.
+on:
+  schedule:
+    - cron: "17 6 1 * *"
+  workflow_dispatch:
+
+# The job pushes the update branch and opens the pull request.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: currencies
+  cancel-in-progress: false
+
+jobs:
+  update:
+    # A fork's schedule would only fail to push, so it skips; a manual run from another branch would open a pull
+    # request carrying that branch's commits, so only main runs.
+    if: github.repository == 'Tecktron/django-dynamic-configs' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      # The write token stays out of .git/config, so the installs and tests below can't read it.
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      # A fetch or parse error exits non-zero, which fails the job: a step without a shell key runs bash -e, and
+      # nothing here pipes, so pipefail wouldn't change a result.
+      - name: Fetch the list
+        id: fetch
+        run: |
+          python scripts/update_currencies.py --summary "$RUNNER_TEMP/summary.md"
+          if git diff --quiet; then
+            echo "::notice::ISO 4217 list unchanged"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install tox
+        if: steps.fetch.outputs.changed == 'true'
+        run: python -m pip install tox
+      - name: Lint
+        if: steps.fetch.outputs.changed == 'true'
+        run: tox -e lint
+      - name: Test the types, forms and script
+        if: steps.fetch.outputs.changed == 'true'
+        run: tox -e py314-django61 -- tests/types tests/forms tests/scripts
+      - name: Commit, push and open the pull request
+        if: steps.fetch.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Git gets the token only here, through gh's credential helper.
+          gh auth setup-git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git switch -C update-currencies
+          git add src/dynamic_configs/types/iso4217.py
+          git commit -m "Update the ISO 4217 currency list" -m "$(cat "$RUNNER_TEMP/summary.md")"
+          git push --force origin update-currencies
+          {
+            cat "$RUNNER_TEMP/summary.md"
+            echo
+            echo "CI doesn't start on a pull request that a workflow opened or updated:"
+            echo "close and reopen this pull request to run it."
+          } > "$RUNNER_TEMP/body.md"
+          # --head matches the branch name alone, so leave out a pull request from a fork's branch of the same name.
+          number=$(gh pr list --head update-currencies --state open --json number,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | .number')
+          if [ -n "$number" ]; then
+            # The push has updated it; refresh the summary it shows.
+            gh pr edit "$number" --body-file "$RUNNER_TEMP/body.md"
+            echo "::notice::Updated pull request #$number"
+            exit 0
+          fi
+          gh pr create --head update-currencies --base main \
+            --title "Update the ISO 4217 currency list" --body-file "$RUNNER_TEMP/body.md"

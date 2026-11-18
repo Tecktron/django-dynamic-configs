@@ -14,16 +14,19 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable
 from functools import partial
 from typing import Final
 
 from django.core.cache import InvalidCacheBackendError, caches
 from django.core.cache.backends.base import BaseCache
 from django.core.cache.backends.dummy import DummyCache
-from django.db import transaction
+from django.db import Error, router, transaction
+from django.db.transaction import TransactionManagementError
 
 from dynamic_configs.conf import get_settings
 from dynamic_configs.log import log
+from dynamic_configs.models import Config
 
 logger = logging.getLogger(__name__)
 
@@ -72,22 +75,29 @@ def cache_key(name: str, backend: BaseCache) -> str:
 def get_cache() -> BaseCache | None:
     """Return the configured cache, or None when caching is off.
 
-    Caching is off when ``CACHE`` is None or isn't a configured alias (logged as a warning), or the backend is
-    DummyCache.
+    Caching is off when ``CACHE`` is None or isn't a configured alias (a value that isn't a string included; logged as
+    a warning), or the backend is DummyCache.
     """
     alias = get_settings()["CACHE"]
     if alias is None:
         return None
     try:
-        backend = caches[alias]
+        backend = caches[alias] if isinstance(alias, str) else None
     except InvalidCacheBackendError:
+        backend = None
+    if backend is None:
         log(logger, logging.WARNING, "Cache alias %r isn't configured; reading configs without a cache", alias)
         return None
     return None if isinstance(backend, DummyCache) else backend
 
 
 def read(name: str) -> Entry | _Sentinel:
-    """Return the cached entry for ``name``, ``ABSENT`` if it's cached as missing, or ``NOT_CACHED``."""
+    """Return the cached entry for ``name``, ``ABSENT`` if it's cached as missing, or else ``NOT_CACHED``.
+
+    Anything in the slot other than a ``(type_key, text)`` pair of strings (``text`` may be None) or the marker is
+    dropped and reads as ``NOT_CACHED``, so the usual fill (an ``add``) replaces it without ever overwriting an entry
+    a writer caches in the meantime.
+    """
     backend = get_cache()
     if backend is None:
         return NOT_CACHED
@@ -108,10 +118,25 @@ def read(name: str) -> Entry | _Sentinel:
         return ABSENT
     # A list too: caches that serialize to JSON or msgpack (django-redis's JSON serializer, say) give tuples back as
     # lists, and treating those as misses would send every read to the database.
-    if isinstance(raw, (tuple, list)) and len(raw) == 2:
+    if (
+        isinstance(raw, (tuple, list))
+        and len(raw) == 2
+        and isinstance(raw[0], str)
+        and (raw[1] is None or isinstance(raw[1], str))
+    ):
         log(logger, logging.DEBUG, "Cache hit for config %r", name, config_name=name)
         return (raw[0], raw[1])
-    log(logger, logging.DEBUG, "Cache miss for config %r", name, config_name=name)
+    if raw is None:
+        log(logger, logging.DEBUG, "Cache miss for config %r", name, config_name=name)
+    else:
+        log(
+            logger,
+            logging.DEBUG,
+            "Dropped the unrecognised cache entry for config %r; reading from the database",
+            name,
+            config_name=name,
+        )
+        delete(name)
     return NOT_CACHED
 
 
@@ -150,13 +175,78 @@ def write(name: str, entry: Entry | _Sentinel, *, overwrite: bool = True) -> Non
         log(logger, logging.DEBUG, "Config %r was already cached; kept that entry", name, config_name=name)
 
 
-def write_on_commit(name: str, entry: Entry | _Sentinel, *, using: str, overwrite: bool) -> None:
-    """Cache ``entry`` once the current transaction on ``using`` commits (at once outside a transaction).
+def write_on_commit(name: str, entry: Entry | _Sentinel, *, using: str) -> None:
+    """Fill the empty slot for ``name`` with ``entry`` once the transaction on ``using`` commits (at once outside one).
+
+    Only an empty slot (``add``), so a slow reader can't replace the newer entry a writer cached after committing.
 
     A value read inside a transaction may never be committed; caching it straight away would leave a rolled-back
-    value in the cache for every process until it expired.
+    value in the cache for every process until it expired. With autocommit off outside a transaction there's no
+    commit to wait for, so nothing is cached (logged at DEBUG).
+
+    :param name: the setting's name
+    :param entry: what to cache
+    :param using: the database alias the entry was read from
     """
-    transaction.on_commit(partial(write, name, entry, overwrite=overwrite), using=using)
+    _on_commit(partial(write, name, entry, overwrite=False), name, using)
+
+
+def refresh_on_commit(name: str) -> None:
+    """Once the current transaction on the primary database commits, cache what it holds for ``name``.
+
+    For reads that skip the cache (``get(no_cache=True)``, ``get_or_create``): like writers, they cache the row as the
+    database holds it when the callback re-reads it, never what they read earlier, and they fill the slot, so a
+    slower plain read's ``add`` can't cache an older value after them. The "doesn't exist" marker if there's no row.
+    Both the wait and the re-read use ``router.db_for_write`` (the primary): a lagging replica could put a stale value
+    over a writer's entry, and a replica's connection isn't in the caller's transaction, so waiting on it would
+    re-read at once, inside the primary's uncommitted transaction, and cache a value that may be rolled back. As with
+    :func:`write_on_commit`, nothing happens with autocommit off outside a transaction.
+
+    :param name: the setting's name
+    """
+    primary = router.db_for_write(Config)
+    _on_commit(partial(write_from_database, name, primary, gone=ABSENT), name, primary)
+
+
+def write_from_database(name: str, using: str, *, gone: object) -> None:
+    """Read the row ``name`` from the database ``using`` and cache it (``set``).
+
+    If there's no row, ``gone`` is cached instead, unless it's None. Runs after a commit, so it never raises: a failed
+    read is logged and the entry dropped, since a slow reader may have filled it in the meantime. The re-read and the
+    ``set`` are two steps, and the cache has no compare-and-set: a writer whose callback runs in between can have its
+    newer entry replaced by this older one.
+    """
+    try:
+        row = Config._default_manager.using(using).filter(name=name).values_list("type", "value").first()
+    except Error:
+        log(
+            logger,
+            logging.WARNING,
+            "Database read failed for config %r after a commit; dropped its cache entry",
+            name,
+            config_name=name,
+            exc_info=True,
+        )
+        delete(name)
+        return
+    if row is not None:
+        write(name, (row[0], row[1]))
+    elif gone is not None:
+        write(name, gone)
+
+
+def _on_commit(callback: Callable[[], None], name: str, using: str) -> None:
+    """Run ``callback`` when the transaction on ``using`` commits; skip it (logged) if ``on_commit`` can't be used."""
+    try:
+        transaction.on_commit(callback, using=using)
+    except TransactionManagementError:
+        log(
+            logger,
+            logging.DEBUG,
+            "Left the cache entry for config %r as it is: autocommit is off outside a transaction",
+            name,
+            config_name=name,
+        )
 
 
 def delete(name: str) -> None:

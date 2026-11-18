@@ -231,6 +231,11 @@
             busy = false;
             if (answer) {
                 apply(answer);
+                // A save pressed while an Add or Update was pending warned of the change it was finishing: once it's
+                // finished, the warning goes.
+                if (message.textContent === UNFINISHED && !unfinished()) {
+                    message.textContent = "";
+                }
             } else {
                 // Nothing changes, so an item chosen meanwhile isn't loaded either.
                 chosen = null;

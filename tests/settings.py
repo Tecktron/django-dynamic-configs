@@ -70,3 +70,6 @@ if os.environ.get("DYNAMIC_CONFIGS_TEST_CACHE"):
     else:
         test_db = Path(tempfile.gettempdir()) / f"dynamic-configs-tests-{os.getpid()}.sqlite3"
         DATABASES["default"]["TEST"] = {"NAME": str(test_db)}
+
+# A second database for the read-replica tests, which route reads to it; only tests that ask for it create it.
+DATABASES["replica"] = {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}

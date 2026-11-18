@@ -1,10 +1,11 @@
 import pytest
 from django.contrib import admin
 from django.contrib.admin import AdminSite
+from django.core import checks
 from simple_history.admin import SimpleHistoryAdmin
 
 import dynamic_configs
-from dynamic_configs.admin import ConfigAdmin, register_admin
+from dynamic_configs.admin import ConfigAdmin, ConfigAdminMixin, register_admin
 from dynamic_configs.contrib.simple_history.admin import ConfigHistoryAdmin, register_history_admin
 from dynamic_configs.models import Config
 
@@ -26,6 +27,38 @@ def test_the_admin_has_history():
 def test_the_history_admin_passes_its_checks():
     # ConfigAdminMixin's W001 must not fire for simple_history's own options.
     assert ConfigHistoryAdmin(Config, AdminSite()).check() == []
+
+
+@pytest.mark.parametrize(
+    "bases",
+    [(ConfigAdminMixin, SimpleHistoryAdmin), (ConfigAdminMixin, SimpleHistoryAdmin, admin.ModelAdmin)],
+    ids=["mixin, SimpleHistoryAdmin", "mixin, SimpleHistoryAdmin, skin"],
+)
+def test_the_documented_order_passes_its_checks(bases):
+    assert type("ProjectConfigAdmin", bases, {})(Config, AdminSite()).check() == []
+
+
+def test_a_subclass_that_overrides_the_revert_view_passes_its_checks():
+    # Its override runs first and reaches the mixin's through super(), so it isn't reported.
+    class OwnRevertAdmin(ConfigHistoryAdmin):
+        def history_form_view(self, request, object_id, version_id, extra_context=None):
+            return super().history_form_view(request, object_id, version_id, extra_context)
+
+    assert OwnRevertAdmin(Config, AdminSite()).check() == []
+
+
+def test_a_base_before_the_mixin_that_overrides_its_history_view_is_an_error():
+    reversed_admin = type("ReversedConfigAdmin", (SimpleHistoryAdmin, ConfigAdminMixin, admin.ModelAdmin), {})
+    [error] = reversed_admin(Config, AdminSite()).check()
+    assert (error.id, error.level, error.obj) == ("dynamic_configs.E006", checks.ERROR, reversed_admin)
+    assert error.msg == (
+        "ReversedConfigAdmin puts SimpleHistoryAdmin before ConfigAdminMixin, so its history_form_view runs instead "
+        "of ConfigAdminMixin's."
+    )
+    assert error.hint == (
+        "Put ConfigAdminMixin first among the base classes, as in "
+        "class ConfigAdmin(ConfigAdminMixin, SimpleHistoryAdmin, ModelAdmin)."
+    )
 
 
 def test_admin_changes_record_who_made_them(admin_client, admin_user):

@@ -5,12 +5,16 @@ from decimal import Decimal
 import pytest
 
 from dynamic_configs.types import serializers
+from dynamic_configs.types.money import MoneyCurrencySerializer, MoneySerializer
+from dynamic_configs.types.registry import build_registry
 from dynamic_configs.types.serializers import (
+    BaseSerializer,
     BoolSerializer,
     DateSerializer,
     DateTimeSerializer,
     DaysSerializer,
     DecimalSerializer,
+    DurationSerializer,
     FloatSerializer,
     HoursSerializer,
     IntSerializer,
@@ -22,14 +26,12 @@ from dynamic_configs.types.serializers import (
     StrSerializer,
     TextSerializer,
     WeeksSerializer,
-    format_number,
-    normalize_datetime,
 )
 
 
 @pytest.mark.parametrize(("number", "text"), [(2.0, "2"), (1.5, "1.5"), (-3.0, "-3")])
 def test_format_number_drops_a_trailing_point_zero(number, text):
-    assert format_number(number) == text
+    assert DurationSerializer.format_number(number) == text
 
 
 def test_str_round_trips_a_single_line():
@@ -144,24 +146,28 @@ UTC = dt_timezone.utc
 
 def test_naive_datetimes_are_read_in_the_site_time_zone():
     # 17:00 in New York on 2026-11-02 is EST (UTC-5), so 22:00 UTC.
-    assert normalize_datetime(datetime(2026, 11, 2, 17, 0)) == datetime(2026, 11, 2, 22, 0, tzinfo=UTC)
+    assert DateTimeSerializer.normalize_datetime(datetime(2026, 11, 2, 17, 0)) == datetime(
+        2026, 11, 2, 22, 0, tzinfo=UTC
+    )
 
 
 def test_aware_datetimes_keep_their_instant_and_become_utc():
     value = datetime(2026, 11, 2, 17, 0, tzinfo=dt_timezone(timedelta(hours=1)))
-    normalized = normalize_datetime(value)
+    normalized = DateTimeSerializer.normalize_datetime(value)
     assert normalized == value
     assert normalized.tzinfo is UTC
 
 
 def test_without_use_tz_aware_datetimes_become_naive_site_time(settings):
     settings.USE_TZ = False
-    assert normalize_datetime(datetime(2026, 11, 2, 22, 0, tzinfo=UTC)) == datetime(2026, 11, 2, 17, 0)
+    assert DateTimeSerializer.normalize_datetime(datetime(2026, 11, 2, 22, 0, tzinfo=UTC)) == datetime(
+        2026, 11, 2, 17, 0
+    )
 
 
 def test_without_use_tz_naive_datetimes_stay_as_they_are(settings):
     settings.USE_TZ = False
-    assert normalize_datetime(datetime(2026, 11, 2, 17, 0)) == datetime(2026, 11, 2, 17, 0)
+    assert DateTimeSerializer.normalize_datetime(datetime(2026, 11, 2, 17, 0)) == datetime(2026, 11, 2, 17, 0)
 
 
 def test_datetimes_are_stored_in_utc():
@@ -366,7 +372,7 @@ def test_sets_reject_duplicates_after_parsing():
     ("number", "text"), [(5e-05, "0.00005"), (1e16, "10000000000000000"), (-2.5e-07, "-0.00000025")]
 )
 def test_format_number_never_uses_exponent_notation(number, text):
-    assert format_number(number) == text
+    assert DurationSerializer.format_number(number) == text
 
 
 @pytest.mark.parametrize(
@@ -386,3 +392,132 @@ def test_datetimes_beyond_the_utc_range_are_rejected_not_crashed():
         DateTimeSerializer().deserialize("9999-12-31 23:59")
     with pytest.raises(ValueError, match="out of range"):
         DateTimeSerializer().serialize(datetime(9999, 12, 31, 23, 59))
+
+
+def test_every_builtin_serializer_is_a_base_serializer():
+    types = list(build_registry({}))
+    assert {config_type.container for config_type in types} == {None, "list", "set"}
+    for config_type in types:
+        assert isinstance(config_type.serializer, BaseSerializer), config_type.key
+    assert issubclass(MoneySerializer, BaseSerializer)
+    assert issubclass(MoneyCurrencySerializer, BaseSerializer)
+
+
+def test_the_base_serializer_leaves_both_methods_to_its_subclasses():
+    with pytest.raises(NotImplementedError):
+        BaseSerializer().serialize("x")
+    with pytest.raises(NotImplementedError):
+        BaseSerializer().deserialize("x")
+
+
+# ---- Serializer edges (Plan 5, Task 3) ----
+
+
+@pytest.mark.parametrize(
+    "serializer", [SecondsSerializer(), MinutesSerializer(), HoursSerializer(), DaysSerializer(), WeeksSerializer()]
+)
+def test_a_duration_that_wouldnt_read_back_exactly_is_refused(serializer):
+    with pytest.raises(ValueError, match="exactly"):
+        serializer.serialize(timedelta.max)
+
+
+def test_weeks_refuses_a_value_it_would_change():
+    with pytest.raises(ValueError, match="exactly"):
+        WeeksSerializer().serialize(timedelta(days=10**8, microseconds=1))
+
+
+def test_a_duration_finer_than_a_microsecond_is_refused():
+    with pytest.raises(ValueError, match="microsecond"):
+        SecondsSerializer().deserialize("0.0000001")
+
+
+@pytest.mark.parametrize("text", ["31536000.00000001", "630720000.0000004", "0.0000001", "0.0000005"])
+def test_text_finer_than_a_microsecond_is_refused_at_any_size(text):
+    with pytest.raises(ValueError, match="kept to the microsecond"):
+        SecondsSerializer().deserialize(text)
+
+
+@pytest.mark.parametrize(
+    "serializer", [SecondsSerializer(), MinutesSerializer(), HoursSerializer(), DaysSerializer(), WeeksSerializer()]
+)
+@pytest.mark.parametrize("years", [1, 78, 272])
+@pytest.mark.parametrize("extra", [timedelta(0), timedelta(seconds=1), timedelta(microseconds=1), timedelta(hours=7)])
+def test_what_a_duration_writes_it_reads_back_or_it_is_refused(serializer, years, extra):
+    # Float text of a large duration can be a fraction of a microsecond off; serialize's own text must still read.
+    value = timedelta(days=365 * years) + extra
+    try:
+        text = serializer.serialize(value)
+    except ValueError:
+        return  # refused as not exactly storable, which is allowed
+    assert serializer.deserialize(text) == value
+
+
+def test_a_fractional_microsecond_that_serialize_wrote_is_read_back():
+    # 1 second in days is 0.0000115740740... of a day: the text is finer than a microsecond, but it's serialize's.
+    text = DaysSerializer().serialize(timedelta(days=3, seconds=1))
+    assert text == "3.0000115740740743"
+    assert DaysSerializer().deserialize(text) == timedelta(days=3, seconds=1)
+    assert WeeksSerializer().deserialize(WeeksSerializer().serialize(timedelta(weeks=3, seconds=1))) == timedelta(
+        weeks=3, seconds=1
+    )
+
+
+def test_a_duration_with_more_digits_than_python_reads_is_too_large():
+    with pytest.raises(ValueError, match="too large"):
+        SecondsSerializer().deserialize("9" * 5000)
+
+
+def test_a_duration_of_a_whole_number_of_microseconds_is_read_exactly():
+    assert SecondsSerializer().deserialize("0.000001") == timedelta(microseconds=1)
+    assert SecondsSerializer().deserialize("86399999999999.999999") == timedelta.max
+
+
+def test_json_object_keys_must_be_text():
+    with pytest.raises(ValueError, match="keys") as error:
+        JSONSerializer().serialize({2025: 0.2})
+    assert "2025" not in str(error.value)
+    assert "int" in str(error.value)
+
+
+def test_json_object_keys_are_checked_at_every_level():
+    with pytest.raises(ValueError, match="keys"):
+        JSONSerializer().serialize([{"a": {1: "b"}}])
+
+
+def test_json_number_too_large_for_a_float_is_refused():
+    with pytest.raises(ValueError, match="too large"):
+        JSONSerializer().deserialize("[1e400]")
+
+
+def test_json_whole_number_with_too_many_digits_says_so():
+    with pytest.raises(ValueError, match="too many digits"):
+        JSONSerializer().serialize({"n": 10**5000})
+    with pytest.raises(ValueError, match="too many digits"):
+        JSONSerializer().deserialize('{"n": ' + "1" * 5000 + "}")
+
+
+def test_an_int_with_too_many_digits_says_so_when_written():
+    with pytest.raises(ValueError, match="too many digits"):
+        IntSerializer().serialize(10**5000)
+
+
+@pytest.mark.parametrize(
+    ("text", "depth", "result"),
+    [
+        ("[]", 1, False),
+        ("[[]]", 1, True),
+        ('["[[[", "]]]"]', 1, False),
+        ('{"a": [1]}', 1, True),
+        ("[[]]", 2, False),
+        ("[" * 100_000, 1, True),
+    ],
+)
+def test_nests_deeper_than_counts_brackets_outside_strings(text, depth, result):
+    assert JSONSerializer.nests_deeper_than(text, depth) is result
+
+
+def test_list_text_with_nesting_is_refused_before_parsing(mocker):
+    loads = mocker.spy(serializers.json, "loads")
+    with pytest.raises(ValueError, match="an item is itself a list or object"):
+        ListSerializer(StrSerializer()).deserialize("[" * 100_000)
+    assert loads.call_count == 0

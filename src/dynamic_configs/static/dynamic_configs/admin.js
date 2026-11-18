@@ -2,10 +2,22 @@
 // and saves clicks.
 "use strict";
 {
-    // The add page's first step: move on as soon as a type is chosen.
+    // The add page's first step: move on as soon as a type is chosen with the mouse. From the keyboard, the arrows and
+    // typing change the choice (on a closed select, most browsers fire "change" at each one), and Enter moves on.
     function setUpTypeChoice(select) {
+        let keyboard = false;
+        select.addEventListener("keydown", (event) => {
+            keyboard = true;
+            if (event.key === "Enter" && select.value) {
+                event.preventDefault();
+                select.form.requestSubmit();
+            }
+        });
+        select.addEventListener("pointerdown", () => {
+            keyboard = false;
+        });
         select.addEventListener("change", () => {
-            if (select.value) {
+            if (select.value && !keyboard) {
                 select.form.requestSubmit();
             }
         });
@@ -164,6 +176,55 @@
         select.after(shortcuts);
     }
 
+    // ---- Number steps ----
+    // The browser counts a number input's steps from the value the page was served with (its value attribute, when it
+    // has no min): after the server refused an int's 1.7, up went to 2.7, and money's 1.234, to 1.244. Keep the value
+    // shown but not as that starting point, so steps count from multiples of the step. Nothing is trimmed here: money
+    // with rounding takes more places, which the server rounds.
+
+    const STEPPED = "input[data-dynamic-configs-int], input[data-dynamic-configs-decimal]";
+
+    function stepFromMultiples(input) {
+        const shown = input.value;
+        input.removeAttribute("value");
+        input.value = shown;
+    }
+
+    // ---- Whole numbers ----
+    // An int's input takes only whole numbers: a decimal typed into it is trimmed to its whole part (1.7 to 1, -1.7 to
+    // -1) on loading, on leaving it, on a step (the browser's arrows and spin buttons fire "change" right after each)
+    // and on Enter.
+
+    const WHOLE = "input[data-dynamic-configs-int]";
+    // A number input's decimal: the browser's value is always a valid number, so "-" and "1." can't reach here. A value
+    // with an exponent (1e3) is left for the server.
+    const DECIMAL = /^(-?)(\d*)\.\d+$/;
+
+    // Trimmed as text, so that a whole part too long for a JavaScript number isn't rounded.
+    function trimToWhole(input) {
+        const match = DECIMAL.exec(input.value);
+        if (match) {
+            const whole = match[2].replace(/^0+(?=\d)/, "") || "0";
+            input.value = whole === "0" ? "0" : match[1] + whole;
+        }
+    }
+
+    document.addEventListener("change", (event) => {
+        if (event.target instanceof Element && event.target.matches(WHOLE)) {
+            trimToWhole(event.target);
+        }
+    });
+    // Before the form submits, or the list editor adds the item (its own Enter).
+    document.addEventListener(
+        "keydown",
+        (event) => {
+            if (event.key === "Enter" && event.target instanceof Element && event.target.matches(WHOLE)) {
+                trimToWhole(event.target);
+            }
+        },
+        true,
+    );
+
     // Listening on the document covers inline rows added later.
     for (const type of ["pointerdown", "focusin"]) {
         document.addEventListener(
@@ -208,6 +269,8 @@
         for (const select of document.querySelectorAll("select[data-dynamic-configs-type]")) {
             setUpTypeChoice(select);
         }
+        document.querySelectorAll(STEPPED).forEach(stepFromMultiples);
+        document.querySelectorAll(WHOLE).forEach(trimToWhole);
         const selects = document.querySelectorAll(ZONE_SELECT);
         selects.forEach(startOnBrowserZone);
         selects.forEach(addZoneShortcuts);

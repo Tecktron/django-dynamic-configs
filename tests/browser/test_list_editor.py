@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from datetime import timezone as dt_timezone
 
+import pytest
 from playwright.sync_api import expect
 
 from dynamic_configs.models import Config
@@ -68,8 +69,9 @@ def test_add_checks_each_item_with_the_server(admin_page):
     button(admin_page, "Add").click()
     expect(options(admin_page)).to_have_text(["7"])
     expect(item_input(admin_page)).to_have_value("")
-    # Chromium won't type letters into a number input; 1.5 can be typed, and isn't a whole number.
-    item_input(admin_page).fill("1.5")
+    # Chromium won't type letters into a number input, and the admin script trims a decimal (1.5 to 1); 1e3 can be
+    # typed, and the server doesn't read it as a whole number.
+    item_input(admin_page).fill("1e3")
     button(admin_page, "Add").click()
     expect(message(admin_page)).to_have_text("Enter a whole number.")
     expect(options(admin_page)).to_have_text(["7"])
@@ -360,6 +362,32 @@ def test_typing_while_an_add_is_pending_is_kept(admin_page):
     # Still an item typed but not added.
     save(admin_page)
     expect(message(admin_page)).to_have_text("You have an unsaved change to an item: click Update or Clear.")
+
+
+def test_the_unsaved_warning_clears_when_the_pending_add_completes(admin_page):
+    held = []
+    admin_page.goto(ADD.format("list:str"))
+    admin_page.route("**/list-item/**", lambda route: held.append(route))
+    item_input(admin_page).fill("first")
+    button(admin_page, "Add").click()
+    expect(button(admin_page, "Add")).to_be_disabled()
+    # Saved while the item is being added: it isn't in the list yet, so the save is stopped.
+    save(admin_page)
+    expect(message(admin_page)).to_have_text("You have an unsaved change to an item: click Update or Clear.")
+    wait_until_held(admin_page, held)
+    held[0].continue_()
+    expect(options(admin_page)).to_have_text(["first"])
+    expect(item_input(admin_page)).to_have_value("")
+    expect(message(admin_page)).to_have_text("")
+
+
+def test_the_item_help_sits_under_the_items_input(admin_page):
+    # Django 5.2 indents an aligned form's help by the label's width; the item's help is already beside the label.
+    open_config(admin_page, "PORTS", "list:int", ["80"])
+    item = box(admin_page.locator(".dynamic-configs-list-item"))
+    item_help = box(admin_page.locator(".dynamic-configs-list-item .help"))
+    assert item_help["left"] == pytest.approx(item["left"], abs=1)
+    assert item_help["top"] >= box(item_input(admin_page))["bottom"]
 
 
 def test_the_arrow_keys_move_through_the_list(admin_page):
