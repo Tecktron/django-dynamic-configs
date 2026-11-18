@@ -38,5 +38,6 @@ simple-history
 testing
 reference
 changelog
+security
 development
 ```
