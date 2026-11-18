@@ -57,6 +57,12 @@ Admins can then change `PAGE_SIZE` under **Configs** in the Django admin, and th
 
 The full documentation is at https://django-dynamic-configs.readthedocs.io/.
 
+## Security
+
+Please report a vulnerability privately, as the
+[security policy](https://github.com/Tecktron/django-dynamic-configs/blob/main/SECURITY.md) describes, not in a public
+issue.
+
 ## License
 
 MIT. See [LICENSE](https://github.com/Tecktron/django-dynamic-configs/blob/main/LICENSE).
